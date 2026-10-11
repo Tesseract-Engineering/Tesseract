@@ -1,0 +1,73 @@
+# Tesseract, one command:  docker compose up --build
+#
+#   neo4j      the graph database (Browser http://localhost:7474)
+#   bootstrap  one-shot: builds the graph from DATA_DIR, skipped if already built
+#   api        JSON API on http://localhost:8091
+#   ui         web app on http://localhost:8080
+#
+# Configure with a .env file next to this one (see .env.example). DATA_DIR is the
+# company's export folder on this machine; it is mounted read-only.
+
+x-tesseract: &tesseract
+  build: .
+  image: tesseract:latest
+  env_file: .env
+  environment:
+    NEO4J_URI: neo4j://neo4j:7687
+    TESSERACT_DATA: /data
+  volumes:
+    - ${DATA_DIR:?set DATA_DIR in .env to the company's export folder}:/data:ro
+    - tesseract_state:/var/lib/tesseract
+
+services:
+  neo4j:
+    image: neo4j:5-community
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?set NEO4J_PASSWORD in .env}
+    volumes:
+      - neo4j_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p \"$${NEO4J_AUTH#neo4j/}\" 'RETURN 1' || exit 1"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 15s
+
+  bootstrap:
+    <<: *tesseract
+    command: ["python", "-m", "tesseract.bootstrap"]
+    restart: "no"
+    depends_on:
+      neo4j:
+        condition: service_healthy
+
+  api:
+    <<: *tesseract
+    ports:
+      - "8091:8091"
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/health', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  ui:
+    build:
+      context: ui
+      args:
+        VITE_API_URL: ${PUBLIC_API_URL:-http://localhost:8091}
+    ports:
+      - "8080:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  neo4j_data:
+  tesseract_state:
