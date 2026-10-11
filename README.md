@@ -7,7 +7,7 @@
 **Demo:** link
 
 ```
-  exports ──▶ adapter ──▶ identity + extraction ──▶ the door ──▶ Neo4j graph
+  sources ──▶ agent fleet ──▶ linking layer ──▶ the door ──▶ Neo4j graph
                                                                     │
   question ──▶ ground ──▶ search (viewer's ACL) ──▶ gate ──▶ model (optional) ──▶ cited answer
                                                                     │
@@ -16,12 +16,13 @@
 
 ## How it works
 
-1. **Ingest.** An adapter per data layout reads each source's exports and pulls out the important parts: people and their accounts, teams, tickets, threads, documents and who owns them. Every record keeps the access controls it had at the source.
-2. **Link.** Identity resolution joins one person's Slack handle, email and Jira name into a single node. Extraction links records to the services, people and customers they name, each with the quote that says so. The separate islands of knowledge become one connected graph.
+1. **Ingest.** A fleet of agents fans out across the tools a company already uses (GitHub, Notion, Slack, Jira and more). Each agent speaks its system's language and reads the code, docs, conversations and decisions there. It pulls out what matters (services, owners, decisions and dependencies) and turns it into nodes. At first these are fragments: one island of knowledge per source. Every record keeps the access controls it had at the source.
+2. **Link.** A linking layer sweeps across every fragment and finds where they describe the same thing. The same service might show up in a pull request, a Slack thread and a design doc; it is stitched into one node. Identity resolution does the same for people, joining one person's Slack handle, email and Jira name. Piece by piece, the islands merge into a single living map of every service, owner and decision.
 3. **Answer and act.** You sign in as yourself, so you only see what you're allowed to see. Ask things like "Has anyone here already built a retraining pipeline?" or "How do I get production database access?" Tesseract answers from the graph with citations and proposes actions for you to approve.
 
 ## What it does
 
+- **Extracts with a swarm of agents.** One agent per source, each fluent in that system's format, extracts services, owners, decisions and dependencies in parallel. A linking layer then merges what they found into one graph, with provenance on every fact.
 - **Answers with evidence.** Every answer is `INFO` (with claims that each quote a record) or `NOT_FOUND` (with what was searched and the nearest misses, labelled as misses). It never answers from nowhere.
 - **Respects access.** Each record keeps the ACL of its source: Confidential SharePoint files, private Slack channels, mailboxes. A record the viewer may not read is counted and named ("2 matching documents are restricted to Security"), never quoted.
 - **Finds the right person.** Owners come from the graph: document headers, ticket assignees, authors and thread participants. People who have left are skipped and named.
