@@ -26,6 +26,11 @@ def _write(path, text):
 @pytest.fixture(scope="module")
 def company(tmp_path_factory):
     root = tmp_path_factory.mktemp("company")
+    _write(root / "company.json", json.dumps({"jira_base_url": "https://acme.atlassian.net"}))
+    _write(root / "jira" / "OPS.csv",
+           "Issue key,Summary,Description,Created,Updated,Reporter,Assignee,Status\n"
+           "OPS-3,Rotate staging TLS certificates,Renew the wildcard certificate on staging,"
+           "2026-01-02,2026-02-03,alan,Alan Turing,Done\n")
     _write(root / "people" / "directory.json", json.dumps({"employees": [
         {"id": "e1", "name": "Ada Lovelace", "email": "ada@example.com", "slack": "ada", "team": "Payments"},
         {"id": "e2", "name": "Grace Hopper", "email": "grace@example.com", "slack": "grace", "team": "Security"},
@@ -78,6 +83,15 @@ def test_build_writes_people_documents_and_credits(graph_ready):
     assert {"Ada Lovelace", "Grace Hopper", "Old Timer"} <= people
     credits = graph.run("MATCH (d:Document {ns: $ns})-[c:CREDITS]->(p:Person) RETURN d.id AS d, p.name AS p")
     assert {"d": "doc:payments/refund-retries.md", "p": "Ada Lovelace"} in credits
+
+
+def test_a_jira_issue_carries_its_ref_and_link(graph_ready):
+    from tesseract import graph
+
+    rows = graph.run("MATCH (i:Issue {ns: $ns, id: 'ticket:OPS-3'}) "
+                     "RETURN i.ref AS ref, i.refProvider AS provider, i.url AS url")
+    assert rows == [{"ref": "forge://jira/issue/OPS-3", "provider": "jira",
+                     "url": "https://acme.atlassian.net/browse/OPS-3"}]
 
 
 def test_answer_is_cited_and_grounded(graph_ready):

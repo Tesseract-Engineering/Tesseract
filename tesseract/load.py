@@ -143,13 +143,17 @@ def artifacts(records: Iterable, ns: str) -> list[NodeProposal]:
     for record in records:
         node_type = KIND_TYPE[record.kind]
         meta = record.meta or {}
-        props: dict[str, Any] = {"title": record.title}
+        props: dict[str, Any] = {"title": record.title, "url": record.url or None,
+                                 "sourceUpdatedAt": _when(meta.get("updatedAt")),
+                                 "contentSha": meta.get("contentSha")}
+        if record.ref:
+            props.update(ref=record.ref.uri(), refProvider=record.ref.provider, refKind=record.ref.kind)
         if node_type == "Commit":
             props.update(sha=meta.get("sha"), shortSha=meta.get("shortSha"),
                          body=record.text, authoredAt=_when(record.created_at),
                          filesChanged=len(record.refs.get("files", [])))
         elif node_type == "Issue":
-            props.update(number=meta.get("number"), body=record.text, url=record.url,
+            props.update(number=meta.get("number"), body=record.text,
                          state=meta.get("state"), isPullRequest=meta.get("isPullRequest"),
                          labels=meta.get("labels"), createdAt=_when(record.created_at),
                          source=record.source)

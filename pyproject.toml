@@ -18,6 +18,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.5"]
+# Integration Forge (docs/FORGE.md). Kept out of the base install so the answer path is unchanged.
+forge = ["mcp>=2.3,<3", "pyyaml>=6,<7", "httpx>=0.27,<1"]
 
 [project.scripts]
 tesseract-api = "tesseract.api:main"

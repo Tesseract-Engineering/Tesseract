@@ -7,7 +7,9 @@ python -m tesseract.build --root /path/to/exports --dry-run   # read and check, 
 python -m tesseract.build --root /path/to/exports             # build namespace TESSERACT_NS
 ```
 
-The dry run prints **coverage** (files read vs. present, and the folders nobody read), identity conflicts, adapter problems and proposal counts. Run it first on any new data.
+This holds with the Integration Forge too ([FORGE.md](FORGE.md)). Sources that are only reachable through an API (GitHub, Google Drive) get a `snapshot` command that pulls them into the export layout, with each item's native id in the file. The build still reads only files, so it stays offline and reproducible, and the snapshots double as replay fixtures. `snapshot` is the only ingest-time code that calls provider APIs, and it goes through the Forge's credential broker.
+
+The dry run prints **coverage** (files read vs. present, and the folders nobody read), **refs** (how many records per source a live provider could fetch again, links that disagree with their ref, and which sources are index-only; see [FORGE.md](FORGE.md#source-refs)), identity conflicts, adapter problems and proposal counts. Run it first on any new data.
 
 ## The workspace layout
 
@@ -49,7 +51,7 @@ The roster gives each person their accounts (so Jane's Slack messages, email and
 | Source | Record | ACL attached at ingest |
 |---|---|---|
 | Slack export (`users.json` + one folder per channel of daily `*.json`) | one document per **thread**, replies folded in, as `Name: text` lines | channels in `private_slack_channels` → `private`, group `slack:<channel>` |
-| Jira CSV (`Issue key, Summary, Description, Created, Reporter, Assignee, Status, Labels…`) | one issue per row, id `ticket:<KEY>`, assignee declared | internal |
+| Jira CSV (`Issue key, Summary, Description, Created, Updated, Reporter, Assignee, Status, Labels…`) | one issue per row, id `ticket:<KEY>`, assignee declared, ref `forge://jira/issue/<KEY>`, link `<jira_base_url>/browse/<KEY>` when `company.json` sets `jira_base_url` | internal |
 | SharePoint file, with optional sidecar `<file>.meta.json` `{author, modified, site, library, sensitivity, url}` | one document | sensitivity Confidential / Highly Confidential / Restricted / Secret → `restricted`, group `sharepoint:<site>` |
 | Outlook `{subject, conversation_id, messages: [{from, to, cc, date, body}]}` | one document per conversation, however many mailboxes hold a copy | `private`, one group `outlook:user:<email>` per participant |
 | Teams channel thread `{team, channel, thread_id, is_private, messages: [{user, name, timestamp, text}]}` | one document per thread | `is_private` → group `teams:<team>/<channel>` |

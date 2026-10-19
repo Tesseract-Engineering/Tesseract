@@ -27,6 +27,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .refs import SourceRef
+
 
 @dataclass
 class SourceRecord:
@@ -37,6 +39,7 @@ class SourceRecord:
     text      the prose to extract from (may be empty)
     people    [{'source', 'handle', 'name', 'email'}] - raw identities, NOT yet resolved
     refs      structured references the source itself gives us (e.g. files touched)
+    ref       where the item lives in a live provider (refs.py), when it has one
     """
     kind: str
     id: str
@@ -52,6 +55,7 @@ class SourceRecord:
     # a Slack connector would map channel privacy onto these two fields.
     visibility: str = "public"
     acl_groups: list[str] = field(default_factory=list)
+    ref: SourceRef | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -295,6 +299,7 @@ JIRA_COLUMNS = {
     "title": ("Summary",),
     "text": ("Description",),
     "created": ("Created",),
+    "updated": ("Updated",),
     "reporter": ("Reporter", "Creator"),
     "assignee": ("Assignee",),
     "status": ("Status",),
@@ -348,7 +353,8 @@ def jira_csv(path: Path, columns: dict | None = None, project: str = "jira"):
                 refs={},
                 meta={"key": key, "state": _pick(row, columns["status"]),
                       "labels": labels, "isPullRequest": False,
-                      "assignee": _pick(row, columns["assignee"])},
+                      "assignee": _pick(row, columns["assignee"]),
+                      "updatedAt": _pick(row, columns["updated"]) or None},
             )
 
 

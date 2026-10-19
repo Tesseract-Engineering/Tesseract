@@ -73,11 +73,12 @@ Settings come from the environment (all listed in [.env.example](.env.example)).
     "security": {"label": "Security", "acl_groups": ["sharepoint:security"]}
   },
   "users": [{"name": "Jane Doe", "team": "Payments", "viewer": "employee"}],
-  "suggestions": ["Who owns the billing service?"]
+  "suggestions": ["Who owns the billing service?"],
+  "jira_base_url": "https://example.atlassian.net"
 }
 ```
 
-A **viewer** is a set of ACL groups, and every answer is computed for one. `users` lists who the UI offers to sign in as; it stands in for single sign-on.
+A **viewer** is a set of ACL groups, and every answer is computed for one. `users` lists who the UI offers to sign in as; it stands in for single sign-on. `jira_base_url` gives Jira tickets a link (`<base>/browse/<KEY>`).
 
 ## Tests
 

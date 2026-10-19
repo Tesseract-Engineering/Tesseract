@@ -156,10 +156,11 @@ def test_workspace_adapter_reads_the_standard_layout(tmp_path):
             json.dumps([{"user": "U1", "ts": "1767225600.0001", "text": f"{channel} note"}]))
     (tmp_path / "slack" / "users.json").write_text(
         json.dumps([{"id": "U1", "name": "ada", "profile": {"real_name": "Ada Lovelace"}}]))
+    (tmp_path / "company.json").write_text(json.dumps({"jira_base_url": "https://acme.atlassian.net/"}))
     (tmp_path / "jira").mkdir()
     (tmp_path / "jira" / "PAY.csv").write_text(
-        "Issue key,Summary,Description,Created,Reporter,Assignee,Status\n"
-        "PAY-1,Refund retries,Retry with idempotency keys,2026-01-02,ada,Ada Lovelace,Done\n")
+        "Issue key,Summary,Description,Created,Updated,Reporter,Assignee,Status\n"
+        "PAY-1,Refund retries,Retry with idempotency keys,2026-01-02,2026-02-03,ada,Ada Lovelace,Done\n")
     (tmp_path / "docs").mkdir()
     (tmp_path / "docs" / "adr-001.md").write_text("# ADR 001\n**Owner:** Ada Lovelace\n")
 
@@ -172,6 +173,8 @@ def test_workspace_adapter_reads_the_standard_layout(tmp_path):
     assert {p["status"] for p in bundle.people} == {"employee", "alumni"}
     ticket = records["ticket:PAY-1"]
     assert ticket.meta["assigneeName"] == "Ada Lovelace" and ticket.meta["path"] == "jira/PAY.csv"
+    assert ticket.ref.uri() == "forge://jira/issue/PAY-1" and ticket.meta["updatedAt"] == "2026-02-03"
+    assert ticket.url == "https://acme.atlassian.net/browse/PAY-1"
     assert records["doc:adr-001.md"].meta["path"] == "docs/adr-001.md"
     security = next(r for r in bundle.records if r.id.startswith("slack:security:"))
     assert security.visibility == "private" and security.acl_groups == ["slack:security"]

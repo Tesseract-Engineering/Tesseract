@@ -30,6 +30,8 @@ run on new data. It prints the checks below and the proposal counts.
 
 CHECKS printed on every run, so new data that breaks something says so:
   coverage   files read vs. present, and the folders nobody read
+  refs       records carrying a live-provider ref, per source; links that
+             disagree with their ref; the sources that are index-only
   identity   people whose linked accounts carry different full names
   shape      problems with the adapter's Bundle (duplicate ids, dangling refs)
   --score    extraction measured against tickets' own declared service
@@ -45,7 +47,7 @@ from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import adapters, corpus, load, matching, resolve
+from . import adapters, corpus, load, matching, refs, resolve
 from .config import env
 from .contract import EdgeProposal, NodeProposal, Provenance
 
@@ -178,6 +180,48 @@ def suspect_merges(people, links) -> list[tuple[str, list[str]]]:
 # the build
 # --------------------------------------------------------------------------- #
 
+def ref_coverage(records) -> dict:
+    """Which records a live provider could fetch again, per source.
+
+    `live` is {source: (with a ref, total)} for sources that have a provider;
+    `mismatched` is every record whose link parses to a different ref than
+    the one it carries, which means one of the two is wrong; `index_only` is
+    {source: count} for the rest, whose text is in the graph and nowhere else
+    reachable."""
+    live: dict[str, list[int]] = {}
+    index_only: Counter = Counter()
+    mismatched = []
+    for record in records:
+        if record.source not in refs.KINDS:
+            index_only[record.source] += 1
+            continue
+        counts = live.setdefault(record.source, [0, 0])
+        counts[1] += 1
+        if record.ref is None:
+            continue
+        counts[0] += 1
+        if record.url:
+            linked = refs.from_url(record.url)
+            if linked != record.ref:
+                mismatched.append((record.id, record.ref.uri(), record.url))
+    return {"live": {k: tuple(v) for k, v in sorted(live.items())},
+            "index_only": dict(sorted(index_only.items())), "mismatched": mismatched}
+
+
+def print_ref_coverage(report: dict) -> None:
+    with_ref = sum(n for n, _ in report["live"].values())
+    print(f"\nRefs: {with_ref} records carry a live-provider ref")
+    for source, (n, total) in report["live"].items():
+        print(f"  {source:<12} {n:>6}/{total:<6} {n / total:.0%}")
+    for record_id, uri, url in report["mismatched"][:12]:
+        print(f"  LINK DISAGREES WITH REF: {record_id}  {uri}  <-  {url}")
+    if len(report["mismatched"]) > 12:
+        print(f"  ... and {len(report['mismatched']) - 12} more links that disagree with their ref")
+    if report["index_only"]:
+        print("  index only (no live provider): "
+              + ", ".join(f"{k} {v}" for k, v in report["index_only"].items()))
+
+
 def main(argv: list[str] | None = None) -> None:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
@@ -240,6 +284,7 @@ def main(argv: list[str] | None = None) -> None:
         print(f"  {n:>5}  {folder}/")
     for problem in bundle.problems():
         print(f"  ADAPTER PROBLEM: {problem}")
+    print_ref_coverage(ref_coverage(records))
 
     # ---- corpus statistics ------------------------------------------------- #
     stats = corpus.CorpusStats(records)

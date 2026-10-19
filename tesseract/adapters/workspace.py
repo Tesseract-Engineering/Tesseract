@@ -35,8 +35,9 @@ import re
 import sys
 from pathlib import Path
 
-from .. import connectors
+from .. import connectors, refs
 from ..bundle import Bundle
+from ..config import Company, settings
 
 NAME = "workspace"
 SPEAKER_SOURCES = {"slack", "jira", "outlook", "teams"}
@@ -82,8 +83,17 @@ def roster(root: Path) -> tuple[list[dict], list[dict], list[dict], list[str]]:
     return people, accounts, memberships, list(data.get("private_slack_channels") or [])
 
 
-def jira_tickets(root: Path):
-    """Each Jira CSV, with the ticket keyed as ticket:<KEY> and its assignee declared."""
+def company(root: Path) -> Company:
+    """The export's own company.json when it has one, else the configured company."""
+    path = root / "company.json"
+    return Company.from_file(path) if path.is_file() else settings().company
+
+
+def jira_tickets(root: Path, company: Company | None = None):
+    """Each Jira CSV, with the ticket keyed as ticket:<KEY> and its assignee declared.
+
+    The key is Jira's own id, so every ticket gets a ref; it gets a link only
+    when the company file names its Jira site."""
     for path in sorted((root / "jira").glob("*.csv")):
         for record in connectors.jira_csv(path, project=path.stem):
             key = record.meta.get("key")
@@ -91,7 +101,12 @@ def jira_tickets(root: Path):
             meta = {**record.meta, "path": path.relative_to(root).as_posix()}
             if assignee:
                 meta["assigneeName"] = assignee
-            yield dataclasses.replace(record, id=f"ticket:{key}", meta=meta)
+            try:
+                ref = refs.SourceRef("jira", "issue", key)
+            except ValueError:
+                ref = None  # not a Jira-shaped key; index-only, and the Refs check says so
+            url = (refs.to_url(ref, company) if ref else None) or record.url
+            yield dataclasses.replace(record, id=f"ticket:{key}", meta=meta, ref=ref, url=url)
 
 
 H1 = re.compile(r"^\s*#\s+(.+?)\s*$", re.MULTILINE)
@@ -130,7 +145,7 @@ def load(root: Path) -> Bundle:
     if (root / "slack").is_dir():
         bundle.records.extend(connectors.slack_export(root / "slack", private_channels=private_channels))
         bundle.files_read.update(p.relative_to(root).as_posix() for p in (root / "slack").rglob("*.json"))
-    bundle.records.extend(jira_tickets(root))
+    bundle.records.extend(jira_tickets(root, company(root)))
     for reader in (connectors.sharepoint_export, connectors.outlook_export, connectors.teams_export):
         bundle.records.extend(reader(root))
     bundle.records.extend(documents(root))

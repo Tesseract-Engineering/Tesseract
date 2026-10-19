@@ -17,10 +17,12 @@ named by TESSERACT_COMPANY, so the engine itself never names a company:
         {"name": "Jane Doe", "team": "Payments", "viewer": "employee"},
         {"name": "Sam Lee",  "team": "Legal",    "viewer": "legal"}
       ],
-      "suggestions": ["Who owns the billing service?"]
+      "suggestions": ["Who owns the billing service?"],
+      "jira_base_url": "https://example.atlassian.net"
     }
 
-`suggestions` are starter questions the UI shows. `users` is who the UI offers to sign in as, each mapped to a viewer preset.
+`jira_base_url` is the Jira site tickets link to (<base>/browse/<KEY>); without
+it tickets carry no link. `suggestions` are starter questions the UI shows. `users` is who the UI offers to sign in as, each mapped to a viewer preset.
 It stands in for single sign-on: in a real deployment the identity provider
 says who someone is, and their groups say which preset applies.
 
@@ -86,6 +88,7 @@ class Company:
         default_factory=lambda: {"employee": Viewer("employee", "Employee (no restricted groups)")})
     users: tuple[dict, ...] = ()
     suggestions: tuple[str, ...] = ()
+    jira_base_url: str = ""
 
     @classmethod
     def from_file(cls, path: Path) -> "Company":
@@ -109,7 +112,8 @@ class Company:
                    email_domain=str(data.get("email_domain") or ""),
                    profile_prefix=str(data.get("profile_prefix") or base.profile_prefix),
                    default_viewer=default, viewers=viewers, users=tuple(users),
-                   suggestions=tuple(str(q) for q in data.get("suggestions") or ()))
+                   suggestions=tuple(str(q) for q in data.get("suggestions") or ()),
+                   jira_base_url=str(data.get("jira_base_url") or "").rstrip("/"))
 
     def sign_in_users(self) -> list[dict]:
         """The configured users, or one per viewer preset when none are listed."""

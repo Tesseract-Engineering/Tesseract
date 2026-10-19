@@ -99,6 +99,11 @@ class Neo4jStore:
         for node_type in wanted_external:
             self._run(f"CREATE INDEX {node_type.lower()}_id IF NOT EXISTS "
                       f"FOR (n:{node_type}) ON (n.id)")
+        # Live-provider lookups (forge) find a node by its SourceRef URI.
+        for node_type in ("Commit", "Issue", "Document"):
+            if node_type in wanted_nodes:
+                self._run(f"CREATE INDEX {node_type.lower()}_ref IF NOT EXISTS "
+                          f"FOR (n:{node_type}) ON (n.ref)")
         # Keyword search over prose. Without it, "which documents mention
         # kafka" is a CONTAINS scan of every text property in the graph.
         text_labels = [t for t in ("Commit", "Issue", "Document", "Claim") if t in wanted_nodes]
