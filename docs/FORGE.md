@@ -2,7 +2,7 @@
 
 The Forge puts live providers (GitHub, Jira, Google Drive) behind one MCP server, next to the graph. Agents search and walk the graph, then read live content through **provider specs**: declarative YAML that a hand-written reference (GitHub) or the Builder agent (Jira, Drive) produces and a conformance run grades against the graph before it is served.
 
-The design is in [mcp_design.md](../mcp_design.md) and the checkpoint plan in [mcp_integration_plan.md](../mcp_integration_plan.md). This page records what exists and the decisions made along the way; it grows with each checkpoint.
+The design and the checkpoint plan (CP0 to CP8) are kept outside the repo. This page records what exists and the decisions made along the way; it grows with each checkpoint.
 
 ## Install
 
