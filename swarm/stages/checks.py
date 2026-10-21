@@ -3,7 +3,8 @@ checks.py - the hard-fail checks every run must pass (docs/SWARM.md,
 "Evaluation and cost controls").
 
   ACL coverage     every written item carries an acl          (100%)
-  Secret leakage   no secret pattern anywhere in the run      (zero hits)
+  Secret leakage   no secret pattern anywhere in the run,     (zero hits)
+                   records and raw payloads alike
 """
 
 from __future__ import annotations
@@ -30,6 +31,10 @@ def check_run(store: ObjectStore, source: str, run_id: str) -> dict[str, float |
             if isinstance(record, ItemRecord):
                 items += 1
                 with_acl += record.acl is not None
+    # Raw payloads are kept for 14 days; they must be as clean as the records.
+    for key in store.list(f"raw/{source}/{run_id}/"):
+        _, found = redact((store.get(key) or b"").decode("utf-8"))
+        hits += sum(r.count for r in found)
     result = {"items": items, "acl_coverage": 1.0 if items == 0 else with_acl / items, "secret_hits": hits}
     if result["acl_coverage"] < 1.0 or hits:
         raise CheckFailed(f"{prefix}: {result}")

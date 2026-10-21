@@ -40,6 +40,8 @@ Reading rules (the graph side's half of the contract; docs/SWARM.md):
   6. A source identity belongs to exactly one cluster: the one in the latest
      identity record that lists it. A record with merged_into retires its
      cluster.
+  7. A group member written as a source identity (person:github:slee) is
+     that person: resolve it through identity records, as with authors.
 """
 
 from __future__ import annotations
@@ -405,10 +407,10 @@ class GroupRecord(_Record):
                     "group:slack:T01ACME:channel:C42AUTH:members")
     source: Source
     name: str = Field(default="", description="Display name; mutable, never used for matching")
-    members: list[Annotated[str, Field(pattern=rf"^({USER_PRINCIPAL}|{GROUP_PRINCIPAL})$")]] = Field(
-        default_factory=list, description="Users and nested groups. Members with no known email are left out "
-                                          "and counted in unresolved")
-    unresolved: int = Field(default=0, ge=0, description="Members the source listed without an email")
+    members: list[Annotated[str, Field(pattern=rf"^({USER_PRINCIPAL}|{GROUP_PRINCIPAL}|person:[^:\s]+:[^:\s]+)$")]] = Field(
+        default_factory=list, description="Users by email, nested groups, or source identities "
+                                          "(person:{source}:{handle}) where the source gives no email")
+    unresolved: int = Field(default=0, ge=0, description="Members the source listed but could not name")
     observed_at: AwareDatetime
 
     @model_validator(mode="after")
@@ -417,6 +419,10 @@ class GroupRecord(_Record):
             raise ValueError(f"group {self.id!r} does not belong to source {self.source!r}")
         if self.id in self.members:
             raise ValueError("a group cannot contain itself")
+        foreign = [m for m in self.members if m.startswith("person:") and not m.startswith(f"person:{self.source}:")]
+        if foreign:
+            raise ValueError(f"source identities in a {self.source} group must be person:{self.source}:..., "
+                             f"not {foreign}")
         return self
 
 

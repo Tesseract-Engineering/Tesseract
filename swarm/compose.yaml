@@ -69,8 +69,18 @@ services:
     build: {context: .., dockerfile: pipelines/sample/Dockerfile}
     image: swarm-sample:dev
 
-  # github, jira, slack, drive and identity follow the sample's pattern,
-  # each built from pipelines/{source}.
+  github:
+    <<: *pipeline
+    build: {context: .., dockerfile: pipelines/github/Dockerfile}
+    image: swarm-github:dev
+    environment:
+      <<: *pipeline-env
+      GITHUB_APP_PRIVATE_KEY_PATH: /run/secrets/github/app.pem
+    # The App's private key lives in data/github/app.pem: git-ignored, read-only here.
+    volumes: ["../data/github:/run/secrets/github:ro"]
+
+  # jira, slack, drive and identity follow the same pattern, each built
+  # from pipelines/{source}.
 
 networks:
   internal:

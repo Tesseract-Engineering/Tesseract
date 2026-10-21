@@ -1,0 +1,113 @@
+"""
+http.py - the one way pipelines talk to source APIs.
+
+A thin layer over httpx that every connector shares:
+
+  - the proxy comes from the environment (HTTPS_PROXY, NO_PROXY), which is how
+    the compose stack and the VPC route egress through the allowlist
+  - pagination follows the Link header's rel="next"
+  - rate limits are honoured: 429, Retry-After, and GitHub's 403 with
+    x-ratelimit-remaining: 0 all wait and retry, up to a cap
+
+Bodies are never logged. Only method, path and status reach the log.
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+import time
+from collections.abc import Callable, Iterator
+from typing import Any
+
+import httpx
+
+log = logging.getLogger("swarm.http")
+
+MAX_TRIES = 6
+MAX_WAIT = 900.0          # never sleep longer than 15 minutes on one response
+_NEXT = re.compile(r'<([^>]+)>;\s*rel="next"')
+
+
+class SourceError(RuntimeError):
+    """A source API failed in a way retrying will not fix. The run aborts
+    without a manifest and is retried next schedule."""
+
+    def __init__(self, status: int, method: str, path: str):
+        super().__init__(f"{method} {path} -> {status}")
+        self.status = status
+
+
+def _wait_for(response: httpx.Response, attempt: int, now: Callable[[], float]) -> float | None:
+    """Seconds to wait before retrying, or None when the response is final."""
+    headers = response.headers
+    status = response.status_code
+    if "retry-after" in headers and status in (403, 429, 503):
+        try:
+            return min(float(headers["retry-after"]), MAX_WAIT)
+        except ValueError:
+            pass
+    if status == 403 and headers.get("x-ratelimit-remaining") == "0" and "x-ratelimit-reset" in headers:
+        return min(max(float(headers["x-ratelimit-reset"]) - now(), 1.0), MAX_WAIT)
+    if status in (429, 502, 503, 504):
+        return min(2.0 ** attempt, MAX_WAIT)
+    return None
+
+
+class Client:
+    def __init__(self, base_url: str, *, headers: dict[str, str] | None = None,
+                 auth: Callable[[], dict[str, str]] | None = None,
+                 transport: httpx.BaseTransport | None = None,
+                 sleep: Callable[[float], None] = time.sleep, now: Callable[[], float] = time.time,
+                 timeout: float = 30.0):
+        self._auth = auth
+        self._sleep = sleep
+        self._now = now
+        self._http = httpx.Client(base_url=base_url, headers=headers or {}, transport=transport,
+                                  timeout=timeout, trust_env=True, follow_redirects=True)
+
+    def request(self, method: str, path: str, *, params: dict[str, Any] | None = None,
+                json: Any = None, headers: dict[str, str] | None = None) -> httpx.Response:
+        extra = dict(headers or {})
+        for attempt in range(MAX_TRIES):
+            if self._auth:
+                extra.update(self._auth())
+            response = self._http.request(method, path, params=params, json=json, headers=extra)
+            log.debug("%s %s -> %s", method, response.request.url.path, response.status_code)
+            if response.status_code < 400:
+                return response
+            wait = _wait_for(response, attempt, self._now)
+            if wait is None or attempt == MAX_TRIES - 1:
+                raise SourceError(response.status_code, method, response.request.url.path)
+            log.info("%s %s -> %s; retrying in %.0fs", method, response.request.url.path,
+                     response.status_code, wait)
+            self._sleep(wait)
+        raise AssertionError("unreachable")
+
+    def get_json(self, path: str, params: dict[str, Any] | None = None) -> Any:
+        return self.request("GET", path, params=params).json()
+
+    def get_optional(self, path: str, params: dict[str, Any] | None = None) -> Any | None:
+        """GET that treats 404 as absent rather than an error."""
+        try:
+            return self.get_json(path, params)
+        except SourceError as e:
+            if e.status == 404:
+                return None
+            raise
+
+    def paginate(self, path: str, params: dict[str, Any] | None = None, *,
+                 key: str | None = None) -> Iterator[Any]:
+        """Every element across every page. `key` names the list inside an
+        object response, e.g. "repositories" for /installation/repositories."""
+        response = self.request("GET", path, params=params)
+        while True:
+            body = response.json()
+            yield from (body[key] if key else body)
+            match = _NEXT.search(response.headers.get("link", ""))
+            if not match:
+                return
+            response = self.request("GET", match.group(1))
+
+    def close(self) -> None:
+        self._http.close()

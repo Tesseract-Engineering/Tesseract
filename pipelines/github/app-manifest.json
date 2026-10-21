@@ -1,0 +1,14 @@
+{
+  "name": "Tesseract Swarm (read-only)",
+  "url": "https://github.com/kar722/Tesseract",
+  "description": "Reads the repositories it is installed on, for the customer's own company knowledge graph. Read-only; it requests no write permission and no webhooks.",
+  "public": false,
+  "hook_attributes": {"active": false},
+  "default_permissions": {
+    "metadata": "read",
+    "contents": "read",
+    "issues": "read",
+    "pull_requests": "read"
+  },
+  "default_events": []
+}

@@ -10,9 +10,9 @@
       "type": "string"
     },
     "members": {
-      "description": "Users and nested groups. Members with no known email are left out and counted in unresolved",
+      "description": "Users by email, nested groups, or source identities (person:{source}:{handle}) where the source gives no email",
       "items": {
-        "pattern": "^(user:[^@\\s]+@[^@\\s]+|group:(github|jira|slack|gdrive):\\S+)$",
+        "pattern": "^(user:[^@\\s]+@[^@\\s]+|group:(github|jira|slack|gdrive):\\S+|person:[^:\\s]+:[^:\\s]+)$",
         "type": "string"
       },
       "title": "Members",
@@ -58,7 +58,7 @@
     },
     "unresolved": {
       "default": 0,
-      "description": "Members the source listed without an email",
+      "description": "Members the source listed but could not name",
       "minimum": 0,
       "title": "Unresolved",
       "type": "integer"

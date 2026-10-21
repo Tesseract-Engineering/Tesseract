@@ -54,4 +54,6 @@ class Connector(Protocol):
 
 
 class Normalizer(Protocol):
+    run_id: str                               # set by the runner before the first to_item
+
     def to_item(self, raw: RawItem, acl: Acl) -> ItemRecord: ...

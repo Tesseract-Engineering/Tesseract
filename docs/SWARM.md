@@ -211,7 +211,7 @@ state/{source}/checkpoints.json
 | `group:{source}:{immutable ids}` | A source-native group; its members arrive as a `group` record | `group:slack:T01:channel:C42:members` |
 | `domain:{domain}` | Everyone with an email in that domain | `domain:acme.com` |
 
-Group names use immutable IDs only, never a repo or org slug. Group members are users or nested groups; members the source lists without an email are left out and counted in `unresolved`.
+Group names use immutable IDs only, never a repo or org slug. Group members are users, nested groups, or source identities (`person:github:slee`) where the source gives no email, as GitHub usually doesn't; the graph side resolves those through identity records. Members the source lists but can't name are counted in `unresolved`.
 
 **Reading rules.** The graph side's half of the contract:
 
@@ -221,7 +221,8 @@ Group names use immutable IDs only, never a repo or org slug. Group members are 
 4. A ref may point at an ID not ingested yet: keep it and resolve it when that item arrives. A `tombstone` or `acl_update` for an ID never ingested is a no-op.
 5. A `tombstone` retires the item and every extraction with that `item_id`.
 6. A source identity belongs to exactly one cluster: the one in the latest `identity` record that lists it. A record with `merged_into` retires its cluster.
-7. Evidence span offsets count Unicode code points.
+7. A group member written as a source identity is that person, resolved through identity records.
+8. Evidence span offsets count Unicode code points.
 
 **Run manifest.** The graph side reads a run only once its manifest exists and `status` is `complete`.
 
@@ -396,8 +397,13 @@ The swarm lives next to the graph code, not inside it. Several of its terms alre
 
 ```
 ontology.yaml          the closed vocabulary, v1
+swarm/run.py           the shared runner: the pipeline stages for any Connector + Normalizer
+swarm/http.py          the shared HTTP client: proxy from env, pagination, rate-limit backoff
+swarm/sources/github/  GitHub: App auth, connector, normalizer, deterministic refs
+pipelines/github/      the GitHub pipeline image and its read-only App manifest
 swarm/                 records.py, ids.py, interfaces.py, store.py, stages/, schemas/*.json, compose.yaml, proxy/
 pipelines/sample/      the Phase 0 job: replays samples/run-0 through the real stages
+tests/fixtures/        hand-made source API responses and the planted-token corpus
 samples/run-0/         the sample run for the graph engineer (rebuilt by samples/make_run0.py)
 tests/swarm_tests/     unit, contract and s3-marked tests
 ```
@@ -446,13 +452,15 @@ Each diamond is the phase's exit gate; the next phase starts only when its gate 
 
 ### Phase 1: GitHub end to end
 
-- [ ] GitHub App manifest and `GitHubConnector` on the club's repos
-- [ ] Repos, PRs, issues and commits normalized, with review comments folded into each PR
-- [ ] ACLs from repo visibility and collaborators
-- [ ] Secret redaction with a test corpus of planted tokens
-- [ ] Deterministic refs from closing keywords, `#123` references and URLs
+- [x] GitHub App manifest and `GitHubConnector` (built and tested on fixtures; not yet run on the club's repos)
+- [x] Repos, PRs, issues and commits normalized, with review comments folded into each PR
+- [x] ACLs from repo visibility and collaborators
+- [x] Secret redaction with a test corpus of planted tokens
+- [x] Deterministic refs from closing keywords, `#123` references and URLs
 
 **Gate:** a valid manifest-complete run from the club's GitHub repos, ingested by the graph side, with zero secret hits and 100% ACL coverage.
+
+**Gate status: deferred.** No source access exists yet. Until the sandbox org does, `tests/swarm_tests/test_github_gate_rehearsal.py` runs the whole pipeline on hand-made GitHub API responses (`tests/fixtures/github/`) and checks the gate's criteria. The first real run is `GITHUB_TOKEN=... GITHUB_REPOS=org/repo docker compose -f swarm/compose.yaml run --rm github`.
 
 ### Phase 2: Slack and Google Drive
 
