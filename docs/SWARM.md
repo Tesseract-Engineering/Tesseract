@@ -358,6 +358,37 @@ Each phase is blocked until someone with the right role grants access. Request t
 | Free Jira Cloud site, seeded with realistic tickets | Phase 4 | Our team | Not started |
 | AWS test account with Bedrock model access enabled | Phase 5 | Our team | Not started |
 
+## In this repo
+
+The swarm lives next to the graph code, not inside it. Several of its terms already mean something else here:
+
+| Swarm term | Where it lives | Existing term it is not |
+| --- | --- | --- |
+| `Connector` (live source fetcher) | `swarm/interfaces.py` | `tesseract/connectors.py`, the export file readers |
+| Ontology, record contract | `ontology.yaml`, `swarm/records.py` | `tesseract/contract.py`, the graph's own node and edge types |
+| Compose stack | `swarm/compose.yaml` | `compose.yaml`, the graph, API and UI stack |
+
+```
+ontology.yaml          the closed vocabulary, v1
+swarm/                 records.py, ids.py, interfaces.py, store.py, stages/, schemas/*.json, compose.yaml, proxy/
+pipelines/sample/      the Phase 0 job: replays samples/run-0 through the real stages
+samples/run-0/         the sample run for the graph engineer (rebuilt by samples/make_run0.py)
+tests/swarm_tests/     unit, contract and s3-marked tests
+```
+
+**Staging bucket in local dev.** The MinIO image is no longer published on Docker Hub, so `swarm/compose.yaml` runs RustFS (`rustfs/rustfs`), another S3-compatible server. It uses the same ports (API 9000, console 9001) and keeps its files in `./storage-data`. Pipelines speak plain S3 through `swarm/store.py`, so nothing above the compose file depends on which server it is.
+
+```bash
+pip install -e '.[dev,swarm]'
+python -m swarm.schema                                    # regenerate swarm/schemas after a model change
+python samples/make_run0.py                               # regenerate samples/run-0 after a schema change
+
+docker compose -f swarm/compose.yaml up -d storage proxy
+docker compose -f swarm/compose.yaml run --rm init        # create the bucket, once
+docker compose -f swarm/compose.yaml run --rm sample      # a second run writes zero records
+docker compose -f swarm/compose.yaml run --rm sample probe https://api.github.com https://example.com
+```
+
 ## Roadmap
 
 The build runs in six phases, each ending at a gate the graph engineer can verify. Phases are sequenced, not dated; the first real data flows at the end of Phase 1.
@@ -379,11 +410,11 @@ Each diamond is the phase's exit gate; the next phase starts only when its gate 
 
 ### Phase 0: Contracts and skeleton
 
-- [ ] `ontology.yaml` v1 with the entity and relation lists, signed off by the graph engineer
-- [ ] Pydantic models and JSON Schema for all five record types and the manifest
-- [ ] Repo skeleton: `Connector` and `Normalizer` interfaces, shared redact, ACL, write and manifest stages
-- [ ] Docker Compose with MinIO, an internal network and an egress allowlist
-- [ ] Hand-written sample run that the graph engineer ingests
+- [ ] `ontology.yaml` v1 with the entity and relation lists, signed off by the graph engineer (written; awaiting sign-off)
+- [x] Pydantic models and JSON Schema for all five record types and the manifest
+- [x] Repo skeleton: `Connector` and `Normalizer` interfaces, shared redact, ACL, write and manifest stages
+- [x] Docker Compose with MinIO, an internal network and an egress allowlist (RustFS stands in for MinIO; see below)
+- [ ] Hand-written sample run that the graph engineer ingests (`samples/run-0/` written; awaiting ingest)
 
 **Gate:** the graph engineer reads a sample run end to end with no schema questions.
 

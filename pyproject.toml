@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tesseract"
+version = "0.1.0"
+description = "A company's knowledge graph with cited, access-checked answers and human-approved actions."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.11"
+dependencies = [
+    "neo4j>=5,<6",
+    "pypdf>=4,<7",
+    "anthropic>=0.30,<1",
+    "google-genai>=1,<2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.5", "jsonschema>=4,<5"]
+swarm = ["pydantic>=2,<3", "pyyaml>=6,<7", "boto3>=1.34,<2", "detect-secrets>=1.5,<2"]
+
+[project.scripts]
+tesseract-api = "tesseract.api:main"
+tesseract-build = "tesseract.build:main"
+
+[tool.setuptools.packages.find]
+include = ["tesseract*", "swarm*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "neo4j: needs a running Neo4j (NEO4J_URI / NEO4J_PASSWORD); skipped otherwise",
+    "s3: needs an S3-compatible bucket at S3_ENDPOINT (swarm/compose.yaml); skipped otherwise",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B"]
+ignore = ["E501"]

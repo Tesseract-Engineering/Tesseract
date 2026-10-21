@@ -1,0 +1,28 @@
+{
+  "schema_version": "2",
+  "source": "slack",
+  "run_id": "2026-10-20T03:00:00Z-slack",
+  "status": "complete",
+  "started_at": "2026-10-20T03:00:00Z",
+  "finished_at": "2026-10-20T03:03:52Z",
+  "counts": {
+    "items": 2,
+    "extractions": 1,
+    "changes": 2,
+    "identities": 0,
+    "rejected": 0
+  },
+  "files": [
+    "changes/part-00001.jsonl",
+    "extractions/part-00001.jsonl",
+    "items/part-00001.jsonl"
+  ],
+  "extractor_versions": [
+    "sample-v0"
+  ],
+  "llm_budget_hit": false,
+  "tokens": {
+    "input": 0,
+    "output": 0
+  }
+}

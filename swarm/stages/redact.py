@@ -1,0 +1,68 @@
+"""
+redact.py - strip secrets in memory, before anything touches disk.
+
+Uses detect-secrets' pattern detectors (AWS keys, GitHub, Slack and Stripe
+tokens, JWTs, private keys and the rest), not its entropy or keyword
+heuristics: those flag ordinary prose such as commit SHAs and would shred the
+text the extractor needs. A few patterns detect-secrets lacks are added here.
+
+What was stripped is recorded as Redaction entries (field, detector, count),
+never the value.
+"""
+
+from __future__ import annotations
+
+import re
+from collections import Counter
+from functools import lru_cache
+
+from ..records import Redaction
+
+# Whole PEM blocks, not just the BEGIN line detect-secrets matches.
+_PEM = re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|\Z)", re.S)
+
+_EXTRA: dict[str, list[re.Pattern[str]]] = {
+    "Anthropic API Key": [re.compile(r"\bsk-ant-[A-Za-z0-9_\-]{20,}")],
+    "Google API Key": [re.compile(r"\bAIza[0-9A-Za-z_\-]{35}\b")],
+    "GitHub Fine-Grained Token": [re.compile(r"\bgithub_pat_[A-Za-z0-9_]{22,}")],
+}
+
+
+@lru_cache(maxsize=1)
+def _detectors() -> list[tuple[str, re.Pattern[str]]]:
+    from detect_secrets.core.plugins.util import get_mapping_from_secret_type_to_class
+    from detect_secrets.plugins.base import RegexBasedDetector
+
+    found: list[tuple[str, re.Pattern[str]]] = [("Private Key", _PEM)]
+    for name, cls in sorted(get_mapping_from_secret_type_to_class().items()):
+        if issubclass(cls, RegexBasedDetector) and name != "Private Key":
+            found.extend((name, rx) for rx in cls().denylist)
+    for name, patterns in _EXTRA.items():
+        found.extend((name, rx) for rx in patterns)
+    return found
+
+
+def redact(text: str, field: str = "text") -> tuple[str, list[Redaction]]:
+    """Return text with every secret replaced by [REDACTED:<detector>], and
+    what was replaced."""
+    if not text:
+        return text, []
+    counts: Counter[str] = Counter()
+    for name, pattern in _detectors():
+        def mark(match: re.Match[str], name: str = name) -> str:
+            if match.group(0).startswith("[REDACTED:"):
+                return match.group(0)
+            counts[name] += 1
+            return f"[REDACTED:{name}]"
+        text = pattern.sub(mark, text)
+    return text, [Redaction(field=field, type=name, count=n) for name, n in sorted(counts.items())]
+
+
+def redact_fields(values: dict[str, str]) -> tuple[dict[str, str], list[Redaction]]:
+    """Redact several named fields of one item at once."""
+    clean: dict[str, str] = {}
+    redactions: list[Redaction] = []
+    for name, value in values.items():
+        clean[name], found = redact(value, field=name)
+        redactions.extend(found)
+    return clean, redactions

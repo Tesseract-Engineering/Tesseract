@@ -1,0 +1,116 @@
+{
+  "$defs": {
+    "Tokens": {
+      "additionalProperties": false,
+      "properties": {
+        "input": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Input",
+          "type": "integer"
+        },
+        "output": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Output",
+          "type": "integer"
+        }
+      },
+      "title": "Tokens",
+      "type": "object"
+    }
+  },
+  "$id": "manifest.json",
+  "additionalProperties": false,
+  "description": "Written last. The graph side reads a run only once this exists and\nstatus is complete; a failed run writes none and is retried.",
+  "properties": {
+    "counts": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "propertyNames": {
+        "enum": [
+          "items",
+          "extractions",
+          "changes",
+          "identities",
+          "rejected"
+        ]
+      },
+      "title": "Counts",
+      "type": "object"
+    },
+    "extractor_versions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Extractor Versions",
+      "type": "array"
+    },
+    "files": {
+      "description": "Part files of this run, relative to runs/{source}/{run_id}/",
+      "items": {
+        "type": "string"
+      },
+      "title": "Files",
+      "type": "array"
+    },
+    "finished_at": {
+      "format": "date-time",
+      "title": "Finished At",
+      "type": "string"
+    },
+    "llm_budget_hit": {
+      "default": false,
+      "title": "Llm Budget Hit",
+      "type": "boolean"
+    },
+    "run_id": {
+      "minLength": 1,
+      "title": "Run Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "2",
+      "default": "2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source": {
+      "enum": [
+        "github",
+        "jira",
+        "slack",
+        "gdrive",
+        "identity"
+      ],
+      "title": "Source",
+      "type": "string"
+    },
+    "started_at": {
+      "format": "date-time",
+      "title": "Started At",
+      "type": "string"
+    },
+    "status": {
+      "const": "complete",
+      "default": "complete",
+      "title": "Status",
+      "type": "string"
+    },
+    "tokens": {
+      "$ref": "#/$defs/Tokens"
+    }
+  },
+  "required": [
+    "source",
+    "run_id",
+    "started_at",
+    "finished_at",
+    "counts",
+    "files"
+  ],
+  "title": "Manifest",
+  "type": "object",
+  "x-ontology-version": 1
+}

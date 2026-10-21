@@ -1,0 +1,24 @@
+{
+  "schema_version": "2",
+  "source": "github",
+  "run_id": "2026-10-20T03:00:00Z-github",
+  "status": "complete",
+  "started_at": "2026-10-20T03:00:00Z",
+  "finished_at": "2026-10-20T03:04:37Z",
+  "counts": {
+    "items": 4,
+    "extractions": 0,
+    "changes": 0,
+    "identities": 0,
+    "rejected": 0
+  },
+  "files": [
+    "items/part-00001.jsonl"
+  ],
+  "extractor_versions": [],
+  "llm_budget_hit": false,
+  "tokens": {
+    "input": 0,
+    "output": 0
+  }
+}

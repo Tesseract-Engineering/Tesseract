@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    services:
+      neo4j:
+        image: neo4j:5-community
+        env:
+          NEO4J_AUTH: neo4j/ci-password
+        ports: ["7687:7687"]
+        options: >-
+          --health-cmd "cypher-shell -u neo4j -p ci-password 'RETURN 1'"
+          --health-interval 5s --health-timeout 10s --health-retries 30
+      # The swarm's dev bucket, for the s3-marked tests.
+      storage:
+        image: rustfs/rustfs:1.0.1
+        env:
+          RUSTFS_ACCESS_KEY: ci-access
+          RUSTFS_SECRET_KEY: ci-secret-key
+        ports: ["9000:9000"]
+        options: >-
+          --health-cmd "curl -sf http://127.0.0.1:9000/health"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+    env:
+      NEO4J_URI: neo4j://localhost:7687
+      NEO4J_PASSWORD: ci-password
+      S3_ENDPOINT: http://localhost:9000
+      AWS_ACCESS_KEY_ID: ci-access
+      AWS_SECRET_ACCESS_KEY: ci-secret-key
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e '.[dev,swarm]'
+      - run: ruff check tesseract tests swarm pipelines samples
+      - run: pytest
+
+  ui:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: corepack enable && pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm test
+      - run: pnpm build

@@ -1,0 +1,79 @@
+# The swarm's local dev stack (docs/SWARM.md, "Local development setup").
+# Separate from the graph side's compose.yaml at the repo root.
+#
+#   docker compose -f swarm/compose.yaml up -d storage proxy   always-on services
+#   docker compose -f swarm/compose.yaml run --rm init         create the bucket, once
+#   docker compose -f swarm/compose.yaml run --rm sample       one sample run
+#
+# Two networks enforce the VPC rule: pipelines sit only on `internal`, which
+# has no route out, so the proxy's allowlist is their only way to the
+# internet.
+#
+# The staging bucket is RustFS, an S3-compatible server: the MinIO image the
+# design doc names is no longer published on Docker Hub. Pipelines speak plain
+# S3, so swapping it changes nothing above this file.
+
+name: swarm
+
+x-pipeline: &pipeline
+  env_file:
+    - path: ../.env
+      required: false
+  environment: &pipeline-env
+    HTTPS_PROXY: http://proxy:3128
+    HTTP_PROXY: http://proxy:3128
+    NO_PROXY: storage
+    S3_ENDPOINT: http://storage:9000
+    S3_BUCKET: ${S3_BUCKET:-staging}
+    AWS_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY:-swarm-dev}
+    AWS_SECRET_ACCESS_KEY: ${STORAGE_SECRET_KEY:-swarm-dev-secret}
+  networks: [internal]
+  profiles: [jobs]
+  depends_on:
+    storage:
+      condition: service_healthy
+    proxy:
+      condition: service_started
+
+services:
+  storage:
+    image: rustfs/rustfs:1.0.1
+    environment:
+      RUSTFS_ACCESS_KEY: ${STORAGE_ACCESS_KEY:-swarm-dev}
+      RUSTFS_SECRET_KEY: ${STORAGE_SECRET_KEY:-swarm-dev-secret}
+      RUSTFS_CONSOLE_ENABLE: "true"
+    ports: ["127.0.0.1:9000:9000", "127.0.0.1:9001:9001"]
+    volumes: ["../storage-data:/data"]
+    # `host` exists only so the ports above reach the laptop: Docker publishes
+    # nothing for a container that is on internal networks alone.
+    networks: [internal, host]
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:9000/health"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  proxy:
+    image: ubuntu/squid:6.6-24.04_edge
+    volumes: ["./proxy/squid.conf:/etc/squid/squid.conf:ro"]
+    networks: [internal, egress]
+
+  init:
+    <<: *pipeline
+    build: {context: .., dockerfile: pipelines/sample/Dockerfile}
+    image: swarm-sample:dev
+    command: ["init"]
+
+  sample:
+    <<: *pipeline
+    build: {context: .., dockerfile: pipelines/sample/Dockerfile}
+    image: swarm-sample:dev
+
+  # github, jira, slack, drive and identity follow the sample's pattern,
+  # each built from pipelines/{source}.
+
+networks:
+  internal:
+    internal: true
+  egress: {}
+  host: {}

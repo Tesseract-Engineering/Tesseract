@@ -1,0 +1,85 @@
+{
+  "$defs": {
+    "Acl": {
+      "additionalProperties": false,
+      "description": "Who may read an item, carried from the source.\n\npublic      anyone (a public repo)\ninternal    anyone in the customer's organisation\nrestricted  only the listed principals",
+      "properties": {
+        "principals": {
+          "items": {
+            "pattern": "^(user|group|domain):\\S+$",
+            "type": "string"
+          },
+          "title": "Principals",
+          "type": "array"
+        },
+        "visibility": {
+          "enum": [
+            "public",
+            "internal",
+            "restricted"
+          ],
+          "title": "Visibility",
+          "type": "string"
+        }
+      },
+      "required": [
+        "visibility"
+      ],
+      "title": "Acl",
+      "type": "object"
+    }
+  },
+  "$id": "acl_update.json",
+  "additionalProperties": false,
+  "properties": {
+    "acl": {
+      "$ref": "#/$defs/Acl"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "observed_at": {
+      "format": "date-time",
+      "title": "Observed At",
+      "type": "string"
+    },
+    "record_type": {
+      "const": "acl_update",
+      "default": "acl_update",
+      "title": "Record Type",
+      "type": "string"
+    },
+    "run_id": {
+      "minLength": 1,
+      "title": "Run Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "2",
+      "default": "2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source": {
+      "enum": [
+        "github",
+        "jira",
+        "slack",
+        "gdrive"
+      ],
+      "title": "Source",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "id",
+    "source",
+    "acl",
+    "observed_at"
+  ],
+  "title": "AclUpdateRecord",
+  "type": "object",
+  "x-ontology-version": 1
+}

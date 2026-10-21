@@ -1,0 +1,53 @@
+# The swarm's closed vocabulary (docs/SWARM.md, "Ontology").
+#
+# Extractors may emit only these types; anything else goes in `attributes`.
+# Both the extraction prompts and the record validator (swarm/ontology.py) load
+# this file, so adding a type is an edit here plus a version bump agreed with
+# the graph engineer.
+#
+# origin: deterministic  - written on item records (people, refs) by plain code
+#         llm            - written on extraction records by the LLM step
+#         both           - either
+#
+# `item_backed` entity types exist one per item or container. The LLM never
+# produces them, which keeps the graph's skeleton exact.
+
+version: 1
+
+entities:
+  person:        {origin: deterministic, description: "Authors, assignees, reviewers, mentions"}
+  repo:          {origin: deterministic, item_backed: true}
+  commit:        {origin: deterministic, item_backed: true}
+  pull_request:  {origin: deterministic, item_backed: true}
+  issue:         {origin: deterministic, item_backed: true}
+  thread:        {origin: deterministic, item_backed: true}
+  channel:       {origin: deterministic, item_backed: true}
+  document:      {origin: deterministic, item_backed: true}
+  folder:        {origin: deterministic, item_backed: true}
+  team:          {origin: both, description: "LLM, plus Slack user groups and Google groups when present"}
+  project:       {origin: both, description: "LLM, plus Jira epics"}
+  decision:      {origin: llm}
+  system:        {origin: llm, description: "A service, component or tool being discussed"}
+  action_item:   {origin: llm}
+  customer:      {origin: llm, description: "An external account named in tickets or threads"}
+
+relations:
+  authored:      {origin: deterministic, description: "Person created the item"}
+  assigned_to:   {origin: both, description: "Item or action item is owned by a person"}
+  reviewed:      {origin: deterministic, description: "Person reviewed a PR or approved a doc"}
+  mentions:      {origin: both, description: "Item mentions a person or entity"}
+  references:    {origin: deterministic, description: "Item links to another item"}
+  implements:    {origin: deterministic, description: "PR or commit implements an issue"}
+  closes:        {origin: deterministic, description: "PR closes an issue"}
+  part_of:       {origin: both, description: "Item or entity belongs to a project, epic or container"}
+  member_of:     {origin: both, description: "Person belongs to a team"}
+  owns:          {origin: llm, description: "Person or team owns a system, project or repo"}
+  works_on:      {origin: llm, description: "Person is actively working on a project"}
+  decided_by:    {origin: llm, description: "Decision was made by a person or team"}
+  decided_in:    {origin: llm, description: "Decision was made in this item"}
+  supersedes:    {origin: llm, description: "A decision or document replaces an earlier one"}
+  depends_on:    {origin: both, description: "Project, system or issue depends on another"}
+  blocks:        {origin: deterministic, description: "Issue blocks another"}
+
+# Roles a person can hold on an item record's `people` list.
+person_roles: [author, assignee, reporter, reviewer, commenter, participant, mentioned, owner]

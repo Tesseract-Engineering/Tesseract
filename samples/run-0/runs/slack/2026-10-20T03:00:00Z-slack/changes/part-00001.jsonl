@@ -1,0 +1,2 @@
+{"schema_version":"2","run_id":"2026-10-20T03:00:00Z-slack","record_type":"tombstone","id":"slack:T01ACME:thread:C42AUTH:1729450000.123400","source":"slack","reason":"deleted","detected_at":"2026-10-20T03:03:40Z"}
+{"schema_version":"2","run_id":"2026-10-20T03:00:00Z-slack","record_type":"acl_update","id":"slack:T01ACME:channel:C77OPS","source":"slack","acl":{"visibility":"restricted","principals":["group:slack:T01ACME:channel:C77OPS:members"]},"observed_at":"2026-10-20T03:03:41Z"}

@@ -1,0 +1,339 @@
+{
+  "$defs": {
+    "Acl": {
+      "additionalProperties": false,
+      "description": "Who may read an item, carried from the source.\n\npublic      anyone (a public repo)\ninternal    anyone in the customer's organisation\nrestricted  only the listed principals",
+      "properties": {
+        "principals": {
+          "items": {
+            "pattern": "^(user|group|domain):\\S+$",
+            "type": "string"
+          },
+          "title": "Principals",
+          "type": "array"
+        },
+        "visibility": {
+          "enum": [
+            "public",
+            "internal",
+            "restricted"
+          ],
+          "title": "Visibility",
+          "type": "string"
+        }
+      },
+      "required": [
+        "visibility"
+      ],
+      "title": "Acl",
+      "type": "object"
+    },
+    "Person": {
+      "additionalProperties": false,
+      "description": "One raw source identity on an item, not yet resolved across sources.",
+      "properties": {
+        "email": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Email"
+        },
+        "handle": {
+          "title": "Handle",
+          "type": "string"
+        },
+        "id": {
+          "description": "person:{source}:{handle}",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "roles": {
+          "items": {
+            "enum": [
+              "assignee",
+              "author",
+              "commenter",
+              "mentioned",
+              "owner",
+              "participant",
+              "reporter",
+              "reviewer"
+            ],
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Roles",
+          "type": "array"
+        },
+        "source": {
+          "enum": [
+            "github",
+            "jira",
+            "slack",
+            "gdrive"
+          ],
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "source",
+        "handle",
+        "roles"
+      ],
+      "title": "Person",
+      "type": "object"
+    },
+    "Redaction": {
+      "additionalProperties": false,
+      "description": "What the redact stage stripped, never the secret itself.",
+      "properties": {
+        "count": {
+          "minimum": 1,
+          "title": "Count",
+          "type": "integer"
+        },
+        "field": {
+          "title": "Field",
+          "type": "string"
+        },
+        "type": {
+          "description": "Detector name, e.g. 'GitHub Token'",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "field",
+        "type",
+        "count"
+      ],
+      "title": "Redaction",
+      "type": "object"
+    },
+    "Ref": {
+      "additionalProperties": false,
+      "description": "A deterministic, typed link from this item to another object.",
+      "properties": {
+        "target": {
+          "description": "An ID in one of the formats in swarm/ids.py",
+          "title": "Target",
+          "type": "string"
+        },
+        "type": {
+          "description": "A relation type from ontology.yaml",
+          "enum": [
+            "assigned_to",
+            "authored",
+            "blocks",
+            "closes",
+            "depends_on",
+            "implements",
+            "member_of",
+            "mentions",
+            "part_of",
+            "references",
+            "reviewed"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "via": {
+          "description": "How the link was found: a structured source field, a URL or key in the text, a closing keyword such as 'Fixes #12', or an @-mention",
+          "enum": [
+            "field",
+            "url",
+            "key",
+            "closing_keyword",
+            "mention"
+          ],
+          "title": "Via",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "target",
+        "via"
+      ],
+      "title": "Ref",
+      "type": "object"
+    }
+  },
+  "$id": "item.json",
+  "additionalProperties": false,
+  "properties": {
+    "acl": {
+      "$ref": "#/$defs/Acl"
+    },
+    "aliases": {
+      "description": "Mutable names: repo slug, Jira key, channel name",
+      "items": {
+        "type": "string"
+      },
+      "title": "Aliases",
+      "type": "array"
+    },
+    "container": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "ID of the repo, channel, project or folder holding this item",
+      "title": "Container"
+    },
+    "content_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Content Hash",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "fetched_at": {
+      "format": "date-time",
+      "title": "Fetched At",
+      "type": "string"
+    },
+    "id": {
+      "description": "Stable ID from immutable source IDs; see swarm/ids.py",
+      "title": "Id",
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "repo",
+        "commit",
+        "pull_request",
+        "issue",
+        "thread",
+        "channel",
+        "document",
+        "folder"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "meta": {
+      "additionalProperties": true,
+      "title": "Meta",
+      "type": "object"
+    },
+    "people": {
+      "items": {
+        "$ref": "#/$defs/Person"
+      },
+      "title": "People",
+      "type": "array"
+    },
+    "record_type": {
+      "const": "item",
+      "default": "item",
+      "title": "Record Type",
+      "type": "string"
+    },
+    "redactions": {
+      "items": {
+        "$ref": "#/$defs/Redaction"
+      },
+      "title": "Redactions",
+      "type": "array"
+    },
+    "refs": {
+      "items": {
+        "$ref": "#/$defs/Ref"
+      },
+      "title": "Refs",
+      "type": "array"
+    },
+    "run_id": {
+      "minLength": 1,
+      "title": "Run Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "2",
+      "default": "2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source": {
+      "enum": [
+        "github",
+        "jira",
+        "slack",
+        "gdrive"
+      ],
+      "title": "Source",
+      "type": "string"
+    },
+    "text": {
+      "description": "Redacted text; comments and replies folded in",
+      "title": "Text",
+      "type": "string"
+    },
+    "title": {
+      "title": "Title",
+      "type": "string"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    },
+    "url": {
+      "title": "Url",
+      "type": "string"
+    },
+    "version": {
+      "description": "Source version marker: updated_at, revision id or edit ts",
+      "minLength": 1,
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "id",
+    "kind",
+    "source",
+    "container",
+    "title",
+    "text",
+    "url",
+    "created_at",
+    "updated_at",
+    "version",
+    "content_hash",
+    "acl",
+    "fetched_at"
+  ],
+  "title": "ItemRecord",
+  "type": "object",
+  "x-ontology-version": 1
+}
