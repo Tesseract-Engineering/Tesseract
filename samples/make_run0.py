@@ -24,6 +24,7 @@ from swarm.records import (
     Entity,
     ExtractionRecord,
     Extractor,
+    GroupRecord,
     IdentityMember,
     IdentityRecord,
     ItemRecord,
@@ -71,7 +72,8 @@ def span(text: str, quote: str) -> Span:
 
 REPO_ID = 7001
 REPO = ids.github_repo(REPO_ID)
-ORG = Acl(visibility="restricted", principals=["group:github:acme:repo:7001:readers"])
+READERS = f"group:{REPO}:readers"
+ORG = Acl(visibility="restricted", principals=[READERS])
 
 sam_gh = Person(id=ids.person("github", "slee"), source="github", handle="slee", name="Sam Lee", roles=["author"])
 priya_gh = Person(id=ids.person("github", "priya-r"), source="github", handle="priya-r", name="Priya Rao",
@@ -116,8 +118,7 @@ def github_run(store: LocalStore) -> None:
         updated_at=at("2026-10-14T16:05:00Z"), version="2026-10-14T16:05:00Z",
         people=[sam_gh, priya_gh],
         refs=[Ref(type="closes", target=ids.github_issue(REPO_ID, 398), via="closing_keyword"),
-              Ref(type="references", target=ids.gdrive_file("1AbCdEfGh"), via="url"),
-              Ref(type="part_of", target=REPO, via="field")],
+              Ref(type="references", target=ids.gdrive_file("1AbCdEfGh"), via="url")],
         meta={"state": "merged", "base": "main", "head": "slee/oidc", "merged_at": "2026-10-14T16:05:00Z",
               "additions": 412, "deletions": 188},
         acl=ORG, redactions=pr_redactions, fetched_at=fetched))
@@ -131,10 +132,15 @@ def github_run(store: LocalStore) -> None:
         updated_at=at("2026-10-14T16:05:00Z"), version=sha,
         people=[Person(id=ids.person("github", "slee"), source="github", handle="slee", name="Sam Lee",
                        email="sam@acme.com", roles=["author"])],
-        refs=[Ref(type="implements", target=ids.github_pr(REPO_ID, 412), via="key"),
-              Ref(type="closes", target=ids.github_issue(REPO_ID, 398), via="closing_keyword")],
+        refs=[Ref(type="implements", target=ids.github_issue(REPO_ID, 398), via="closing_keyword"),
+              Ref(type="references", target=ids.github_pr(REPO_ID, 412), via="key")],
         meta={"files": ["api/auth/oidc.py", "api/auth/saml.py"], "branch": "main"},
         acl=ORG, fetched_at=fetched))
+
+    # Who READERS is: the repo's collaborators with a known email. One has none.
+    w.add(GroupRecord(run_id=run_id, id=READERS, source="github", name="acme/api readers",
+                      members=["user:sam@acme.com", "user:priya@acme.com"], unresolved=1,
+                      observed_at=at("2026-10-20T03:00:40Z")))
 
     finish_run(w, started_at=at("2026-10-20T03:00:00Z"), finished_at=at("2026-10-20T03:04:37Z"))
 
@@ -145,7 +151,8 @@ def github_run(store: LocalStore) -> None:
 
 TEAM = "T01ACME"
 CHANNEL = ids.slack_channel(TEAM, "C42AUTH")
-MEMBERS = Acl(visibility="restricted", principals=[f"group:{CHANNEL}:members"])
+MEMBERS_GROUP = f"group:{CHANNEL}:members"
+MEMBERS = Acl(visibility="restricted", principals=[MEMBERS_GROUP])
 
 
 def slack_run(store: LocalStore) -> None:
@@ -175,8 +182,7 @@ def slack_run(store: LocalStore) -> None:
         text=text, url="https://acme.slack.com/archives/C42AUTH/p1760450400000100",
         created_at=at("2026-10-14T14:00:00Z"), updated_at=at("2026-10-14T14:09:30Z"),
         version="1760450970.000300", people=[sam, priya],
-        refs=[Ref(type="references", target=ids.github_pr(REPO_ID, 412), via="key"),
-              Ref(type="part_of", target=CHANNEL, via="field")],
+        refs=[Ref(type="references", target=ids.github_pr(REPO_ID, 412), via="key")],
         meta={"message_count": 3, "reply_count": 2, "grouping": "thread"},
         acl=MEMBERS, fetched_at=fetched)
     w.add_item(thread)
@@ -206,10 +212,16 @@ def slack_run(store: LocalStore) -> None:
         ],
         extracted_at=at("2026-10-20T03:03:05Z")))
 
+    w.add(GroupRecord(run_id=run_id, id=MEMBERS_GROUP, source="slack", name="#eng-auth members",
+                      members=["user:sam@acme.com", "user:priya@acme.com"],
+                      observed_at=at("2026-10-20T03:00:20Z")))
+    ops_group = f"group:{ids.slack_channel(TEAM, 'C77OPS')}:members"
+    w.add(GroupRecord(run_id=run_id, id=ops_group, source="slack", name="#ops members",
+                      members=["user:sam@acme.com"], observed_at=at("2026-10-20T03:00:21Z")))
     w.add(TombstoneRecord(run_id=run_id, id=ids.slack_thread(TEAM, "C42AUTH", "1729450000.123400"),
                           source="slack", reason="deleted", detected_at=at("2026-10-20T03:03:40Z")))
     w.add(AclUpdateRecord(run_id=run_id, id=ids.slack_channel(TEAM, "C77OPS"), source="slack",
-                          acl=Acl(visibility="restricted", principals=[f"group:{ids.slack_channel(TEAM, 'C77OPS')}:members"]),
+                          acl=Acl(visibility="restricted", principals=[ops_group]),
                           observed_at=at("2026-10-20T03:03:41Z")))
 
     finish_run(w, started_at=at("2026-10-20T03:00:00Z"), finished_at=at("2026-10-20T03:03:52Z"),
@@ -225,13 +237,13 @@ def identity_run(store: LocalStore) -> None:
     w = RunWriter(store, "identity", run_id)
     w.add(IdentityRecord(
         run_id=run_id, person_id=ids.person_cluster("7f3a91"),
-        members=[IdentityMember(source="slack", handle="U123SAM", email="sam@acme.com", name="Sam Lee"),
-                 IdentityMember(source="github", handle="slee", email="sam@acme.com", name="Sam Lee")],
+        members=[IdentityMember(id=ids.person("slack", "U123SAM"), source="slack", handle="U123SAM", email="sam@acme.com", name="Sam Lee"),
+                 IdentityMember(id=ids.person("github", "slee"), source="github", handle="slee", email="sam@acme.com", name="Sam Lee")],
         method="email", confidence=1.0, evidence="Slack profile email equals the commit email"))
     w.add(IdentityRecord(
         run_id=run_id, person_id=ids.person_cluster("b20c44"),
-        members=[IdentityMember(source="slack", handle="U456PRI", email="priya@acme.com", name="Priya Rao"),
-                 IdentityMember(source="github", handle="priya-r", email=None, name="Priya Rao")],
+        members=[IdentityMember(id=ids.person("slack", "U456PRI"), source="slack", handle="U456PRI", email="priya@acme.com", name="Priya Rao"),
+                 IdentityMember(id=ids.person("github", "priya-r"), source="github", handle="priya-r", email=None, name="Priya Rao")],
         method="llm", confidence=0.82,
         evidence="GitHub profile name matches the Slack display name; both review the same PR"))
     finish_run(w, started_at=at("2026-10-20T04:00:00Z"), finished_at=at("2026-10-20T04:00:09Z"))

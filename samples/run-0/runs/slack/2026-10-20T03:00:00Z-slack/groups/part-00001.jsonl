@@ -1,0 +1,2 @@
+{"schema_version":"2","run_id":"2026-10-20T03:00:00Z-slack","record_type":"group","id":"group:slack:T01ACME:channel:C42AUTH:members","source":"slack","name":"#eng-auth members","members":["user:sam@acme.com","user:priya@acme.com"],"unresolved":0,"observed_at":"2026-10-20T03:00:20Z"}
+{"schema_version":"2","run_id":"2026-10-20T03:00:00Z-slack","record_type":"group","id":"group:slack:T01ACME:channel:C77OPS:members","source":"slack","name":"#ops members","members":["user:sam@acme.com"],"unresolved":0,"observed_at":"2026-10-20T03:00:21Z"}

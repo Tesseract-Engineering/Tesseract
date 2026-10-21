@@ -6,7 +6,7 @@
       "properties": {
         "principals": {
           "items": {
-            "pattern": "^(user|group|domain):\\S+$",
+            "pattern": "^(user:[^@\\s]+@[^@\\s]+|group:(github|jira|slack|gdrive):\\S+|domain:[a-z0-9.-]+)$",
             "type": "string"
           },
           "title": "Principals",

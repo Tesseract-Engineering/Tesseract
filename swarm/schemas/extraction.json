@@ -129,7 +129,7 @@
     },
     "Span": {
       "additionalProperties": false,
-      "description": "A quoted span of an item's text: text[start:end] == quote.",
+      "description": "A quoted span of an item's text: text[start:end] == quote.\n\nOffsets count Unicode code points (Python str indexing), not UTF-16 code\nunits or bytes. A JavaScript reader converts with Array.from(text).",
       "properties": {
         "end": {
           "minimum": 0,
@@ -228,5 +228,228 @@
   ],
   "title": "ExtractionRecord",
   "type": "object",
-  "x-ontology-version": 1
+  "x-ontology-version": 1,
+  "x-relations": {
+    "assigned_to": {
+      "from": [
+        "action_item",
+        "issue",
+        "pull_request"
+      ],
+      "to": [
+        "person"
+      ]
+    },
+    "authored": {
+      "from": [
+        "person"
+      ],
+      "to": [
+        "channel",
+        "commit",
+        "document",
+        "folder",
+        "issue",
+        "pull_request",
+        "repo",
+        "thread"
+      ]
+    },
+    "blocks": {
+      "from": [
+        "issue"
+      ],
+      "to": [
+        "issue"
+      ]
+    },
+    "closes": {
+      "from": [
+        "pull_request"
+      ],
+      "to": [
+        "issue"
+      ]
+    },
+    "decided_by": {
+      "from": [
+        "decision"
+      ],
+      "to": [
+        "person",
+        "team"
+      ]
+    },
+    "decided_in": {
+      "from": [
+        "decision"
+      ],
+      "to": [
+        "channel",
+        "commit",
+        "document",
+        "folder",
+        "issue",
+        "pull_request",
+        "repo",
+        "thread"
+      ]
+    },
+    "depends_on": {
+      "from": [
+        "issue",
+        "project",
+        "system"
+      ],
+      "to": [
+        "issue",
+        "project",
+        "system"
+      ]
+    },
+    "implements": {
+      "from": [
+        "commit",
+        "pull_request"
+      ],
+      "to": [
+        "issue"
+      ]
+    },
+    "member_of": {
+      "from": [
+        "person"
+      ],
+      "to": [
+        "team"
+      ]
+    },
+    "mentions": {
+      "from": [
+        "channel",
+        "commit",
+        "document",
+        "folder",
+        "issue",
+        "pull_request",
+        "repo",
+        "thread"
+      ],
+      "to": [
+        "action_item",
+        "channel",
+        "commit",
+        "customer",
+        "decision",
+        "document",
+        "folder",
+        "issue",
+        "person",
+        "project",
+        "pull_request",
+        "repo",
+        "system",
+        "team",
+        "thread"
+      ]
+    },
+    "owns": {
+      "from": [
+        "person",
+        "team"
+      ],
+      "to": [
+        "channel",
+        "document",
+        "folder",
+        "project",
+        "repo",
+        "system"
+      ]
+    },
+    "part_of": {
+      "from": [
+        "action_item",
+        "commit",
+        "decision",
+        "document",
+        "folder",
+        "issue",
+        "pull_request",
+        "system",
+        "thread"
+      ],
+      "to": [
+        "issue",
+        "project",
+        "system"
+      ]
+    },
+    "participated_in": {
+      "from": [
+        "person"
+      ],
+      "to": [
+        "channel",
+        "commit",
+        "document",
+        "folder",
+        "issue",
+        "pull_request",
+        "repo",
+        "thread"
+      ]
+    },
+    "references": {
+      "from": [
+        "channel",
+        "commit",
+        "document",
+        "folder",
+        "issue",
+        "pull_request",
+        "repo",
+        "thread"
+      ],
+      "to": [
+        "channel",
+        "commit",
+        "document",
+        "folder",
+        "issue",
+        "pull_request",
+        "repo",
+        "thread"
+      ]
+    },
+    "reviewed": {
+      "from": [
+        "person"
+      ],
+      "to": [
+        "document",
+        "pull_request"
+      ]
+    },
+    "supersedes": {
+      "from": [
+        "decision",
+        "document"
+      ],
+      "to": [
+        "decision",
+        "document"
+      ]
+    },
+    "works_on": {
+      "from": [
+        "person",
+        "team"
+      ],
+      "to": [
+        "project",
+        "system"
+      ]
+    }
+  }
 }

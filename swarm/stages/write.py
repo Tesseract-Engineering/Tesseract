@@ -4,6 +4,7 @@ write.py - records to JSONL part files, in the bucket layout.
     runs/{source}/{run_id}/items/part-00001.jsonl
     runs/{source}/{run_id}/extractions/part-00001.jsonl
     runs/{source}/{run_id}/changes/part-00001.jsonl      tombstones and acl_updates
+    runs/{source}/{run_id}/groups/part-00001.jsonl       group memberships
     runs/identity/{run_id}/identities/part-00001.jsonl
     raw/{source}/{run_id}/...                            redacted payloads, expire after 14 days
     state/{source}/...                                   what earlier complete runs wrote
@@ -25,6 +26,7 @@ from ..records import (
     FOLDER,
     AclUpdateRecord,
     ExtractionRecord,
+    GroupRecord,
     IdentityRecord,
     ItemRecord,
     TombstoneRecord,
@@ -75,7 +77,7 @@ class RunWriter:
         self.part_size = part_size
         self.prefix = run_prefix(source, run_id)
         self.files: list[str] = []
-        self.counts = {"items": 0, "extractions": 0, "changes": 0, "identities": 0, "rejected": 0}
+        self.counts = {"items": 0, "extractions": 0, "changes": 0, "groups": 0, "identities": 0, "rejected": 0}
         self.rejections: dict[str, int] = {}
         self._buffers: dict[str, list[str]] = {folder: [] for folder in set(FOLDER.values())}
         self._parts: dict[str, int] = {folder: 0 for folder in self._buffers}
@@ -86,6 +88,7 @@ class RunWriter:
         self.seen_extractions: set[str] = set(seen.get("extractions", []))
         self.seen_tombstones: set[str] = set(seen.get("tombstones", []))
         self.seen_identities: dict[str, str] = seen.get("identities", {})  # person_id -> cluster digest
+        self.seen_groups: dict[str, str] = seen.get("groups", {})          # group id -> members digest
 
     # -- state ------------------------------------------------------------ #
 
@@ -95,7 +98,8 @@ class RunWriter:
 
     def seen_state(self) -> dict[str, Any]:
         return {"items": self.seen_items, "extractions": sorted(self.seen_extractions),
-                "tombstones": sorted(self.seen_tombstones), "identities": self.seen_identities}
+                "tombstones": sorted(self.seen_tombstones), "identities": self.seen_identities,
+                "groups": self.seen_groups}
 
     def is_unchanged(self, item_id: str, content_hash: str) -> bool:
         """True when an earlier run already wrote this exact content, which is
@@ -129,7 +133,7 @@ class RunWriter:
         self.seen_extractions.add(key)
         return True
 
-    def add(self, record: TombstoneRecord | AclUpdateRecord | IdentityRecord) -> bool:
+    def add(self, record: TombstoneRecord | AclUpdateRecord | GroupRecord | IdentityRecord) -> bool:
         """Write a change or identity record unless an earlier run already
         said the same thing."""
         if isinstance(record, TombstoneRecord):
@@ -142,9 +146,15 @@ class RunWriter:
             if (seen and seen[1] == digest) or not self._once(("acl_update", record.id)):
                 return False
             self.seen_items[record.id] = [seen[0] if seen else "", digest]
+        elif isinstance(record, GroupRecord):
+            digest = _digest({"name": record.name, "members": sorted(record.members),
+                              "unresolved": record.unresolved})
+            if self.seen_groups.get(record.id) == digest or not self._once(("group", record.id)):
+                return False
+            self.seen_groups[record.id] = digest
         else:
             digest = _digest({"members": [m.model_dump(mode="json") for m in record.members],
-                              "method": record.method})
+                              "method": record.method, "merged_into": record.merged_into})
             if self.seen_identities.get(record.person_id) == digest or not self._once(("identity", record.person_id)):
                 return False
             self.seen_identities[record.person_id] = digest

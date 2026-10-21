@@ -54,7 +54,7 @@ def test_rerun_of_the_same_window_writes_nothing(tmp_path):
     run(store, "r1", items(3), changes=[tomb])
     _, second, outcomes = run(store, "r2", items(3), changes=[tomb.model_copy(update={"run_id": "r2"})])
     assert outcomes == ["unchanged"] * 3
-    assert second.counts == {"items": 0, "extractions": 0, "changes": 0, "identities": 0, "rejected": 0}
+    assert second.counts == {"items": 0, "extractions": 0, "changes": 0, "groups": 0, "identities": 0, "rejected": 0}
     assert second.files == []
 
 
@@ -69,6 +69,22 @@ def test_changed_content_is_a_new_item_and_moved_acl_is_an_acl_update(tmp_path):
     assert manifest.counts["items"] == 1 and manifest.counts["changes"] == 1
     change = parse_line(store.get("runs/github/r2/changes/part-00001.jsonl").decode().strip())
     assert change.record_type == "acl_update" and change.acl.visibility == "internal"
+
+
+def test_group_records_are_written_once_until_membership_moves(tmp_path):
+    from swarm.records import GroupRecord
+    store = LocalStore(tmp_path)
+
+    def group(run_id, members):
+        return GroupRecord(id="group:github:repo:7001:readers", source="github", members=members,
+                           observed_at=NOW, run_id=run_id)
+
+    counts = []
+    for run_id, members in (("r1", ["user:a@acme.com"]), ("r2", ["user:a@acme.com"]),
+                            ("r3", ["user:a@acme.com", "user:b@acme.com"])):
+        _, manifest, _ = run(store, run_id, [], changes=[group(run_id, members)])
+        counts.append(manifest.counts["groups"])
+    assert counts == [1, 0, 1]
 
 
 def test_duplicates_within_a_run_are_written_once(tmp_path):

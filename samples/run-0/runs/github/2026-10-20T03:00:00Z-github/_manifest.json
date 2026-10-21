@@ -9,10 +9,12 @@
     "items": 4,
     "extractions": 0,
     "changes": 0,
+    "groups": 1,
     "identities": 0,
     "rejected": 0
   },
   "files": [
+    "groups/part-00001.jsonl",
     "items/part-00001.jsonl"
   ],
   "extractor_versions": [],

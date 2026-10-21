@@ -6,19 +6,40 @@ change freely, and it changes only by versioned agreement with the graph
 engineer. These models are the contract in code; swarm/schemas/*.json is the
 same contract generated for the graph side (`python -m swarm.schema`).
 
-Five record types, one per line of a JSONL part file:
+Six record types, one per line of a JSONL part file:
 
   item         a normalized source object with its deterministic facts
   extraction   entities and relations the LLM inferred from one item version
   tombstone    an item no longer exists or is out of scope
   acl_update   an item's permissions changed with no content change
+  group        who is in a group that ACLs name
   identity     a cluster of source identities that are the same person
 
 plus the run manifest, written last, which is what makes a run readable.
 
 Every check here is mechanical. Nothing asks whether a fact is true, only
 whether it is well-formed: IDs match the ID formats, types are in the closed
-ontology, ACLs are present, and evidence points at real text.
+ontology, relations join the types they allow, ACLs are present, and evidence
+points at real text.
+
+Reading rules (the graph side's half of the contract; docs/SWARM.md):
+
+  1. Read a run only once _manifest.json exists with status complete, and
+     only the files it lists. Apply runs in run_id order, identity runs after
+     the source runs of the same night.
+  2. Newest content wins: of two item records with one id, the one with the
+     later updated_at (then the later fetched_at) is current. `version` says
+     whether two records are the same version, not which is newer.
+  3. Newest permissions win: an item's acl is the one from its latest item or
+     acl_update record, by fetched_at / observed_at. A group's members are
+     those of its latest group record, by observed_at.
+  4. A ref may point at an id not ingested yet; keep it and resolve it when
+     that item arrives. A tombstone or acl_update for an id never ingested is
+     a no-op.
+  5. A tombstone retires the item and every extraction with that item_id.
+  6. A source identity belongs to exactly one cluster: the one in the latest
+     identity record that lists it. A record with merged_into retires its
+     cluster.
 """
 
 from __future__ import annotations
@@ -43,10 +64,14 @@ Source = Literal["github", "jira", "slack", "gdrive"]
 ItemKind = Literal["repo", "commit", "pull_request", "issue", "thread", "channel", "document", "folder"]
 Visibility = Literal["public", "internal", "restricted"]
 
-# A principal names who may read: one user, one group, or a whole domain.
-# Source-native groups keep their source prefix, e.g.
-# "group:slack:T01:channel:C42" for a channel's members.
-PRINCIPAL_PATTERN = r"^(user|group|domain):\S+$"
+# A principal names who may read:
+#   user:{email}                one person, by the email they sign in with
+#   group:{source}:{immutable}  a source-native group, named by immutable ids
+#                               only; its members arrive as a group record
+#   domain:{domain}             everyone with an email in that domain
+USER_PRINCIPAL = r"user:[^@\s]+@[^@\s]+"
+GROUP_PRINCIPAL = r"group:(github|jira|slack|gdrive):\S+"
+PRINCIPAL_PATTERN = rf"^({USER_PRINCIPAL}|{GROUP_PRINCIPAL}|domain:[a-z0-9.-]+)$"
 CONTENT_HASH_PATTERN = r"^sha256:[0-9a-f]{64}$"
 
 
@@ -100,7 +125,7 @@ class Person(_Model):
     @field_validator("roles")
     @classmethod
     def _roles(cls, value: list[str]) -> list[str]:
-        unknown = set(value) - ontology.load().person_roles
+        unknown = set(value) - set(ontology.load().person_roles)
         if unknown:
             raise ValueError(f"unknown person roles {sorted(unknown)} (not in ontology.yaml)")
         return value
@@ -138,7 +163,11 @@ class Redaction(_Model):
 
 
 class Span(_Model):
-    """A quoted span of an item's text: text[start:end] == quote."""
+    """A quoted span of an item's text: text[start:end] == quote.
+
+    Offsets count Unicode code points (Python str indexing), not UTF-16 code
+    units or bytes. A JavaScript reader converts with Array.from(text).
+    """
     start: int = Field(ge=0)
     end: int = Field(ge=0)
     quote: str = Field(min_length=1)
@@ -190,7 +219,8 @@ class ItemRecord(_Record):
     url: str
     created_at: AwareDatetime
     updated_at: AwareDatetime
-    version: str = Field(min_length=1, description="Source version marker: updated_at, revision id or edit ts")
+    version: str = Field(min_length=1, description="Source version marker: updated_at, revision id or edit ts. "
+                                                    "Equality only; order versions by updated_at")
     content_hash: str = Field(pattern=CONTENT_HASH_PATTERN)
     people: list[Person] = Field(default_factory=list)
     refs: list[Ref] = Field(default_factory=list)
@@ -213,6 +243,12 @@ class ItemRecord(_Record):
     def _consistent(self) -> ItemRecord:
         if not self.id.startswith(f"{self.source}:"):
             raise ValueError(f"item id {self.id!r} does not belong to source {self.source!r}")
+        onto = ontology.load()
+        for ref in self.refs:
+            if ref.type == "part_of" and ref.target == self.container:
+                raise ValueError("the container goes in `container` only, not also as a part_of ref")
+            if not onto.allows(ref.type, {self.kind}, ids.entity_types(ref.target)):
+                raise ValueError(f"{ref.type} cannot run from a {self.kind} to {ref.target!r} (ontology.yaml)")
         expected = content_hash(title=self.title, text=self.text, container=self.container,
                                 people=self.people, refs=self.refs, meta=self.meta)
         if self.content_hash != expected:
@@ -275,13 +311,21 @@ class ExtractionRecord(_Record):
 
     @model_validator(mode="after")
     def _endpoints(self) -> ExtractionRecord:
-        local = [e.local_id for e in self.entities]
-        if len(local) != len(set(local)):
+        local = {e.local_id: e.type for e in self.entities}
+        if len(local) != len(self.entities):
             raise ValueError("entity local_ids must be unique within a record")
+        onto = ontology.load()
+
+        def types_of(end: str) -> frozenset[str]:
+            if end in local:
+                return frozenset({local[end]})
+            if not ids.is_valid(end):
+                raise ValueError(f"relation endpoint {end!r} is neither a local_id here nor a valid ID")
+            return ids.entity_types(end)
+
         for rel in self.relations:
-            for end in (rel.source, rel.target):
-                if end not in local and not ids.is_valid(end):
-                    raise ValueError(f"relation endpoint {end!r} is neither a local_id here nor a valid ID")
+            if not onto.allows(rel.type, types_of(rel.source), types_of(rel.target)):
+                raise ValueError(f"{rel.type} cannot run from {rel.source!r} to {rel.target!r} (ontology.yaml)")
         return self
 
 
@@ -312,37 +356,79 @@ class AclUpdateRecord(_Record):
 
 
 class IdentityMember(_Model):
+    id: str = Field(description="person:{source}:{handle}, as on item records")
     source: Source
     handle: str
     email: str | None = None
     name: str | None = None
 
+    @model_validator(mode="after")
+    def _id_matches(self) -> IdentityMember:
+        if self.id != ids.person(self.source, self.handle):
+            raise ValueError(f"member id {self.id!r} must be {ids.person(self.source, self.handle)!r}")
+        return self
+
 
 class IdentityRecord(_Record):
     record_type: Literal["identity"] = "identity"
     person_id: str = Field(description="person:c:{cluster_hash}, stable across runs")
-    members: list[IdentityMember] = Field(min_length=1)
+    members: list[IdentityMember] = Field(default_factory=list)
     method: Literal["email", "llm", "manual"]
     confidence: float = Field(ge=0.0, le=1.0)
     evidence: str = ""
+    merged_into: str | None = Field(default=None, description="Set when this cluster was merged into another; "
+                                                              "the cluster is retired and lists no members")
 
-    @field_validator("person_id")
+    @field_validator("person_id", "merged_into")
     @classmethod
-    def _person_id(cls, value: str) -> str:
-        if ids.kind_of(value) != "person_cluster":
-            raise ValueError(f"person_id {value!r} must be person:c:{{cluster_hash}}")
+    def _person_id(cls, value: str | None) -> str | None:
+        if value is not None and ids.kind_of(value) != "person_cluster":
+            raise ValueError(f"{value!r} must be person:c:{{cluster_hash}}")
         return value
+
+    @model_validator(mode="after")
+    def _members_or_merged(self) -> IdentityRecord:
+        if self.merged_into is None and not self.members:
+            raise ValueError("an identity record lists members unless it is merged_into another cluster")
+        if self.merged_into is not None and self.members:
+            raise ValueError("a merged cluster lists no members; they appear on the surviving cluster")
+        if self.merged_into == self.person_id:
+            raise ValueError("a cluster cannot be merged into itself")
+        return self
+
+
+class GroupRecord(_Record):
+    """Who is in a group that item ACLs name. The graph side checks a viewer
+    against an item by expanding its group principals through these."""
+    record_type: Literal["group"] = "group"
+    id: str = Field(pattern=rf"^{GROUP_PRINCIPAL}$", description="The group principal, e.g. "
+                    "group:slack:T01ACME:channel:C42AUTH:members")
+    source: Source
+    name: str = Field(default="", description="Display name; mutable, never used for matching")
+    members: list[Annotated[str, Field(pattern=rf"^({USER_PRINCIPAL}|{GROUP_PRINCIPAL})$")]] = Field(
+        default_factory=list, description="Users and nested groups. Members with no known email are left out "
+                                          "and counted in unresolved")
+    unresolved: int = Field(default=0, ge=0, description="Members the source listed without an email")
+    observed_at: AwareDatetime
+
+    @model_validator(mode="after")
+    def _own_source(self) -> GroupRecord:
+        if not self.id.startswith(f"group:{self.source}:"):
+            raise ValueError(f"group {self.id!r} does not belong to source {self.source!r}")
+        if self.id in self.members:
+            raise ValueError("a group cannot contain itself")
+        return self
 
 
 Record = Annotated[
-    Union[ItemRecord, ExtractionRecord, TombstoneRecord, AclUpdateRecord, IdentityRecord],
+    Union[ItemRecord, ExtractionRecord, TombstoneRecord, AclUpdateRecord, GroupRecord, IdentityRecord],
     Field(discriminator="record_type"),
 ]
 RECORD_ADAPTER: TypeAdapter[Record] = TypeAdapter(Record)
 
 # Which part folder each record type is written under.
 FOLDER = {"item": "items", "extraction": "extractions", "tombstone": "changes",
-          "acl_update": "changes", "identity": "identities"}
+          "acl_update": "changes", "group": "groups", "identity": "identities"}
 
 
 def parse_line(line: str) -> Record:
@@ -372,7 +458,7 @@ class Manifest(_Model):
     status: Literal["complete"] = "complete"
     started_at: AwareDatetime
     finished_at: AwareDatetime
-    counts: dict[Literal["items", "extractions", "changes", "identities", "rejected"], int]
+    counts: dict[Literal["items", "extractions", "changes", "groups", "identities", "rejected"], int]
     files: list[str] = Field(description="Part files of this run, relative to runs/{source}/{run_id}/")
     extractor_versions: list[str] = Field(default_factory=list)
     llm_budget_hit: bool = False

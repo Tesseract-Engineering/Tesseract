@@ -20,6 +20,7 @@ from . import ontology
 from .records import (
     AclUpdateRecord,
     ExtractionRecord,
+    GroupRecord,
     IdentityRecord,
     ItemRecord,
     Manifest,
@@ -33,6 +34,7 @@ MODELS = {
     "extraction": ExtractionRecord,
     "tombstone": TombstoneRecord,
     "acl_update": AclUpdateRecord,
+    "group": GroupRecord,
     "identity": IdentityRecord,
     "manifest": Manifest,
 }
@@ -43,7 +45,7 @@ def _with_vocabulary(name: str, schema: dict[str, Any]) -> dict[str, Any]:
     defs = schema.get("$defs", {})
     enums = {
         ("Ref", "type"): onto.deterministic_relations,
-        ("Person", "roles"): onto.person_roles,
+        ("Person", "roles"): set(onto.person_roles),
         ("Entity", "type"): onto.llm_entities,
         ("Relation", "type"): onto.llm_relations,
     }
@@ -53,6 +55,12 @@ def _with_vocabulary(name: str, schema: dict[str, Any]) -> dict[str, Any]:
             continue
         target = prop["items"] if prop.get("type") == "array" else prop
         target["enum"] = sorted(values)
+    if name in {"item", "extraction"}:
+        # Which entity types each relation may join, and what each person role
+        # means, so the graph side can type its edges without the YAML.
+        schema["x-relations"] = {r: {"from": sorted(f), "to": sorted(t)} for r, (f, t) in sorted(onto.endpoints.items())}
+    if name == "item":
+        schema["x-person-roles"] = dict(sorted(onto.person_roles.items()))
     schema["$id"] = f"{name}.json"
     schema["x-ontology-version"] = onto.version
     return schema

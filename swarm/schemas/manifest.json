@@ -33,6 +33,7 @@
           "items",
           "extractions",
           "changes",
+          "groups",
           "identities",
           "rejected"
         ]

@@ -11,6 +11,9 @@
 #
 # `item_backed` entity types exist one per item or container. The LLM never
 # produces them, which keeps the graph's skeleton exact.
+#
+# Every relation names the entity types it may start and end at (`from`, `to`).
+# The validator refuses a ref or an extracted relation outside them.
 
 version: 1
 
@@ -31,23 +34,109 @@ entities:
   action_item:   {origin: llm}
   customer:      {origin: llm, description: "An external account named in tickets or threads"}
 
-relations:
-  authored:      {origin: deterministic, description: "Person created the item"}
-  assigned_to:   {origin: both, description: "Item or action item is owned by a person"}
-  reviewed:      {origin: deterministic, description: "Person reviewed a PR or approved a doc"}
-  mentions:      {origin: both, description: "Item mentions a person or entity"}
-  references:    {origin: deterministic, description: "Item links to another item"}
-  implements:    {origin: deterministic, description: "PR or commit implements an issue"}
-  closes:        {origin: deterministic, description: "PR closes an issue"}
-  part_of:       {origin: both, description: "Item or entity belongs to a project, epic or container"}
-  member_of:     {origin: both, description: "Person belongs to a team"}
-  owns:          {origin: llm, description: "Person or team owns a system, project or repo"}
-  works_on:      {origin: llm, description: "Person is actively working on a project"}
-  decided_by:    {origin: llm, description: "Decision was made by a person or team"}
-  decided_in:    {origin: llm, description: "Decision was made in this item"}
-  supersedes:    {origin: llm, description: "A decision or document replaces an earlier one"}
-  depends_on:    {origin: both, description: "Project, system or issue depends on another"}
-  blocks:        {origin: deterministic, description: "Issue blocks another"}
+x-sets:
+  items: &items [repo, commit, pull_request, issue, thread, channel, document, folder]
+  anything: &anything [person, repo, commit, pull_request, issue, thread, channel, document, folder,
+                       team, project, decision, system, action_item, customer]
 
-# Roles a person can hold on an item record's `people` list.
-person_roles: [author, assignee, reporter, reviewer, commenter, participant, mentioned, owner]
+relations:
+  authored:
+    origin: deterministic
+    description: "Person created the item"
+    from: [person]
+    to: *items
+  assigned_to:
+    origin: both
+    description: "Item or action item is owned by a person"
+    from: [issue, pull_request, action_item]
+    to: [person]
+  reviewed:
+    origin: deterministic
+    description: "Person reviewed a PR or approved a doc"
+    from: [person]
+    to: [pull_request, document]
+  participated_in:
+    origin: deterministic
+    description: "Person commented on or took part in the item without authoring it"
+    from: [person]
+    to: *items
+  mentions:
+    origin: both
+    description: "Item mentions a person or entity"
+    from: *items
+    to: *anything
+  references:
+    origin: deterministic
+    description: "Item links to another item"
+    from: *items
+    to: *items
+  implements:
+    origin: deterministic
+    description: "PR or commit implements an issue"
+    from: [pull_request, commit]
+    to: [issue]
+  closes:
+    origin: deterministic
+    description: "PR closes an issue"
+    from: [pull_request]
+    to: [issue]
+  part_of:
+    origin: both
+    description: >-
+      Item or entity belongs to a project or epic. An item's structural parent
+      is its `container` field, never a part_of ref.
+    from: [commit, pull_request, issue, thread, document, folder, decision, action_item, system]
+    to: [project, issue, system]
+  member_of:
+    origin: both
+    description: "Person belongs to a team"
+    from: [person]
+    to: [team]
+  owns:
+    origin: both
+    description: "Person or team owns a system, project, repo or document"
+    from: [person, team]
+    to: [system, project, repo, document, folder, channel]
+  works_on:
+    origin: llm
+    description: "Person is actively working on a project"
+    from: [person, team]
+    to: [project, system]
+  decided_by:
+    origin: llm
+    description: "Decision was made by a person or team"
+    from: [decision]
+    to: [person, team]
+  decided_in:
+    origin: llm
+    description: "Decision was made in this item"
+    from: [decision]
+    to: *items
+  supersedes:
+    origin: llm
+    description: "A decision or document replaces an earlier one"
+    from: [decision, document]
+    to: [decision, document]
+  depends_on:
+    origin: both
+    description: "Project, system or issue depends on another"
+    from: [project, system, issue]
+    to: [project, system, issue]
+  blocks:
+    origin: deterministic
+    description: "Issue blocks another"
+    from: [issue]
+    to: [issue]
+
+# Roles a person can hold on an item record's `people` list, and the relation
+# each role means. Direction follows the relation's from/to: `assignee` and
+# `mentioned` run item -> person, the rest person -> item.
+person_roles:
+  author:      authored
+  reporter:    authored
+  reviewer:    reviewed
+  assignee:    assigned_to
+  commenter:   participated_in
+  participant: participated_in
+  mentioned:   mentions
+  owner:       owns

@@ -12,6 +12,7 @@ from swarm.records import (
     Entity,
     ExtractionRecord,
     Extractor,
+    GroupRecord,
     IdentityMember,
     IdentityRecord,
     ItemRecord,
@@ -45,15 +46,15 @@ def make_item(**overrides) -> ItemRecord:
 def test_ontology_matches_the_design_doc():
     onto = ontology.load()
     assert onto.version == 1
-    assert len(onto.entities) == 15 and len(onto.relations) == 16
+    assert len(onto.entities) == 15 and len(onto.relations) == 17
     assert onto.item_backed == {"repo", "commit", "pull_request", "issue", "thread", "channel", "document", "folder"}
     assert onto.llm_entities == {"team", "project", "decision", "system", "action_item", "customer"}
-    assert onto.relations - onto.deterministic_relations == {"owns", "works_on", "decided_by", "decided_in",
-                                                             "supersedes"}
+    assert onto.relations - onto.deterministic_relations == {"works_on", "decided_by", "decided_in", "supersedes"}
+    assert onto.person_roles["reviewer"] == "reviewed" and onto.person_roles["commenter"] == "participated_in"
 
 
 def test_item_round_trips_through_a_jsonl_line():
-    item = make_item(refs=[Ref(type="closes", target=ids.github_issue(7001, 2), via="closing_keyword")])
+    item = make_item(refs=[Ref(type="blocks", target=ids.github_issue(7001, 2), via="field")])
     assert parse_line(dump_line(item)) == item
 
 
@@ -88,7 +89,7 @@ def test_ids_must_match_the_formats_and_the_source():
 
 def test_refs_are_deterministic_relations_only():
     with pytest.raises(ValidationError, match="LLM-only"):
-        Ref(type="owns", target=REPO, via="field")
+        Ref(type="decided_in", target=REPO, via="field")
     with pytest.raises(ValidationError, match="not in ontology"):
         Ref(type="relates_to", target=REPO, via="field")
 
@@ -128,15 +129,72 @@ def test_span_length_matches_quote():
 
 
 def test_identity_and_change_records():
-    IdentityRecord(run_id="r", person_id="person:c:7f3a91", method="email", confidence=1.0,
-                   members=[IdentityMember(source="slack", handle="U1")])
+    member = IdentityMember(id="person:slack:U1", source="slack", handle="U1")
+    IdentityRecord(run_id="r", person_id="person:c:7f3a91", method="email", confidence=1.0, members=[member])
     with pytest.raises(ValidationError, match="person:c:"):
-        IdentityRecord(run_id="r", person_id="person:slack:U1", method="email", confidence=1.0,
-                       members=[IdentityMember(source="slack", handle="U1")])
+        IdentityRecord(run_id="r", person_id="person:slack:U1", method="email", confidence=1.0, members=[member])
     line = '{"schema_version": "2", "record_type": "acl_update", "id": "gdrive:file:1AbC", "source": "gdrive", ' \
            '"acl": {"visibility": "restricted", "principals": ["user:sam@acme.com"]}, ' \
            '"observed_at": "2026-10-25T03:12:00Z", "run_id": "x"}'
     assert isinstance(parse_line(line), AclUpdateRecord)
+
+
+def test_refs_must_join_the_types_the_ontology_allows():
+    pr = dict(id=ids.github_pr(7001, 5), kind="pull_request")
+    make_item(**pr, refs=[Ref(type="closes", target=ids.github_issue(7001, 2), via="closing_keyword")])
+    with pytest.raises(ValidationError, match="closes cannot run from a commit"):
+        make_item(id=ids.github_commit(7001, "abc1234"), kind="commit",
+                  refs=[Ref(type="closes", target=ids.github_issue(7001, 2), via="closing_keyword")])
+    with pytest.raises(ValidationError, match="implements cannot run"):
+        make_item(**pr, refs=[Ref(type="implements", target=ids.github_pr(7001, 6), via="key")])
+    # A Drive id may be a document or a folder; either reading is enough.
+    make_item(**pr, refs=[Ref(type="references", target=ids.gdrive_file("1AbC"), via="url")])
+    with pytest.raises(ValidationError, match="cannot run"):
+        make_item(**pr, refs=[Ref(type="references", target=ids.jira_project("acme", 1), via="url")])
+
+
+def test_container_is_not_repeated_as_a_part_of_ref():
+    with pytest.raises(ValidationError, match="container goes in"):
+        make_item(refs=[Ref(type="part_of", target=REPO, via="field")])
+
+
+def test_extracted_relations_must_join_allowed_types():
+    span = Span(start=0, end=4, quote="body")
+    common = dict(run_id="r1", item_id=ids.github_issue(7001, 1), item_version="v1", source="github",
+                  extractor=Extractor(model="m", prompt_version="p1"), extracted_at=NOW,
+                  entities=[Entity(local_id="e1", type="decision", name="d", evidence=[span])])
+    ExtractionRecord(**common, relations=[
+        Relation(type="decided_by", source="e1", target="person:github:slee", confidence=0.9, evidence=[span])])
+    with pytest.raises(ValidationError, match="decided_by cannot run"):
+        ExtractionRecord(**common, relations=[
+            Relation(type="decided_by", source="e1", target=ids.github_issue(7001, 1), confidence=0.9,
+                     evidence=[span])])
+
+
+def test_identity_member_ids_and_merges():
+    with pytest.raises(ValidationError, match="member id"):
+        IdentityMember(id="person:slack:U2", source="slack", handle="U1")
+    IdentityRecord(run_id="r", person_id="person:c:aaaaaa", merged_into="person:c:7f3a91",
+                   method="llm", confidence=0.9)
+    with pytest.raises(ValidationError, match="lists members unless"):
+        IdentityRecord(run_id="r", person_id="person:c:aaaaaa", method="llm", confidence=0.9)
+    with pytest.raises(ValidationError, match="lists no members"):
+        IdentityRecord(run_id="r", person_id="person:c:aaaaaa", merged_into="person:c:7f3a91",
+                       method="llm", confidence=0.9,
+                       members=[IdentityMember(id="person:slack:U1", source="slack", handle="U1")])
+
+
+def test_group_records():
+    GroupRecord(run_id="r", id="group:slack:T01:channel:C42:members", source="slack",
+                members=["user:sam@acme.com", "group:slack:T01:usergroup:S9"], observed_at=NOW)
+    with pytest.raises(ValidationError, match="does not belong"):
+        GroupRecord(run_id="r", id="group:slack:T01:channel:C42:members", source="github", observed_at=NOW)
+    with pytest.raises(ValidationError):
+        GroupRecord(run_id="r", id="group:slack:T01:channel:C42:members", source="slack",
+                    members=["U123SAM"], observed_at=NOW)          # a bare handle is not a principal
+    with pytest.raises(ValidationError, match="contain itself"):
+        GroupRecord(run_id="r", id="group:slack:T01:channel:C42:members", source="slack",
+                    members=["group:slack:T01:channel:C42:members"], observed_at=NOW)
 
 
 def test_unknown_fields_and_versions_are_refused():

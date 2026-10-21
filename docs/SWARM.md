@@ -153,7 +153,7 @@ Slack has two connectors behind the same interface: `SlackExportConnector` for t
 
 ## Record schema v2
 
-The swarm emits five record types. `item` and `extraction` are approved; `tombstone`, `acl_update` and `identity` extend the same contract and need the graph engineer's sign-off before Phase 4.
+The swarm emits six record types. `item` and `extraction` are approved; `tombstone`, `acl_update`, `group` and `identity` extend the same contract and need the graph engineer's sign-off before Phase 4.
 
 | Record type | Written by | What it says |
 | --- | --- | --- |
@@ -161,6 +161,7 @@ The swarm emits five record types. `item` and `extraction` are approved; `tombst
 | `extraction` | LLM step | Entities and relations inferred from one item version, with confidence and evidence spans |
 | `tombstone` | Reconciliation | An item no longer exists or is out of scope: `deleted`, `out_of_scope` or `access_revoked` |
 | `acl_update` | Reconciliation and nightly runs | An item's permissions changed with no content change |
+| `group` | Source pipelines | Who is in a group that item ACLs name, so the graph side can check a viewer against an item |
 | `identity` | Identity pass | A cluster of source identities that are the same person, with method and confidence |
 
 **Item and extraction records** follow the approved v2 shape: stable `id` from immutable source IDs, `aliases`, `kind`, `source`, `container`, `title`, `text`, `url`, `created_at`, `updated_at`, `version`, `content_hash`, `people` with roles, typed `refs` with `via`, `meta`, structured `acl`, `redactions`, `run_id`, `fetched_at`. Extractions carry `item_id`, `item_version`, `extractor` (model and prompt version), entities with `local_id`, relations and evidence.
@@ -170,7 +171,8 @@ The swarm emits five record types. `item` and `extraction` are approved; `tombst
 ```json
 {"schema_version": "2", "record_type": "tombstone", "id": "slack:T01:thread:C42:1729450000.1234", "source": "slack", "reason": "deleted", "detected_at": "2026-10-25T03:10:00Z", "run_id": "..."}
 {"schema_version": "2", "record_type": "acl_update", "id": "gdrive:file:1AbC", "source": "gdrive", "acl": {"visibility": "restricted", "principals": ["user:sam@acme.com"]}, "observed_at": "2026-10-25T03:12:00Z", "run_id": "..."}
-{"schema_version": "2", "record_type": "identity", "person_id": "person:c:7f3a91", "members": [{"source": "slack", "handle": "U123", "email": "sam@acme.com"}, {"source": "github", "handle": "slee", "email": null}], "method": "llm", "confidence": 0.82, "evidence": "GitHub profile name and commit email match Slack display name", "run_id": "..."}
+{"schema_version": "2", "record_type": "group", "id": "group:slack:T01:channel:C42:members", "source": "slack", "name": "#eng-auth members", "members": ["user:sam@acme.com", "user:priya@acme.com"], "unresolved": 0, "observed_at": "2026-10-25T03:00:20Z", "run_id": "..."}
+{"schema_version": "2", "record_type": "identity", "person_id": "person:c:7f3a91", "members": [{"id": "person:slack:U123", "source": "slack", "handle": "U123", "email": "sam@acme.com"}, {"id": "person:github:slee", "source": "github", "handle": "slee", "email": null}], "method": "llm", "confidence": 0.82, "evidence": "GitHub profile name and commit email match Slack display name", "run_id": "..."}
 ```
 
 **ID formats.** Every `id` and every ref `target` use these patterns, so the linker can match references by string.
@@ -194,11 +196,32 @@ The swarm emits five record types. `item` and `extraction` are approved; `tombst
 runs/{source}/{run_id}/items/part-00001.jsonl
 runs/{source}/{run_id}/extractions/part-00001.jsonl
 runs/{source}/{run_id}/changes/part-00001.jsonl      # tombstones and acl_updates
+runs/{source}/{run_id}/groups/part-00001.jsonl       # group memberships
 runs/{source}/{run_id}/_manifest.json                # written last
 runs/identity/{run_id}/identities/part-00001.jsonl
 raw/{source}/{run_id}/...                            # redacted payloads, expire after 14 days
 state/{source}/checkpoints.json
 ```
+
+**ACL principals.** An item's `acl` names who may read it, as principals of three kinds:
+
+| Principal | Means | Example |
+| --- | --- | --- |
+| `user:{email}` | One person, by the email they sign in with | `user:sam@acme.com` |
+| `group:{source}:{immutable ids}` | A source-native group; its members arrive as a `group` record | `group:slack:T01:channel:C42:members` |
+| `domain:{domain}` | Everyone with an email in that domain | `domain:acme.com` |
+
+Group names use immutable IDs only, never a repo or org slug. Group members are users or nested groups; members the source lists without an email are left out and counted in `unresolved`.
+
+**Reading rules.** The graph side's half of the contract:
+
+1. Read a run only once `_manifest.json` exists with `status: complete`, and only the files it lists. Apply runs in `run_id` order, identity runs after the same night's source runs.
+2. Newest content wins: of two item records with one `id`, the one with the later `updated_at` (then `fetched_at`) is current. `version` says whether two records are the same version, not which is newer.
+3. Newest permissions win: an item's ACL comes from its latest `item` or `acl_update`, by `fetched_at` or `observed_at`. A group's members come from its latest `group` record.
+4. A ref may point at an ID not ingested yet: keep it and resolve it when that item arrives. A `tombstone` or `acl_update` for an ID never ingested is a no-op.
+5. A `tombstone` retires the item and every extraction with that `item_id`.
+6. A source identity belongs to exactly one cluster: the one in the latest `identity` record that lists it. A record with `merged_into` retires its cluster.
+7. Evidence span offsets count Unicode code points.
 
 **Run manifest.** The graph side reads a run only once its manifest exists and `status` is `complete`.
 
@@ -232,13 +255,14 @@ The vocabulary is closed: extractors may only emit the types below, and anything
 | `authored` | Person created the item | Deterministic |
 | `assigned_to` | Item or action item is owned by a person | Deterministic (Jira), LLM (action items) |
 | `reviewed` | Person reviewed a PR or approved a doc | Deterministic |
+| `participated_in` | Person commented on or took part in an item without authoring it | Deterministic |
 | `mentions` | Item mentions a person or entity | Deterministic, LLM |
 | `references` | Item links to another item | Deterministic (URLs, keys) |
 | `implements` | PR or commit implements an issue | Deterministic (fields, closing keywords) |
 | `closes` | PR closes an issue | Deterministic |
-| `part_of` | Item or entity belongs to a project, epic or container | Deterministic, LLM |
+| `part_of` | Item or entity belongs to a project or epic; an item's container is its `container` field instead | Deterministic, LLM |
 | `member_of` | Person belongs to a team | Deterministic (groups), LLM |
-| `owns` | Person or team owns a system, project or repo | LLM |
+| `owns` | Person or team owns a system, project, repo or document | Deterministic (owner fields), LLM |
 | `works_on` | Person is actively working on a project | LLM |
 | `decided_by` | Decision was made by a person or team | LLM |
 | `decided_in` | Decision was made in this item | LLM |
@@ -246,7 +270,9 @@ The vocabulary is closed: extractors may only emit the types below, and anything
 | `depends_on` | Project, system or issue depends on another | Deterministic (Jira links), LLM |
 | `blocks` | Issue blocks another | Deterministic (Jira links) |
 
-Deterministic relations are written on the `item` record as `refs` or `people`; LLM relations go in `extraction` records. Item-backed entity types are never produced by the LLM, which keeps the graph's skeleton exact.
+Deterministic relations are written on the `item` record as `refs` or `people`; LLM relations go in `extraction` records. Item-backed entity types are never produced by the LLM, which keeps the graph's skeleton exact. Each relation lists the entity types it may join (`from`, `to` in `ontology.yaml`, copied into the schemas as `x-relations`), and the validator refuses anything outside them.
+
+**Person roles.** Each role on an item's `people` list means one relation: `author` and `reporter` mean `authored`, `reviewer` means `reviewed`, `assignee` means `assigned_to`, `commenter` and `participant` mean `participated_in`, `mentioned` means `mentions`, and `owner` means `owns`.
 
 ## Pipeline stages
 
@@ -411,7 +437,7 @@ Each diamond is the phase's exit gate; the next phase starts only when its gate 
 ### Phase 0: Contracts and skeleton
 
 - [ ] `ontology.yaml` v1 with the entity and relation lists, signed off by the graph engineer (written; awaiting sign-off)
-- [x] Pydantic models and JSON Schema for all five record types and the manifest
+- [x] Pydantic models and JSON Schema for all six record types and the manifest
 - [x] Repo skeleton: `Connector` and `Normalizer` interfaces, shared redact, ACL, write and manifest stages
 - [x] Docker Compose with MinIO, an internal network and an egress allowlist (RustFS stands in for MinIO; see below)
 - [ ] Hand-written sample run that the graph engineer ingests (`samples/run-0/` written; awaiting ingest)

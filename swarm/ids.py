@@ -29,6 +29,30 @@ PATTERNS: dict[str, re.Pattern[str]] = {
 }
 
 
+# ID kind -> the ontology entity types an object with that ID can be. A Drive
+# id names a document or a folder; the ID alone does not say which. A Jira
+# project is a container only, never a relation endpoint.
+ENTITY_TYPES: dict[str, frozenset[str]] = {
+    "github_repo":    frozenset({"repo"}),
+    "github_pr":      frozenset({"pull_request"}),
+    "github_issue":   frozenset({"issue"}),
+    "github_commit":  frozenset({"commit"}),
+    "jira_issue":     frozenset({"issue"}),
+    "jira_project":   frozenset(),
+    "slack_channel":  frozenset({"channel"}),
+    "slack_thread":   frozenset({"thread"}),
+    "gdrive_file":    frozenset({"document", "folder"}),
+    "person_source":  frozenset({"person"}),
+    "person_cluster": frozenset({"person"}),
+}
+
+
+def entity_types(value: str) -> frozenset[str]:
+    """What an ID can point at, for checking relation endpoints."""
+    kind = kind_of(value)
+    return ENTITY_TYPES[kind] if kind else frozenset()
+
+
 def kind_of(value: str) -> str | None:
     """The ID kind `value` matches, or None if it matches no pattern."""
     for kind, pattern in PATTERNS.items():

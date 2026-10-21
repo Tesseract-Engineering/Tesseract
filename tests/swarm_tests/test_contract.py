@@ -33,7 +33,7 @@ def test_sample_lines_validate(line):
 
 def test_sample_has_every_record_type_and_complete_manifests():
     kinds = {parse_line(line.values[0]).record_type for line in sample_lines()}
-    assert kinds == {"item", "extraction", "tombstone", "acl_update", "identity"}
+    assert kinds == {"item", "extraction", "tombstone", "acl_update", "group", "identity"}
     runs = [p for p in SAMPLE.glob("*/*") if p.is_dir()]
     assert len(runs) == 3
     for run in runs:
