@@ -219,11 +219,9 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# Tesseract
+# Local
 var/
 .DS_Store
-node_modules/
-ui/dist/
 
 # swarm local dev (docs/SWARM.md): real source data and the dev bucket's files
 /data/

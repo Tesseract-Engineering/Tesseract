@@ -393,13 +393,12 @@ Each phase is blocked until someone with the right role grants access. Request t
 
 ## In this repo
 
-The swarm lives next to the graph code, not inside it. Several of its terms already mean something else here:
+This branch holds the swarm alone. The earlier graph, API and UI code lives on the `hackathon` branch, and nothing here imports it. Two swarm terms also exist there with other meanings:
 
-| Swarm term | Where it lives | Existing term it is not |
+| Swarm term | Where it lives | Same word on `hackathon` |
 | --- | --- | --- |
 | `Connector` (live source fetcher) | `swarm/interfaces.py` | `tesseract/connectors.py`, the export file readers |
 | Ontology, record contract | `ontology.yaml`, `swarm/records.py` | `tesseract/contract.py`, the graph's own node and edge types |
-| Compose stack | `swarm/compose.yaml` | `compose.yaml`, the graph, API and UI stack |
 
 ```
 ontology.yaml          the closed vocabulary, v1
