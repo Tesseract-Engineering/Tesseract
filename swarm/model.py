@@ -120,7 +120,9 @@ def _call(create, **kwargs) -> Any:
 
 class ClaudeApi:
     """The Anthropic API. Credentials resolve the SDK's usual way
-    (ANTHROPIC_API_KEY in .env for local dev); HTTPS_PROXY is honored."""
+    (ANTHROPIC_API_KEY in .env for local dev); HTTPS_PROXY is honored. A key
+    not scoped to one workspace needs ANTHROPIC_WORKSPACE_ID, sent on every
+    request as the anthropic-workspace-id header."""
 
     def __init__(self, model: str = DEFAULT_MODEL, *, effort: str = DEFAULT_EFFORT, batch: bool = True,
                  client: Any = None):
@@ -129,7 +131,9 @@ class ClaudeApi:
         self.name = model
         self.effort = effort
         self.batch = batch
-        self.client = client or anthropic.Anthropic()
+        workspace = os.environ.get("ANTHROPIC_WORKSPACE_ID", "").strip()
+        self.client = client or anthropic.Anthropic(
+            default_headers={"anthropic-workspace-id": workspace} if workspace else None)
 
     def extract(self, system: str, text: str, schema: dict[str, Any]) -> Completion:
         return _completion(_call(self.client.beta.messages.create, betas=[FALLBACK_BETA], fallbacks="default",

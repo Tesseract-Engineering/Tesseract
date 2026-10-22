@@ -560,3 +560,11 @@ def test_batching_follows_the_environment(monkeypatch):
     monkeypatch.setenv("SWARM_MODEL_BATCH", "maybe")
     with pytest.raises(SystemExit):
         model_mod.from_env()
+
+
+def test_a_workspace_id_goes_on_every_request(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-used")
+    monkeypatch.delenv("ANTHROPIC_WORKSPACE_ID", raising=False)
+    assert "anthropic-workspace-id" not in ClaudeApi().client.default_headers
+    monkeypatch.setenv("ANTHROPIC_WORKSPACE_ID", "wrkspc_test")
+    assert ClaudeApi().client.default_headers["anthropic-workspace-id"] == "wrkspc_test"
