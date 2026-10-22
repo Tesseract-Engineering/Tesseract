@@ -7,7 +7,8 @@ write.py - records to JSONL part files, in the bucket layout.
     runs/{source}/{run_id}/groups/part-00001.jsonl       group memberships
     runs/identity/{run_id}/identities/part-00001.jsonl
     raw/{source}/{run_id}/...                            redacted payloads, expire after 14 days
-    state/{source}/...                                   what earlier complete runs wrote
+    state/{source}/...                                   what earlier complete runs wrote, and
+                                                         the extraction backlog
 
 A writer only ever touches its own source's prefixes. It is idempotent: an
 item whose content_hash matches what an earlier complete run wrote is
@@ -60,8 +61,8 @@ def _acl_digest(item: ItemRecord) -> str:
     return _digest(item.acl.model_dump(mode="json"))
 
 
-def _extraction_key(record: ExtractionRecord) -> str:
-    return f"{record.item_id}@{record.item_version}#{record.extractor.prompt_version}"
+def _extraction_key(item_id: str, item_version: str, prompt_version: str) -> str:
+    return f"{item_id}@{item_version}#{prompt_version}"
 
 
 class RunWriter:
@@ -90,6 +91,9 @@ class RunWriter:
         self.seen_tombstones: set[str] = set(seen.get("tombstones", []))
         self.seen_identities: dict[str, str] = seen.get("identities", {})  # person_id -> cluster digest
         self.seen_groups: dict[str, str] = seen.get("groups", {})          # group id -> members digest
+        # Items due an extraction that did not get one (over budget, model
+        # down): item id -> the item record as JSON. See extract.py.
+        self.backlog: dict[str, str] = self._load_state("backlog", {})
 
     # -- state ------------------------------------------------------------ #
 
@@ -107,6 +111,16 @@ class RunWriter:
         also the content-hash check that skips re-extraction."""
         seen = self.seen_items.get(item_id)
         return bool(seen) and seen[0] == content_hash
+
+    def has_extraction(self, item_id: str, item_version: str, prompt_version: str) -> bool:
+        """True when this item version was already extracted with this prompt
+        version, by an earlier run or this one."""
+        return _extraction_key(item_id, item_version, prompt_version) in self.seen_extractions
+
+    def settle_extraction(self, item_id: str, item_version: str, prompt_version: str) -> None:
+        """Count this item version as extracted without a record: the model
+        gave no answer it would give differently if asked again."""
+        self.seen_extractions.add(_extraction_key(item_id, item_version, prompt_version))
 
     # -- records ---------------------------------------------------------- #
 
@@ -127,7 +141,7 @@ class RunWriter:
         return "item"
 
     def add_extraction(self, record: ExtractionRecord) -> bool:
-        key = _extraction_key(record)
+        key = _extraction_key(record.item_id, record.item_version, record.extractor.prompt_version)
         if key in self.seen_extractions or not self._once(("extraction", key)):
             return False
         self._append("extractions", record)

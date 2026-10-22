@@ -29,9 +29,9 @@ entities:
   folder:        {origin: deterministic, item_backed: true}
   team:          {origin: both, description: "LLM, plus Slack user groups and Google groups when present"}
   project:       {origin: both, description: "LLM, plus Jira epics"}
-  decision:      {origin: llm}
+  decision:      {origin: llm, description: "A choice the participants settled on, not a proposal still under discussion"}
   system:        {origin: llm, description: "A service, component or tool being discussed"}
-  action_item:   {origin: llm}
+  action_item:   {origin: llm, description: "A task someone took on or was given, ideally with an owner"}
   customer:      {origin: llm, description: "An external account named in tickets or threads"}
 
 x-sets:

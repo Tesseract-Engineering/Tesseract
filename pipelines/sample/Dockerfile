@@ -11,8 +11,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     SAMPLE_DIR=/app/samples/run-0/runs
 
 WORKDIR /app
-# Only the swarm extra's dependencies: the graph side's (neo4j, model SDKs)
-# never enter a pipeline image.
+# Only the swarm extra's dependencies, which include the Anthropic SDK for
+# LLM extraction.
 COPY pyproject.toml ./
 RUN python -c "import tomllib; print('\n'.join(tomllib.load(open('pyproject.toml','rb'))['project']['optional-dependencies']['swarm']))" > requirements.txt \
  && pip install -r requirements.txt \

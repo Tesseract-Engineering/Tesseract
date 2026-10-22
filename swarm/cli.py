@@ -28,6 +28,16 @@ def backfill_days() -> int:
     return int(os.environ.get("SWARM_BACKFILL_DAYS", "730"))
 
 
+def llm() -> dict:
+    """run_source's LLM settings from the environment: the model
+    (swarm/model.py) and SWARM_LLM_TOKEN_BUDGET, the run's token budget
+    (unset means no limit)."""
+    from .model import from_env
+
+    budget = os.environ.get("SWARM_LLM_TOKEN_BUDGET", "").strip()
+    return {"model": from_env(), "llm_budget": int(budget) if budget else None}
+
+
 def store_for(local: str | None) -> ObjectStore:
     return LocalStore(local) if local else S3Store()
 

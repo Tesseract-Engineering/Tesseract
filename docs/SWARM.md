@@ -67,7 +67,7 @@ Sources are pulled in read-only; the bucket is the handoff point, and the graph 
 | Staging bucket | S3 or GCS, customer-managed keys, VPC-only bucket policy | RustFS, an S3-compatible server |
 | Network | Private subnets; egress only to source APIs and the model endpoint | Docker network with `internal: true` plus an allowlisted egress proxy |
 
-The same image runs in both columns. Only configuration differs: endpoint URLs, bucket names and credentials. The model call sits behind one interface, `extract(text, schema) -> entities`, so moving from a direct API to Bedrock or Vertex is a config change.
+The same image runs in both columns. Only configuration differs: endpoint URLs, bucket names and credentials. The model call sits behind one interface, `Model.extract(system, text, schema)` in `swarm/model.py`, so moving from a direct API to Bedrock or Vertex is a config change (`SWARM_MODEL_BACKEND`).
 
 ## Local development setup
 
@@ -227,6 +227,7 @@ runs/{source}/{run_id}/_manifest.json                # written last
 runs/identity/{run_id}/identities/part-00001.jsonl
 raw/{source}/{run_id}/...                            # redacted payloads, expire after 14 days
 state/{source}/checkpoints.json
+state/{source}/backlog.json                          # items still due an LLM extraction
 state/github/repos.json                              # repo names -> ids, read by Slack and Drive
 ```
 
@@ -313,7 +314,7 @@ Every source runs the same eleven stages; only the first two are source-specific
 5. **Normalize** to item records. Slack groups messages into threads and bursts; GitHub and Jira fold comments into their parent; Drive exports Docs and Slides to text.
 6. **Attach ACLs** from the source: channel members, repo visibility, Jira project permissions, Drive sharing. An item with no ACL fails validation and is not written.
 7. **Deterministic extraction:** people with roles, container, and typed refs from fields, URLs and keys in text (Jira keys, `#123`, Drive links).
-8. **LLM extraction** on items that pass the cost filter, against the closed ontology, writing extraction records with evidence spans and `item_version`.
+8. **LLM extraction** on items that pass the cost filter, against the closed ontology, writing extraction records with evidence spans and `item_version`. The model answers in a fixed JSON shape and quotes its evidence; code finds each quote in the item text to make the span. Anything it cannot check is dropped, not written: a quote not in the text, a type outside the ontology, a relation to an ID the model was not given, or a relation the ontology does not allow. One prompt per kind: Slack conversations, PRs, issues and documents. Repos, channels and folders are containers, and a commit's message is short and repeated on its PR, so those kinds are never sent.
 9. **Write records** to `items/` and `extractions/`, deduplicated by `id` and `version`. An unchanged `content_hash` skips re-extraction.
 10. **Write the manifest** with counts, files and extractor versions.
 11. **Advance checkpoints** in `state/`.
@@ -349,7 +350,7 @@ The swarm holds a copy of the customer's data, so these controls ship in every p
 
 Extraction quality is checked by hand-reviewing samples for now; a labeled gold set is deferred. Automated checks still gate every run.
 
-**Spot-check reviews.** After each prompt or model change, review about 20 extraction records across sources against their source items. Note misses and invented entities in `eval/reviews/`; those notes can seed a gold set later.
+**Spot-check reviews.** After each prompt or model change, review about 20 extraction records across sources against their source items. `python -m swarm.review` samples them from the latest complete runs and writes a review sheet with each item's text and what was extracted. The sheet quotes source data, so it goes in `data/reviews/` (git-ignored). Note misses and invented entities, without the quoted text, in `eval/reviews/`; those notes can seed a gold set later.
 
 | Check | Measures | Target | Runs |
 | --- | --- | --- | --- |
@@ -361,10 +362,11 @@ Extraction quality is checked by hand-reviewing samples for now; a labeled gold 
 
 **Cost controls**
 
-- Skip LLM extraction on trivial items: Slack threads under 3 messages or 200 characters, bot-only tickets, empty PR descriptions with no comments. Deterministic extraction still runs.
-- Re-extract only when `content_hash` changes or the prompt version changes.
-- A per-run token budget halts LLM steps when reached. Fetching and deterministic extraction continue, and the manifest records `llm_budget_hit: true` so the backlog is processed next run.
-- Log tokens per item and per source to every manifest, so cost per customer can be estimated from a pilot.
+- Skip LLM extraction on trivial items: Slack conversations under 3 messages or 200 characters, bot-only tickets (with Jira), empty PRs and issues, and documents with no text. Deterministic extraction still runs.
+- Re-extract only when `content_hash` changes or the prompt version changes. A prompt version covers everything the prompt renders, including the ontology, and `test_extract.py` pins a digest of each prompt so a change cannot ship under an old version. A new version re-extracts the items a run fetches; older items keep their old extraction until they change or are backfilled.
+- A per-run token budget (`SWARM_LLM_TOKEN_BUDGET`) halts LLM steps when reached. Fetching and deterministic extraction continue, and the manifest records `llm_budget_hit: true`. Items still due an extraction go into a backlog in `state/{source}/backlog.json`, which the next run works through first. A model outage (rate limits, timeouts or 5xx after the SDK's retries) sends the run's remaining items to the backlog in the same way. A refusal or a cut-off answer is not asked again until the item or the prompt changes. A bad key or an unknown model fails the run.
+- Every manifest carries the run's total input and output tokens. Each model call produces exactly one extraction record (possibly empty), so cost per item is `tokens / counts.extractions`; per-item counts are in the run's log.
+- Local dev uses `claude-opus-5-5` at effort `medium` with the system prompt cached. Refusals fall back server-side (`fallbacks: "default"`) on the direct API only; Bedrock has no server-side fallback.
 
 ## Testing
 
@@ -378,9 +380,9 @@ Everything except LLM extraction is deterministic, so most of the code is covere
 | Idempotency | Reruns change nothing | Each source's gate rehearsal (`test_{source}_gate_rehearsal.py`) runs its pipeline twice on fixtures and asserts the second run writes no new records |
 | Storage | The write and manifest stages work against a real S3 API | `s3`-marked tests; CI starts the RustFS bucket as a service, and locally they are skipped unless `S3_ENDPOINT` answers |
 | Compose stack | The pipeline images run end to end | Not in CI yet: run by hand with `docker compose -f swarm/compose.yaml run --rm sample` (and the source pipelines on fixtures) |
-| LLM steps | Prompt and parsing code paths | Recorded model responses replayed in CI; real model calls only in spot-check reviews |
+| LLM steps | Prompt and parsing code paths | `test_extract.py` runs the stage with a scripted model in CI: what is dropped, budget and backlog, outages, refusals, re-extraction on a new prompt version. `swarm.model.Replay` replays recorded answers and can record real ones; real model calls only in spot-check reviews |
 
-Data fetched from the sandbox (or, later, a customer) never enters the repo or CI. `data/`, `storage-data/` and `.env` are in `.gitignore`. The repo layout is under "In this repo"; spot-check review notes will go in `eval/reviews/` from Phase 3.
+Data fetched from the sandbox (or, later, a customer) never enters the repo or CI. `data/`, `storage-data/` and `.env` are in `.gitignore`. The repo layout is under "In this repo".
 
 ## Access prerequisites
 
@@ -420,6 +422,10 @@ swarm/sources/github/  GitHub: App auth, connector, normalizer, deterministic re
 swarm/sources/slack/   Slack: Web API and export connectors, thread and burst grouping, normalizer
 swarm/sources/gdrive/  Drive: service-account auth, connector (text export, PDFs, permissions), normalizer
 swarm/sources/links.py links between sources: Drive URLs, GitHub links via state/github/, Jira keys
+swarm/model.py         the model interface: direct API, Bedrock, and replay of recorded answers
+swarm/stages/extract.py stage 8: cost filter, the call, quotes to spans, budget and backlog
+swarm/stages/prompts.py the extraction prompts, one per kind, versioned
+swarm/review.py        the spot-check review sheet
 swarm/cli.py           what every pipeline's main.py shares
 swarm/compose.yaml     the local dev stack; swarm/proxy/squid.conf is its egress allowlist
 swarm/nightly.sh       one night's runs in order: github, slack, drive
@@ -433,7 +439,7 @@ tests/swarm_tests/     unit, contract, gate-rehearsal and s3-marked tests
 data/                  local only, git-ignored: the Slack export and the GitHub and Drive key files
 ```
 
-Not here yet: `pipelines/jira/` and `pipelines/identity/` (Phase 4), the model interface and extraction prompts (Phase 3), and `eval/reviews/`.
+Not here yet: `pipelines/jira/` and `pipelines/identity/` (Phase 4), and `eval/reviews/` (with the first spot-check review).
 
 ```bash
 pip install -e '.[dev,swarm]'                             # into .venv; tests need detect-secrets from [swarm]
@@ -464,7 +470,8 @@ Each diamond is the phase's exit gate. The plan was to start each phase only aft
 | 0 | Yes | Open: waiting on the graph engineer's ontology sign-off and sample-run ingest |
 | 1 | Yes, on fixtures | Open: waiting on the sandbox |
 | 2 | Yes, on fixtures | Open: waiting on the sandbox |
-| 3–5 | Not started | — |
+| 3 | Yes, with a scripted model | Open: needs real model runs on the sandbox and a spot-check review |
+| 4–5 | Not started | — |
 
 **Owners.** Each phase has one owner who drives it to its gate. No owners are assigned yet; fill in the column before the Phase 0 gate review.
 
@@ -512,12 +519,14 @@ Each diamond is the phase's exit gate. The plan was to start each phase only aft
 
 ### Phase 3: LLM extraction and evaluation
 
-- [ ] Model interface with a direct-API backend and a Bedrock backend
-- [ ] Extraction prompts per kind, versioned, writing extraction records with evidence
-- [ ] Spot-check review of sampled extractions after each prompt change
-- [ ] Cost filter, content-hash skip and per-run token budget
+- [x] Model interface with a direct-API backend and a Bedrock backend (`swarm/model.py`; Bedrock not yet run against a real endpoint)
+- [x] Extraction prompts per kind, versioned, writing extraction records with evidence (thread, pull_request, issue, document)
+- [ ] Spot-check review of sampled extractions after each prompt change (`python -m swarm.review` writes the sheet; no review done yet)
+- [x] Cost filter, content-hash skip and per-run token budget, with a backlog for what the budget or an outage defers
 
 **Gate:** a spot-check review signs off on extractions from each source, and token cost per item is logged in every manifest.
+
+**Gate status: waiting on real runs.** `test_extract.py` runs the stage on the GitHub and Slack fixtures with a scripted model. The gate needs real model calls on the sandbox's data, then a review of the sheet.
 
 ### Phase 4: Jira, identity and change handling
 

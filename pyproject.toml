@@ -13,7 +13,7 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.5", "jsonschema>=4,<5"]
-swarm = ["pydantic>=2,<3", "pyyaml>=6,<7", "boto3>=1.34,<2", "detect-secrets>=1.5,<2", "httpx>=0.27,<1", "pyjwt[crypto]>=2.8,<3", "pypdf>=4,<7"]
+swarm = ["pydantic>=2,<3", "pyyaml>=6,<7", "boto3>=1.34,<2", "detect-secrets>=1.5,<2", "httpx>=0.27,<1", "pyjwt[crypto]>=2.8,<3", "pypdf>=4,<7", "anthropic[bedrock]>=1.17,<2"]
 
 [tool.setuptools.packages.find]
 include = ["swarm*"]

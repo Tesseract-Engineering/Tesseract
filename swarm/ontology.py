@@ -30,6 +30,8 @@ class Ontology:
     endpoints: dict[str, tuple[frozenset[str], frozenset[str]]]
     # person role -> the relation it means
     person_roles: dict[str, str]
+    # type -> its description, which the extraction prompts render
+    descriptions: dict[str, str]
 
     def allows(self, relation: str, source_types: set[str], target_types: set[str]) -> bool:
         """True when some reading of the two endpoints fits the relation. An
@@ -74,4 +76,6 @@ def load(path: str | None = None) -> Ontology:
         deterministic_relations=frozenset(k for k, v in relations.items() if _deterministic(v)),
         endpoints=endpoints,
         person_roles=roles,
+        descriptions={k: " ".join(str(v.get("description", "")).split())
+                      for k, v in {**entities, **relations}.items()},
     )

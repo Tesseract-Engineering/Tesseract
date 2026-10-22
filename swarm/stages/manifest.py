@@ -49,6 +49,7 @@ def finish_run(writer: RunWriter, *, started_at: datetime,
     # Only now does state move.
     store, source = writer.store, writer.source
     store.put(state_key(source, "seen"), json.dumps(writer.seen_state(), sort_keys=True).encode("utf-8"))
+    store.put(state_key(source, "backlog"), json.dumps(writer.backlog, sort_keys=True).encode("utf-8"))
     if checkpoints:
         merged = {k: vars(v) for k, v in read_checkpoints(writer).items()}
         merged.update({k: vars(v) for k, v in checkpoints.items()})

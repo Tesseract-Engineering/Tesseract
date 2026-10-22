@@ -12,6 +12,9 @@ Workspace; SWARM_BACKFILL_DAYS sets the first run's window (default 730).
 
 GitHub links in documents resolve through what the GitHub pipeline left in
 the same bucket, so run GitHub first.
+
+LLM extraction follows SWARM_MODEL_BACKEND (anthropic, bedrock or off),
+SWARM_MODEL and SWARM_LLM_TOKEN_BUDGET; see swarm/model.py.
 """
 
 from __future__ import annotations
@@ -19,7 +22,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from swarm.cli import backfill_days, listed, report, setup_logging, store_for
+from swarm.cli import backfill_days, listed, llm, report, setup_logging, store_for
 from swarm.http import Client
 from swarm.run import run_source
 from swarm.sources.gdrive import DriveConnector, DriveNormalizer
@@ -39,7 +42,7 @@ def main(argv: list[str] | None = None) -> int:
                                folders=listed("GDRIVE_FOLDERS"), service_account=auth.email,
                                backfill_days=backfill_days())
     store = store_for(args.local)
-    manifest, checks = run_source(connector, DriveNormalizer(GitHubLinks.from_store(store)), store)
+    manifest, checks = run_source(connector, DriveNormalizer(GitHubLinks.from_store(store)), store, **llm())
     report(manifest, checks)
     return 0
 
