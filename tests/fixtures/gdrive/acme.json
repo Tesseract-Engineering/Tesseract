@@ -1,0 +1,123 @@
+{
+  "_about": "A fictional Drive the service account can see: one shared drive (Engineering) and one folder shared with it from a personal account (Club shared), in the Drive API v3 shapes (trimmed to the fields the connector asks for). tests/swarm_tests/gdrive_fixture.py serves it as a fake API. A file's _text is what export or a PDF holds (null: a scanned PDF); _permissions is its permission list, or 403 when the account may not list it. {{PLANTED:name}} is replaced with a fake token from tests/fixtures/redaction/corpus.yaml. No club data.",
+
+  "service_account": "swarm-reader@acme-swarm.iam.gserviceaccount.com",
+
+  "drives": [
+    {"id": "0AENGdrive", "name": "Engineering", "createdTime": "2025-01-10T09:00:00.000Z"},
+    {"id": "0AHRdrive", "name": "People Ops", "createdTime": "2025-01-10T09:00:00.000Z"}
+  ],
+
+  "files": [
+    {"id": "1SPECSfolder00", "name": "Specs", "mimeType": "application/vnd.google-apps.folder",
+     "parents": ["0AENGdrive"], "driveId": "0AENGdrive", "description": "Design specs",
+     "createdTime": "2025-02-01T10:00:00.000Z", "modifiedTime": "2026-09-01T10:00:00.000Z", "version": "7",
+     "webViewLink": "https://drive.google.com/drive/folders/1SPECSfolder00",
+     "_permissions": "$drive:0AENGdrive"},
+
+    {"id": "1AbCdEfGhIjK", "name": "OIDC spec", "mimeType": "application/vnd.google-apps.document",
+     "parents": ["1SPECSfolder00"], "driveId": "0AENGdrive",
+     "createdTime": "2026-10-12T09:00:00.000Z", "modifiedTime": "2026-10-14T16:30:00.000Z", "version": "42",
+     "webViewLink": "https://docs.google.com/document/d/1AbCdEfGhIjK/edit",
+     "lastModifyingUser": {"displayName": "Priya Rao", "emailAddress": "Priya@acme.com"},
+     "_text": "﻿OIDC rollout spec\r\nImplements acme-sbx/api#2, discussed in https://acme.slack.com/archives/C42AUTH/p1791986400000100\r\nDeploy key for staging: {{PLANTED:aws_access_key}}\r\nThis doc: https://docs.google.com/document/d/1AbCdEfGhIjK/edit. Deck: https://docs.google.com/presentation/d/1SLIDESdeck01/edit",
+     "_permissions": "$drive:0AENGdrive"},
+
+    {"id": "1SLIDESdeck01", "name": "Rollout deck", "mimeType": "application/vnd.google-apps.presentation",
+     "parents": ["1SPECSfolder00"], "driveId": "0AENGdrive",
+     "createdTime": "2026-10-13T09:00:00.000Z", "modifiedTime": "2026-10-15T11:00:00.000Z", "version": "9",
+     "webViewLink": "https://docs.google.com/presentation/d/1SLIDESdeck01/edit",
+     "lastModifyingUser": {"displayName": "Sam Lee", "emailAddress": "sam@acme.com"},
+     "_text": "Staff login moves to OIDC\n\nMonday cutover, NEXP-318",
+     "_permissions": [{"id": "acmedomain", "type": "domain", "role": "reader", "domain": "Acme.com"},
+                      {"id": "01SAM", "type": "user", "role": "organizer", "emailAddress": "sam@acme.com"}]},
+
+    {"id": "1SHEETbudget1", "name": "Proxy budget", "mimeType": "application/vnd.google-apps.spreadsheet",
+     "parents": ["0AENGdrive"], "driveId": "0AENGdrive",
+     "createdTime": "2026-09-20T09:00:00.000Z", "modifiedTime": "2026-10-10T09:00:00.000Z", "version": "3",
+     "webViewLink": "https://docs.google.com/spreadsheets/d/1SHEETbudget1/edit",
+     "_permissions": [{"id": "anyoneWithLink", "type": "anyone", "role": "reader"},
+                      {"id": "01SAM", "type": "user", "role": "organizer", "emailAddress": "sam@acme.com"}]},
+
+    {"id": "1PDFrunbook01", "name": "Proxy runbook.pdf", "mimeType": "application/pdf", "size": "2048",
+     "parents": ["1SPECSfolder00"], "driveId": "0AENGdrive",
+     "createdTime": "2026-10-01T09:00:00.000Z", "modifiedTime": "2026-10-02T09:00:00.000Z", "version": "2",
+     "webViewLink": "https://drive.google.com/file/d/1PDFrunbook01/view",
+     "_text": "Proxy runbook: restart the IdP proxy before rotating keys. Tracked in AUTH-12.",
+     "_permissions": 403},
+
+    {"id": "1PDFscanned01", "name": "Signed contract (scan).pdf", "mimeType": "application/pdf", "size": "4096",
+     "parents": ["0AENGdrive"], "driveId": "0AENGdrive",
+     "createdTime": "2026-10-03T09:00:00.000Z", "modifiedTime": "2026-10-03T09:00:00.000Z", "version": "1",
+     "webViewLink": "https://drive.google.com/file/d/1PDFscanned01/view",
+     "_text": null, "_permissions": "$drive:0AENGdrive"},
+
+    {"id": "1PDFhuge00001", "name": "Vendor manual.pdf", "mimeType": "application/pdf", "size": "90000000",
+     "parents": ["0AENGdrive"], "driveId": "0AENGdrive",
+     "createdTime": "2026-10-04T09:00:00.000Z", "modifiedTime": "2026-10-04T09:00:00.000Z", "version": "1",
+     "webViewLink": "https://drive.google.com/file/d/1PDFhuge00001/view",
+     "_text": "never downloaded", "_permissions": "$drive:0AENGdrive"},
+
+    {"id": "1PNGdiagram01", "name": "diagram.png", "mimeType": "image/png",
+     "parents": ["1SPECSfolder00"], "driveId": "0AENGdrive",
+     "createdTime": "2026-10-05T09:00:00.000Z", "modifiedTime": "2026-10-05T09:00:00.000Z", "version": "1",
+     "_permissions": "$drive:0AENGdrive"},
+
+    {"id": "1LOCKEDfold01", "name": "Locked", "mimeType": "application/vnd.google-apps.folder",
+     "parents": ["0AENGdrive"], "driveId": "0AENGdrive", "inheritedPermissionsDisabled": true,
+     "createdTime": "2026-10-06T09:00:00.000Z", "modifiedTime": "2026-10-06T09:00:00.000Z", "version": "1",
+     "_permissions": 403},
+    {"id": "1LOCKEDdoc001", "name": "Locked notes", "mimeType": "application/vnd.google-apps.document",
+     "parents": ["1LOCKEDfold01"], "driveId": "0AENGdrive",
+     "createdTime": "2026-10-06T09:00:00.000Z", "modifiedTime": "2026-10-06T10:00:00.000Z", "version": "1",
+     "_text": "nobody can tell who reads this", "_permissions": 403},
+
+    {"id": "1OLDdoc000001", "name": "2023 proxy notes", "mimeType": "application/vnd.google-apps.document",
+     "parents": ["1SPECSfolder00"], "driveId": "0AENGdrive",
+     "createdTime": "2023-05-01T09:00:00.000Z", "modifiedTime": "2024-06-01T09:00:00.000Z", "version": "4",
+     "_text": "old", "_permissions": "$drive:0AENGdrive"},
+
+    {"id": "1HRdoc0000001", "name": "Salaries", "mimeType": "application/vnd.google-apps.spreadsheet",
+     "parents": ["0AHRdrive"], "driveId": "0AHRdrive",
+     "createdTime": "2026-10-01T09:00:00.000Z", "modifiedTime": "2026-10-01T09:00:00.000Z", "version": "1",
+     "_permissions": [{"id": "05HR", "type": "user", "role": "organizer", "emailAddress": "hr@acme.com"}]},
+
+    {"id": "1CLUBfolder01", "name": "Club shared", "mimeType": "application/vnd.google-apps.folder",
+     "parents": ["0APERSONALroot"],
+     "createdTime": "2025-03-01T09:00:00.000Z", "modifiedTime": "2025-03-01T09:00:00.000Z", "version": "2",
+     "webViewLink": "https://drive.google.com/drive/folders/1CLUBfolder01",
+     "owners": [{"displayName": "Sam Lee", "emailAddress": "sam@acme.com"}],
+     "_permissions": [{"id": "01SAM", "type": "user", "role": "owner", "emailAddress": "sam@acme.com"},
+                      {"id": "02PRI", "type": "user", "role": "writer", "emailAddress": "priya@acme.com"},
+                      {"id": "09SVC", "type": "user", "role": "reader", "emailAddress": "Swarm-Reader@acme-swarm.iam.gserviceaccount.com"}]},
+    {"id": "1CLUBnotes001", "name": "Meeting notes", "mimeType": "application/vnd.google-apps.folder",
+     "parents": ["1CLUBfolder01"],
+     "createdTime": "2025-03-01T09:00:00.000Z", "modifiedTime": "2025-03-02T09:00:00.000Z", "version": "2",
+     "owners": [{"displayName": "Sam Lee", "emailAddress": "sam@acme.com"}],
+     "_permissions": "$file:1CLUBfolder01"},
+    {"id": "1CLUBmeet0001", "name": "2026-10-14 meeting", "mimeType": "application/vnd.google-apps.document",
+     "parents": ["1CLUBnotes001"],
+     "createdTime": "2026-10-14T17:00:00.000Z", "modifiedTime": "2026-10-14T18:00:00.000Z", "version": "12",
+     "webViewLink": "https://docs.google.com/document/d/1CLUBmeet0001/edit",
+     "owners": [{"displayName": "Sam Lee", "emailAddress": "sam@acme.com"}],
+     "lastModifyingUser": {"displayName": "Sam Lee", "emailAddress": "sam@acme.com"},
+     "_text": "Decided: staff login moves to OIDC. Tracking https://github.com/acme-sbx/api/issues/1",
+     "_permissions": [{"id": "01SAM", "type": "user", "role": "owner", "emailAddress": "sam@acme.com"},
+                      {"id": "02PRI", "type": "user", "role": "writer", "emailAddress": "priya@acme.com"},
+                      {"id": "03JO", "type": "user", "role": "commenter", "emailAddress": "jo.kim@gmail.com"},
+                      {"id": "04OLD", "type": "user", "role": "reader", "emailAddress": "old@acme.com", "deleted": true},
+                      {"id": "09SVC", "type": "user", "role": "reader", "emailAddress": "swarm-reader@acme-swarm.iam.gserviceaccount.com"}]}
+  ],
+
+  "drive_permissions": {
+    "0AENGdrive": [
+      {"id": "01SAM", "type": "user", "role": "organizer", "emailAddress": "sam@acme.com"},
+      {"id": "02PRI", "type": "user", "role": "writer", "emailAddress": "priya@acme.com"},
+      {"id": "08ENGGRP", "type": "group", "role": "reader", "emailAddress": "eng@acme.com"},
+      {"id": "09SVC", "type": "user", "role": "reader", "emailAddress": "swarm-reader@acme-swarm.iam.gserviceaccount.com"}
+    ],
+    "0AHRdrive": [
+      {"id": "05HR", "type": "user", "role": "organizer", "emailAddress": "hr@acme.com"}
+    ]
+  }
+}

@@ -39,6 +39,10 @@ Every design question below is settled. Rows marked default were open questions;
 | Jira auth | Service account with an API token, read-only project permissions. | Default |
 | Drive auth | Service account added to selected shared drives, or to shared folders where there is no Google Workspace. Domain-wide delegation is an opt-in upgrade for full coverage. | Default |
 | Drive file types | Docs, Slides and text PDFs get full text. Sheets get metadata, ACLs and refs only in v1. | Default |
+| Slack ACLs | Public channels are `internal` (the whole workspace can read them); private channels name a members group. | Default |
+| Slack grouping | Threads keep their `thread_ts`; other messages form bursts (gaps of 20 minutes at most, never across midnight UTC), so the export and the API build the same IDs. | Default |
+| Drive ACL fallback | A file whose permissions the service account cannot list takes its parent folder's; a limited-access folder never does, and a file with neither is not written. | Default |
+| Cross-source links | Slack and Drive resolve GitHub links through the GitHub pipeline's state in the bucket; unresolved links stay in `meta`. | Default |
 | Models | Customer's cloud model service (Bedrock or Vertex) via private endpoint; in local dev, the Anthropic API with the same Claude model we run on Bedrock, so prompts carry over unchanged. | Default |
 | Cadence | Nightly incremental run per source; weekly reconciliation; first backfill 2 years, configurable. | Default |
 | Quality | Spot-check reviews of sampled extractions after each prompt change; a labeled gold set is deferred. | Default |
@@ -201,6 +205,7 @@ runs/{source}/{run_id}/_manifest.json                # written last
 runs/identity/{run_id}/identities/part-00001.jsonl
 raw/{source}/{run_id}/...                            # redacted payloads, expire after 14 days
 state/{source}/checkpoints.json
+state/github/repos.json                              # repo names -> ids, read by Slack and Drive
 ```
 
 **ACL principals.** An item's `acl` names who may read it, as principals of three kinds:
@@ -308,7 +313,7 @@ The swarm holds a copy of the customer's data, so these controls ship in every p
 | --- | --- |
 | Network | Private subnets, private endpoints to storage and the model, egress allowlist of source APIs only, bucket policy denying non-VPC access |
 | Encryption | Customer-managed keys at rest, TLS in transit |
-| Least privilege | Each pipeline role writes only its own `runs/{source}/` and `raw/{source}/` prefixes; the graph job is read-only; no role can delete |
+| Least privilege | Each pipeline role writes only its own `runs/{source}/`, `raw/{source}/` and `state/{source}/` prefixes, and reads `state/github/` to resolve GitHub links; the graph job is read-only; no role can delete |
 | Read-only sources | Every source credential is read-only; no write scopes are requested |
 | Permissions travel with data | Every item carries a structured `acl`; items without one fail validation |
 | Revocation | Tombstones and ACL updates within one reconciliation cycle (7 days at most, 1 day for ACL changes seen in nightly runs) |
@@ -400,7 +405,14 @@ ontology.yaml          the closed vocabulary, v1
 swarm/run.py           the shared runner: the pipeline stages for any Connector + Normalizer
 swarm/http.py          the shared HTTP client: proxy from env, pagination, rate-limit backoff
 swarm/sources/github/  GitHub: App auth, connector, normalizer, deterministic refs
+swarm/sources/slack/   Slack: Web API and export connectors, thread and burst grouping, normalizer
+swarm/sources/gdrive/  Drive: service-account auth, connector (text export, PDFs, permissions), normalizer
+swarm/sources/links.py links between sources: Drive URLs, GitHub links via state/github/, Jira keys
+swarm/cli.py           what every pipeline's main.py shares
+swarm/nightly.sh       one night's runs in order: github, slack, drive
 pipelines/github/      the GitHub pipeline image and its read-only App manifest
+pipelines/slack/       the Slack pipeline image and its read-only internal app manifest
+pipelines/drive/       the Drive pipeline image
 swarm/                 records.py, ids.py, interfaces.py, store.py, stages/, schemas/*.json, compose.yaml, proxy/
 pipelines/sample/      the Phase 0 job: replays samples/run-0 through the real stages
 tests/fixtures/        hand-made source API responses and the planted-token corpus
@@ -419,7 +431,14 @@ docker compose -f swarm/compose.yaml up -d storage proxy
 docker compose -f swarm/compose.yaml run --rm init        # create the bucket, once
 docker compose -f swarm/compose.yaml run --rm sample      # a second run writes zero records
 docker compose -f swarm/compose.yaml run --rm sample probe https://api.github.com https://example.com
+
+docker compose -f swarm/compose.yaml run --rm slack --export /data/slack-export   # cold start, once
+swarm/nightly.sh                                          # github, then slack, then drive
 ```
+
+**Connecting Slack.** A workspace admin creates an app from `pipelines/slack/app-manifest.yaml` (read-only scopes, no DMs), installs it, and invites its bot to each channel in scope. The bot token goes in `SLACK_BOT_TOKEN`. For the cold start, unpack the admin's export into `data/slack-export/` (or put the `.zip` there and pass its path) and set `SLACK_WORKSPACE_URL`. The export run writes checkpoints in the API's shape, so the first nightly run reads only the last week; private channels the export left out are backfilled from the API on that first run.
+
+**Connecting Drive.** In a Google Cloud project, enable the Drive API, create a service account, and download its JSON key to `data/gdrive/service-account.json`. Add the account's email as a Viewer to each shared drive in scope; without Google Workspace, share the folders with it instead and list their ids in `GDRIVE_FOLDERS`.
 
 ## Roadmap
 
@@ -464,12 +483,14 @@ Each diamond is the phase's exit gate; the next phase starts only when its gate 
 
 ### Phase 2: Slack and Google Drive
 
-- [ ] `SlackExportConnector` on the club's Slack export: thread and burst grouping, mention resolution, ACLs from channel membership
-- [ ] `SlackApiConnector` with checkpoints, lookback and backoff
-- [ ] `DriveConnector` for Docs, Slides and text PDFs. If the club has Google Workspace, add the service account to a shared drive; if it uses personal Google accounts, share the relevant folders with the service account's email instead, since shared drives require Workspace
-- [ ] Nightly runs for all three sources on club data
+- [x] `SlackExportConnector`: thread and burst grouping, mention resolution, ACLs from channel membership (built and tested on fixtures; not yet run on the club's export)
+- [x] `SlackApiConnector` with checkpoints, lookback and backoff; threads active in the last 30 days are reread so late replies are not missed
+- [x] `DriveConnector` for Docs, Slides and text PDFs, over shared drives or folders shared with the service account. If the club has Google Workspace, add the service account to a shared drive; if it uses personal Google accounts, share the relevant folders with the service account's email instead, since shared drives require Workspace
+- [ ] Nightly runs for all three sources on club data (`swarm/nightly.sh` is ready; needs the access in the table above)
 
 **Gate:** three sources run nightly; rerunning a window produces zero new records.
+
+**Gate status: deferred.** No source access exists yet. `test_slack_gate_rehearsal.py` and `test_gdrive_gate_rehearsal.py` run each pipeline on fixtures (`tests/fixtures/slack/`, `tests/fixtures/gdrive/`) into a bucket the GitHub fixture run already wrote, and check that reruns write zero records. They also check that a Slack cold start from the export followed by an API run writes nothing new. The real images were also run in the compose stack on the fixture export: the first run wrote 11 items and the rerun wrote zero.
 
 ### Phase 3: LLM extraction and evaluation
 
@@ -507,6 +528,9 @@ The biggest risks are coverage gaps from source permissions, not engineering.
 | --- | --- | --- |
 | Slack rate tier for new internal apps is unclear | Bulk history fetch becomes impractically slow | Confirm the tier on first install; fall back to export for backfill |
 | Drive coverage without domain-wide delegation is partial | Docs outside shared drives are missed | Offer delegation as an opt-in upgrade; report coverage per drive |
+| A Viewer service account may not be allowed to list a file's permissions | Files without a readable ACL are rejected, not written | Parent-folder fallback; check the rejected count on the first real run before considering any wider role |
+| Google group members are unreadable without the Admin SDK | Readers who come in through a group are not granted anything | Group records carry the group's email; delegation fills members later |
+| A Slack reply to a thread quiet for over 30 days is missed nightly | The thread's text is stale until reconciliation | Weekly reconciliation rereads every thread |
 | Slack export omits private channels and DMs on most plans | Cold start misses private context | Backfill private channels via the API for channels the bot is invited to |
 | Club test data is shallow (free Slack plans show limited history) | Extraction quality is judged on a thin corpus | Seed a Jira sandbox and add synthetic test threads |
 | LLM quality varies by model available in the customer's region | Extraction targets missed on some deployments | Spot-check extractions on the customer's model before go-live |

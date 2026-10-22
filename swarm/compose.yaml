@@ -79,8 +79,25 @@ services:
     # The App's private key lives in data/github/app.pem: git-ignored, read-only here.
     volumes: ["../data/github:/run/secrets/github:ro"]
 
-  # jira, slack, drive and identity follow the same pattern, each built
-  # from pipelines/{source}.
+  # Nightly: `run --rm slack`. Cold start from an export unpacked (or its
+  # .zip placed) in data/slack-export: `run --rm slack --export /data/slack-export`.
+  slack:
+    <<: *pipeline
+    build: {context: .., dockerfile: pipelines/slack/Dockerfile}
+    image: swarm-slack:dev
+    volumes: ["../data/slack-export:/data/slack-export:ro"]
+
+  drive:
+    <<: *pipeline
+    build: {context: .., dockerfile: pipelines/drive/Dockerfile}
+    image: swarm-drive:dev
+    environment:
+      <<: *pipeline-env
+      GDRIVE_SERVICE_ACCOUNT_KEY_PATH: /run/secrets/gdrive/service-account.json
+    # The service account's JSON key lives in data/gdrive/: git-ignored, read-only here.
+    volumes: ["../data/gdrive:/run/secrets/gdrive:ro"]
+
+  # jira and identity follow the same pattern, each built from pipelines/{source}.
 
 networks:
   internal:
