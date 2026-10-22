@@ -7,8 +7,8 @@ write.py - records to JSONL part files, in the bucket layout.
     runs/{source}/{run_id}/groups/part-00001.jsonl       group memberships
     runs/identity/{run_id}/identities/part-00001.jsonl
     raw/{source}/{run_id}/...                            redacted payloads, expire after 14 days
-    state/{source}/...                                   what earlier complete runs wrote, and
-                                                         the extraction backlog
+    state/{source}/...                                   what earlier complete runs wrote, the
+                                                         extraction backlog and batches in flight
 
 A writer only ever touches its own source's prefixes. It is idempotent: an
 item whose content_hash matches what an earlier complete run wrote is
@@ -94,6 +94,10 @@ class RunWriter:
         # Items due an extraction that did not get one (over budget, model
         # down): item id -> the item record as JSON. See extract.py.
         self.backlog: dict[str, str] = self._load_state("backlog", {})
+        # Message Batches submitted but not yet collected: batch id ->
+        # {custom_id: [item id, prompt version, item version]}. Their items
+        # stay in the backlog until the answers are read.
+        self.batches: dict[str, dict[str, list[str]]] = self._load_state("batches", {})
 
     # -- state ------------------------------------------------------------ #
 

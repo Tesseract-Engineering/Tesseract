@@ -30,12 +30,15 @@ def backfill_days() -> int:
 
 def llm() -> dict:
     """run_source's LLM settings from the environment: the model
-    (swarm/model.py) and SWARM_LLM_TOKEN_BUDGET, the run's token budget
-    (unset means no limit)."""
+    (swarm/model.py), SWARM_LLM_TOKEN_BUDGET, the run's token budget (unset
+    means no limit), and SWARM_BATCH_WAIT_MINUTES, how long a run waits for
+    its Message Batch before leaving it to the next run (default 60)."""
     from .model import from_env
 
     budget = os.environ.get("SWARM_LLM_TOKEN_BUDGET", "").strip()
-    return {"model": from_env(), "llm_budget": int(budget) if budget else None}
+    wait = os.environ.get("SWARM_BATCH_WAIT_MINUTES", "").strip()
+    return {"model": from_env(), "llm_budget": int(budget) if budget else None,
+            "batch_wait": float(wait or 60) * 60}
 
 
 def store_for(local: str | None) -> ObjectStore:

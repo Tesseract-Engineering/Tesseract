@@ -8,11 +8,17 @@ the direct API to Bedrock is a config change (docs/SWARM.md, "Architecture"):
   SWARM_MODEL_BACKEND  anthropic (local dev, the default) | bedrock | off
   SWARM_MODEL          claude-opus-5-5; Bedrock adds its anthropic. prefix
   SWARM_MODEL_EFFORT   low | medium | high | xhigh | max (default medium)
+  SWARM_MODEL_BATCH    on (the default) | off: anthropic only, see below
   AWS_REGION           Bedrock only
 
   ClaudeApi   the Anthropic API, through the egress proxy in local dev
   Bedrock     the customer's Bedrock endpoint, over a private link
   Replay      recorded answers, keyed by the request; CI never calls a model
+
+With batching on, ClaudeApi sends a run's extractions as one Message Batch,
+at half the per-token price of direct calls; the run waits for it (see
+stages/extract.py). Batches take no refusal fallback, so a refused item
+stays refused. Bedrock has no Message Batches, so it always calls directly.
 
 A failure the model can't fix by being asked again (a refusal, an answer cut
 off at max_tokens) comes back as a Completion with no data. A failure that may
@@ -26,6 +32,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
@@ -59,6 +66,25 @@ class Model(Protocol):
     def extract(self, system: str, text: str, schema: dict[str, Any]) -> Completion: ...
 
 
+@dataclass(frozen=True)
+class BatchRequest:
+    custom_id: str                       # [A-Za-z0-9_-]{1,64}, unique in its batch
+    system: str
+    text: str
+    schema: dict[str, Any]
+
+
+class BatchModel(Model, Protocol):
+    """A model that can also take many requests as one batch."""
+    batch: bool                          # True when extraction should use batches
+
+    def submit(self, requests: list[BatchRequest]) -> str: ...      # the batch id
+    def ended(self, batch_id: str) -> bool: ...
+    # Each request's answer, or None when it was not answered (a server error,
+    # expiry, cancellation) and may be asked again.
+    def results(self, batch_id: str) -> Iterator[tuple[str, Completion | None]]: ...
+
+
 def _request(model: str, system: str, text: str, schema: dict[str, Any], effort: str) -> dict[str, Any]:
     return dict(
         model=model, max_tokens=MAX_TOKENS,
@@ -83,11 +109,11 @@ def _completion(response: Any) -> Completion:
     return Completion(data=data, model=response.model, stop_reason=response.stop_reason or "", tokens=tokens)
 
 
-def _call(create, **kwargs) -> Completion:
+def _call(create, **kwargs) -> Any:
     import anthropic
 
     try:
-        return _completion(create(**kwargs))
+        return create(**kwargs)
     except (anthropic.APIConnectionError, anthropic.RateLimitError, anthropic.InternalServerError) as e:
         raise ModelUnavailable(type(e).__name__) from e
 
@@ -96,16 +122,43 @@ class ClaudeApi:
     """The Anthropic API. Credentials resolve the SDK's usual way
     (ANTHROPIC_API_KEY in .env for local dev); HTTPS_PROXY is honored."""
 
-    def __init__(self, model: str = DEFAULT_MODEL, *, effort: str = DEFAULT_EFFORT, client: Any = None):
+    def __init__(self, model: str = DEFAULT_MODEL, *, effort: str = DEFAULT_EFFORT, batch: bool = True,
+                 client: Any = None):
         import anthropic
 
         self.name = model
         self.effort = effort
+        self.batch = batch
         self.client = client or anthropic.Anthropic()
 
     def extract(self, system: str, text: str, schema: dict[str, Any]) -> Completion:
-        return _call(self.client.beta.messages.create, betas=[FALLBACK_BETA], fallbacks="default",
-                     **_request(self.name, system, text, schema, self.effort))
+        return _completion(_call(self.client.beta.messages.create, betas=[FALLBACK_BETA], fallbacks="default",
+                                 **_request(self.name, system, text, schema, self.effort)))
+
+    # -- Message Batches ---------------------------------------------------- #
+
+    def submit(self, requests: list[BatchRequest]) -> str:
+        batch = _call(self.client.messages.batches.create, requests=[
+            {"custom_id": r.custom_id, "params": _request(self.name, r.system, r.text, r.schema, self.effort)}
+            for r in requests])
+        return batch.id
+
+    def ended(self, batch_id: str) -> bool:
+        return _call(self.client.messages.batches.retrieve, message_batch_id=batch_id).processing_status == "ended"
+
+    def results(self, batch_id: str) -> Iterator[tuple[str, Completion | None]]:
+        # Read the whole stream inside _call, so a dropped connection mid-read
+        # is ModelUnavailable too.
+        lines = _call(lambda: list(self.client.messages.batches.results(batch_id)))
+        for line in lines:
+            result = line.result
+            if result.type == "succeeded":
+                yield line.custom_id, _completion(result.message)
+            elif result.type == "errored" and result.error.error.type == "invalid_request_error":
+                # The request itself is wrong; asking again gets the same answer.
+                yield line.custom_id, Completion(data=None, model=self.name, stop_reason="invalid_request")
+            else:
+                yield line.custom_id, None
 
 
 class Bedrock:
@@ -121,7 +174,8 @@ class Bedrock:
         self.client = client or anthropic.AnthropicBedrockMantle(aws_region=region or os.environ.get("AWS_REGION"))
 
     def extract(self, system: str, text: str, schema: dict[str, Any]) -> Completion:
-        return _call(self.client.messages.create, **_request(self.name, system, text, schema, self.effort))
+        return _completion(_call(self.client.messages.create,
+                                 **_request(self.name, system, text, schema, self.effort)))
 
 
 def request_key(system: str, text: str, schema: dict[str, Any]) -> str:
@@ -164,10 +218,13 @@ def from_env() -> Model | None:
     backend = os.environ.get("SWARM_MODEL_BACKEND", "anthropic")
     model = os.environ.get("SWARM_MODEL", DEFAULT_MODEL)
     effort = os.environ.get("SWARM_MODEL_EFFORT", DEFAULT_EFFORT)
+    batch = os.environ.get("SWARM_MODEL_BATCH", "on").strip().lower()
+    if batch not in ("on", "off"):
+        raise SystemExit(f"SWARM_MODEL_BATCH={batch!r}: expected on or off")
     if backend == "off":
         return None
     if backend == "anthropic":
-        return ClaudeApi(model, effort=effort)
+        return ClaudeApi(model, effort=effort, batch=batch == "on")
     if backend == "bedrock":
         return Bedrock(model, effort=effort)
     raise SystemExit(f"SWARM_MODEL_BACKEND={backend!r}: expected anthropic, bedrock or off")

@@ -5,7 +5,8 @@ run.py - one run of one source, the same stages for every source.
      3-4  redact each payload in memory, then keep it under raw/
      5-7  normalize to an item record, with its ACL and deterministic refs
        8  LLM extraction, when a model is given: the backlog first, then
-          every item this run writes or sees again (stages/extract.py)
+          every item this run writes or sees again (stages/extract.py); with
+          batches, sent as one Message Batch once fetching is done
        9  write records (and the source's group records)
           check the run: every written item has an ACL, zero secret hits
    10-11  write the manifest, then advance checkpoints (and any lookup state
@@ -30,7 +31,7 @@ from .model import Model
 from .records import Manifest
 from .stages.acl import MissingAcl, coverage, require_acl
 from .stages.checks import check_run
-from .stages.extract import ExtractStage
+from .stages.extract import BATCH_WAIT, ExtractStage
 from .stages.manifest import finish_run, read_checkpoints
 from .stages.redact import redact_payload
 from .stages.write import RunWriter, new_run_id
@@ -42,7 +43,8 @@ _SAFE = re.compile(r"[^A-Za-z0-9._-]")
 
 def run_source(connector: Connector, normalizer: Normalizer, store: ObjectStore, *,
                now: datetime | None = None, run_id: str | None = None,
-               model: Model | None = None, llm_budget: int | None = None) -> tuple[Manifest, dict]:
+               model: Model | None = None, llm_budget: int | None = None,
+               batch_wait: float = BATCH_WAIT) -> tuple[Manifest, dict]:
     started = now or datetime.now(timezone.utc)
     source = connector.source
     writer = RunWriter(store, source, run_id or new_run_id(source, started))
@@ -52,7 +54,8 @@ def run_source(connector: Connector, normalizer: Normalizer, store: ObjectStore,
     groups = getattr(connector, "groups", None)
     checkpoint = getattr(connector, "checkpoint", None)
     with_acl = 0
-    extract = ExtractStage(model, writer, budget=llm_budget, now=started) if model is not None else None
+    extract = (ExtractStage(model, writer, budget=llm_budget, now=started, batch_wait=batch_wait)
+               if model is not None else None)
     if extract is not None:
         extract.work_backlog()
 
@@ -78,6 +81,8 @@ def run_source(connector: Connector, normalizer: Normalizer, store: ObjectStore,
         if checkpoint is not None and (cp := checkpoint(container)) is not None:
             advanced[container.id] = cp
 
+    if extract is not None:
+        extract.send_batch()
     writer.flush()
     checks = check_run(store, source, writer.run_id)         # raises before any manifest exists
     published = getattr(connector, "published_state", None)

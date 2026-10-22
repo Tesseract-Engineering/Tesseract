@@ -379,3 +379,184 @@ def test_the_review_sheet_shows_each_sample_with_its_text_and_quotes(store):
     out = sheet(picked, now=NOW)
     assert "Use OIDC instead of SAML for staff login" in out and "“I'll draft the rollout plan by Friday”" in out
     assert out.count("- Invented:") == 2 and "Nothing extracted." in out
+
+
+# -- Message Batches ---------------------------------------------------------- #
+
+class ScriptedBatch(Scripted):
+    """Scripted answers through the batch interface. A batch ends after
+    `polls` checks; items in `unanswered` come back with no answer (expired or
+    a server error) and items in `invalid` as an invalid request."""
+
+    batch = True
+
+    def __init__(self, answers=None, *, polls=0, unanswered=(), invalid=(), submit_fails=False, **kw):
+        super().__init__(answers, **kw)
+        self.polls = polls
+        self.unanswered = set(unanswered)
+        self.invalid = set(invalid)
+        self.submit_fails = submit_fails
+        self.batches = {}           # batch id -> [(custom_id, item id, request)]
+        self.checks = {}
+
+    def submit(self, requests):
+        if self.submit_fails:
+            raise ModelUnavailable("APIConnectionError")
+        batch_id = f"msgbatch_{len(self.batches) + 1}"
+        self.batches[batch_id] = [(r.custom_id, r.text.split("Known ids:\n- ", 1)[1].split()[0], r) for r in requests]
+        self.checks[batch_id] = 0
+        return batch_id
+
+    def ended(self, batch_id):
+        self.checks[batch_id] += 1
+        return self.checks[batch_id] > self.polls
+
+    def results(self, batch_id):
+        for custom_id, item_id, r in self.batches[batch_id]:
+            if item_id in self.unanswered:
+                yield custom_id, None
+            elif item_id in self.invalid:
+                yield custom_id, Completion(data=None, model="scripted", stop_reason="invalid_request")
+            else:
+                yield custom_id, self.extract(r.system, r.text, r.schema)
+
+    def sent(self):
+        return [item_id for reqs in self.batches.values() for _, item_id, _ in reqs]
+
+
+def run_batched(store, model, *, now=NOW, budget=None, wait=3600.0):
+    gh, _ = github_fixture.connector(now=now)
+    github = run_source(gh, GitHubNormalizer(gh.index), store, now=now, model=model, llm_budget=budget,
+                        batch_wait=wait)[0]
+    sl, _ = api_connector()
+    slack = run_source(sl, SlackNormalizer(sl.directory, GitHubLinks.from_store(store)), store, now=now,
+                       model=model, llm_budget=budget, batch_wait=wait)[0]
+    return github, slack
+
+
+@pytest.fixture
+def no_sleep(monkeypatch):
+    """Batch polls sleep for real; tests step a fake clock instead."""
+    clock = [0.0]
+    monkeypatch.setattr("swarm.stages.extract.time.sleep", lambda s: clock.__setitem__(0, clock[0] + s))
+    monkeypatch.setattr("swarm.stages.extract.time.monotonic", lambda: clock[0])
+
+
+def test_a_batch_run_writes_what_direct_calls_would(store, tmp_path, no_sleep):
+    direct = LocalStore(tmp_path / "direct")
+    d_github, d_slack = run_both(direct, Scripted({THREAD: THREAD_ANSWER}))
+    model = ScriptedBatch({THREAD: THREAD_ANSWER}, polls=3)
+    github, slack = run_batched(store, model)
+    assert len(model.batches) == 2 and set(model.sent()) == WORTH          # one batch per source run
+    strip = lambda rs: sorted((r.item_id, r.entities, r.relations) for r in rs)          # noqa: E731
+    assert strip(extractions(store, github, slack)) == strip(extractions(direct, d_github, d_slack))
+    assert slack.tokens == d_slack.tokens and slack.extractor_versions == ["thread-v1"]
+    assert json.loads(store.get("state/slack/batches.json")) == {}
+    assert json.loads(store.get("state/slack/backlog.json")) == {}
+
+
+def test_a_batch_that_outlives_the_run_is_read_by_the_next_one(store, no_sleep):
+    slow = ScriptedBatch({THREAD: THREAD_ANSWER}, polls=10_000)
+    _, slack = run_batched(store, slow, wait=120.0)
+    assert slack.counts["extractions"] == 0 and slack.counts["items"] > 0          # the run still completes
+    pending = json.loads(store.get("state/slack/batches.json"))
+    assert list(pending) == ["msgbatch_2"]
+    assert set(json.loads(store.get("state/slack/backlog.json"))) == {i for i in WORTH if i.startswith("slack:")}
+
+    slow.polls = 0                                                                 # it has ended since
+    _, slack2 = run_batched(store, slow, now=NOW + timedelta(hours=1))
+    assert slack2.counts["extractions"] == 2 and len(slow.batches) == 2          # read, not sent again
+    assert json.loads(store.get("state/slack/batches.json")) == {}
+    assert json.loads(store.get("state/slack/backlog.json")) == {}
+
+
+def test_unanswered_items_are_sent_again_and_invalid_ones_settle(store, no_sleep):
+    model = ScriptedBatch(unanswered={THREAD}, invalid={"github:repo:9001:issue:3"})
+    run_batched(store, model)
+    assert THREAD in json.loads(store.get("state/slack/backlog.json"))
+    assert "github:repo:9001:issue:3" not in json.loads(store.get("state/github/backlog.json"))
+
+    again = ScriptedBatch()
+    _, slack = run_batched(store, again, now=NOW + timedelta(hours=1))
+    assert again.sent() == [THREAD] and slack.counts["extractions"] == 1
+
+
+def test_the_budget_is_checked_before_sending(store, no_sleep):
+    model = ScriptedBatch()
+    github, _ = run_batched(store, model, budget=5000)
+    assert github.llm_budget_hit and 0 < len([i for i in model.sent() if i.startswith("github:")]) < 4
+    assert json.loads(store.get("state/github/backlog.json"))
+
+
+def test_a_failed_send_leaves_everything_for_the_next_run(store, no_sleep):
+    github, _ = run_batched(store, ScriptedBatch(submit_fails=True))
+    assert github.counts["extractions"] == 0 and read_manifest(store, "github", github.run_id)
+    later = ScriptedBatch()
+    run_batched(store, later, now=NOW + timedelta(hours=1))
+    assert set(later.sent()) == WORTH
+
+
+def test_an_answer_for_an_older_version_is_not_written_to_the_new_one(store, no_sleep):
+    slow = ScriptedBatch(polls=10_000)
+    run_batched(store, slow, wait=0.0)
+    mapping = json.loads(store.get("state/slack/batches.json"))["msgbatch_2"]
+    for entry in mapping.values():
+        entry[2] = "an-older-version"                     # as if the item changed after it was sent
+    store.put("state/slack/batches.json", json.dumps({"msgbatch_2": mapping}).encode())
+    slow.polls = 0
+    _, slack = run_batched(store, slow, now=NOW + timedelta(hours=1))
+    # The old answers are ignored and the current versions are sent anew.
+    assert set(slow.sent()[-2:]) == {i for i in WORTH if i.startswith("slack:")}
+    assert slack.counts["extractions"] == 2 and json.loads(store.get("state/slack/batches.json")) == {}
+
+
+class FakeBatches:
+    def __init__(self, lines=(), status="ended"):
+        self.created = None
+        self.lines = list(lines)
+        self.status = status
+
+    def create(self, **kwargs):
+        self.created = kwargs
+        return type("Batch", (), {"id": "msgbatch_x"})()
+
+    def retrieve(self, message_batch_id):
+        return type("Batch", (), {"processing_status": self.status})()
+
+    def results(self, message_batch_id):
+        return iter(self.lines)
+
+
+def ns(**kw):
+    return type("NS", (), kw)()
+
+
+def test_the_api_sends_a_batch_without_fallbacks_and_reads_each_kind_of_result():
+    batches = FakeBatches([
+        ns(custom_id="r00000", result=ns(type="succeeded", message=FakeResponse('{"entities": [], "relations": []}'))),
+        ns(custom_id="r00001", result=ns(type="errored", error=ns(error=ns(type="invalid_request_error")))),
+        ns(custom_id="r00002", result=ns(type="errored", error=ns(error=ns(type="overloaded_error")))),
+        ns(custom_id="r00003", result=ns(type="expired")),
+    ])
+    client = ns(messages=ns(batches=batches), beta=None)
+    api = ClaudeApi(client=client)
+    assert api.submit([model_mod.BatchRequest("r00000", "SYSTEM", "TEXT", {"type": "object"})]) == "msgbatch_x"
+    [request] = batches.created["requests"]
+    assert request["custom_id"] == "r00000" and "fallbacks" not in request["params"]
+    assert request["params"]["output_config"]["format"]["type"] == "json_schema"
+    assert api.ended("msgbatch_x")
+    got = dict(api.results("msgbatch_x"))
+    assert got["r00000"].data == {"entities": [], "relations": []} and got["r00000"].tokens == Tokens(input=115, output=7)
+    assert got["r00001"].data is None and got["r00001"].stop_reason == "invalid_request"
+    assert got["r00002"] is None and got["r00003"] is None
+
+
+def test_batching_follows_the_environment(monkeypatch):
+    monkeypatch.setenv("SWARM_MODEL_BACKEND", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-used")
+    assert model_mod.from_env().batch is True
+    monkeypatch.setenv("SWARM_MODEL_BATCH", "off")
+    assert model_mod.from_env().batch is False
+    monkeypatch.setenv("SWARM_MODEL_BATCH", "maybe")
+    with pytest.raises(SystemExit):
+        model_mod.from_env()

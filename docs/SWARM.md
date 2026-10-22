@@ -47,7 +47,7 @@ Every design question below is settled. Rows marked default were open questions;
 | Cadence | Nightly incremental run per source; weekly reconciliation; first backfill 2 years, configurable. | Default |
 | Quality | Spot-check reviews of sampled extractions after each prompt change; a labeled gold set is deferred. | Default |
 | Test data | A sandbox we own across the sources (GitHub, Slack, Drive, and Jira when added), seeded with realistic content. The club pilot is dropped: access was not granted. | Settled |
-| Cost | Skip LLM extraction on trivial items; per-run token budget that halts LLM steps, not fetching. | Default |
+| Cost | Skip LLM extraction on trivial items; per-run token budget that halts LLM steps, not fetching. On the Anthropic API, extraction runs as one Message Batch per run, at half price. | Default |
 
 ## Architecture
 
@@ -228,6 +228,7 @@ runs/identity/{run_id}/identities/part-00001.jsonl
 raw/{source}/{run_id}/...                            # redacted payloads, expire after 14 days
 state/{source}/checkpoints.json
 state/{source}/backlog.json                          # items still due an LLM extraction
+state/{source}/batches.json                          # Message Batches sent but not yet read
 state/github/repos.json                              # repo names -> ids, read by Slack and Drive
 ```
 
@@ -366,7 +367,8 @@ Extraction quality is checked by hand-reviewing samples for now; a labeled gold 
 - Re-extract only when `content_hash` changes or the prompt version changes. A prompt version covers everything the prompt renders, including the ontology, and `test_extract.py` pins a digest of each prompt so a change cannot ship under an old version. A new version re-extracts the items a run fetches; older items keep their old extraction until they change or are backfilled.
 - A per-run token budget (`SWARM_LLM_TOKEN_BUDGET`) halts LLM steps when reached. Fetching and deterministic extraction continue, and the manifest records `llm_budget_hit: true`. Items still due an extraction go into a backlog in `state/{source}/backlog.json`, which the next run works through first. A model outage (rate limits, timeouts or 5xx after the SDK's retries) sends the run's remaining items to the backlog in the same way. A refusal or a cut-off answer is not asked again until the item or the prompt changes. A bad key or an unknown model fails the run.
 - Every manifest carries the run's total input and output tokens. Each model call produces exactly one extraction record (possibly empty), so cost per item is `tokens / counts.extractions`; per-item counts are in the run's log.
-- Local dev uses `claude-opus-5-5` at effort `medium` with the system prompt cached. Refusals fall back server-side (`fallbacks: "default"`) on the direct API only; Bedrock has no server-side fallback.
+- Local dev uses `claude-opus-5-5` at effort `medium` with the system prompt cached. Refusals fall back server-side (`fallbacks: "default"`) on direct API calls only; Bedrock has no server-side fallback.
+- On the Anthropic API, extraction goes through the Message Batches API by default (`SWARM_MODEL_BATCH=on`), at half the per-token price. A run queues its items while fetching, sends them as one batch once fetching is done, and waits up to `SWARM_BATCH_WAIT_MINUTES` (default 60; most batches end well within that). A batch still running when the wait ends is recorded in `state/{source}/batches.json`, its items stay in the backlog, and the next run reads it first. An item asked about but not answered (expired, or a server error) is asked again next run. Batches take no refusal fallback, so a refused item stays refused, and the token budget is checked before sending against an estimate. `SWARM_MODEL_BATCH=off` switches to one direct call per item; Bedrock always calls directly, since it has no Message Batches.
 
 ## Testing
 
@@ -380,7 +382,7 @@ Everything except LLM extraction is deterministic, so most of the code is covere
 | Idempotency | Reruns change nothing | Each source's gate rehearsal (`test_{source}_gate_rehearsal.py`) runs its pipeline twice on fixtures and asserts the second run writes no new records |
 | Storage | The write and manifest stages work against a real S3 API | `s3`-marked tests; CI starts the RustFS bucket as a service, and locally they are skipped unless `S3_ENDPOINT` answers |
 | Compose stack | The pipeline images run end to end | Not in CI yet: run by hand with `docker compose -f swarm/compose.yaml run --rm sample` (and the source pipelines on fixtures) |
-| LLM steps | Prompt and parsing code paths | `test_extract.py` runs the stage with a scripted model in CI: what is dropped, budget and backlog, outages, refusals, re-extraction on a new prompt version. `swarm.model.Replay` replays recorded answers and can record real ones; real model calls only in spot-check reviews |
+| LLM steps | Prompt and parsing code paths | `test_extract.py` runs the stage with a scripted model in CI: what is dropped, budget and backlog, outages, refusals, re-extraction on a new prompt version, and batches (one per run, a batch that outlives its run, unanswered and invalid requests). `swarm.model.Replay` replays recorded answers and can record real ones; real model calls only in spot-check reviews |
 
 Data fetched from the sandbox (or, later, a customer) never enters the repo or CI. `data/`, `storage-data/` and `.env` are in `.gitignore`. The repo layout is under "In this repo".
 
@@ -423,7 +425,7 @@ swarm/sources/slack/   Slack: Web API and export connectors, thread and burst gr
 swarm/sources/gdrive/  Drive: service-account auth, connector (text export, PDFs, permissions), normalizer
 swarm/sources/links.py links between sources: Drive URLs, GitHub links via state/github/, Jira keys
 swarm/model.py         the model interface: direct API, Bedrock, and replay of recorded answers
-swarm/stages/extract.py stage 8: cost filter, the call, quotes to spans, budget and backlog
+swarm/stages/extract.py stage 8: cost filter, the call or the batch, quotes to spans, budget and backlog
 swarm/stages/prompts.py the extraction prompts, one per kind, versioned
 swarm/review.py        the spot-check review sheet
 swarm/cli.py           what every pipeline's main.py shares
