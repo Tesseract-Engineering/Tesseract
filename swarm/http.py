@@ -5,7 +5,8 @@ A thin layer over httpx that every connector shares:
 
   - the proxy comes from the environment (HTTPS_PROXY, NO_PROXY), which is how
     the compose stack and the VPC route egress through the allowlist
-  - pagination follows the Link header's rel="next"
+  - pagination follows the Link header's rel="next" (GitHub), or a cursor
+    in the body (Slack, Google)
   - rate limits are honoured: 429, Retry-After, and GitHub's 403 with
     x-ratelimit-remaining: 0 all wait and retry, up to a cap
 
@@ -108,6 +109,24 @@ class Client:
             if not match:
                 return
             response = self.request("GET", match.group(1))
+
+    def paginate_cursor(self, path: str, params: dict[str, Any] | None = None, *, key: str,
+                        cursor_param: str, next_cursor: Callable[[Any], str | None],
+                        check: Callable[[Any], None] | None = None) -> Iterator[Any]:
+        """Every element across every page, for APIs that put the next
+        page's cursor in the body: Slack's response_metadata.next_cursor,
+        Google's nextPageToken. `check` sees each body first and may raise,
+        for APIs that report errors inside a 200."""
+        params = dict(params or {})
+        while True:
+            body = self.request("GET", path, params=params).json()
+            if check is not None:
+                check(body)
+            yield from body.get(key) or []
+            cursor = next_cursor(body)
+            if not cursor:
+                return
+            params[cursor_param] = cursor
 
     def close(self) -> None:
         self._http.close()

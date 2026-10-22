@@ -15,38 +15,28 @@ tracker such as Trac; SWARM_BACKFILL_DAYS sets the first run's window
 from __future__ import annotations
 
 import argparse
-import json
-import logging
-import os
 import sys
 
+from swarm.cli import backfill_days, listed, report, setup_logging, store_for
 from swarm.http import Client
 from swarm.run import run_source
 from swarm.sources.github import GitHubConnector, GitHubNormalizer
 from swarm.sources.github.auth import API, HEADERS, from_env
-from swarm.store import LocalStore, S3Store
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--local", metavar="DIR", help="write to a local folder instead of the bucket")
     args = parser.parse_args(argv)
-    logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"), format="%(levelname)s %(name)s %(message)s")
-    # httpx logs every request URL at INFO; swarm.http already logs retries.
-    for noisy in ("httpx", "httpcore"):
-        logging.getLogger(noisy).setLevel(logging.WARNING)
+    setup_logging()
 
     auth = from_env()
-    def listed(name: str) -> list[str]:
-        return [r.strip() for r in os.environ.get(name, "").split(",") if r.strip()]
-
     connector = GitHubConnector(Client(API, headers=HEADERS, auth=auth.headers), mode=auth.mode,
                                 repos=listed("GITHUB_REPOS") or None,
                                 external_tracker=listed("GITHUB_EXTERNAL_TRACKER_REPOS"),
-                                backfill_days=int(os.environ.get("SWARM_BACKFILL_DAYS", "730")))
-    store = LocalStore(args.local) if args.local else S3Store()
-    manifest, checks = run_source(connector, GitHubNormalizer(connector.index), store)
-    print(json.dumps({"run_id": manifest.run_id, "counts": manifest.counts, "checks": checks}))
+                                backfill_days=backfill_days())
+    manifest, checks = run_source(connector, GitHubNormalizer(connector.index), store_for(args.local))
+    report(manifest, checks)
     return 0
 
 

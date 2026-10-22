@@ -77,3 +77,27 @@ def test_bodies_never_reach_the_log(caplog):
     responses = [httpx.Response(429, text=secret, headers={"retry-after": "0"}), httpx.Response(200, text=f'"{secret}"')]
     client(lambda r: responses.pop(0)).get_json("/x")
     assert caplog.records and secret not in caplog.text
+
+
+def test_paginate_cursor_follows_a_cursor_in_the_body():
+    seen = []
+
+    def handler(request):
+        cursor = request.url.params.get("cursor")
+        seen.append(cursor)
+        nxt = {None: "b", "b": "c", "c": ""}[cursor]
+        return httpx.Response(200, json={"ok": True, "items": [cursor or "a"], "meta": {"next": nxt}})
+
+    out = list(client(handler).paginate_cursor("/items", {"limit": 2}, key="items", cursor_param="cursor",
+                                               next_cursor=lambda b: b["meta"]["next"]))
+    assert out == ["a", "b", "c"] and seen == [None, "b", "c"]
+
+
+def test_paginate_cursor_lets_the_caller_reject_a_200():
+    def check(body):
+        if not body["ok"]:
+            raise ValueError(body["error"])
+
+    c = client(lambda r: httpx.Response(200, json={"ok": False, "error": "not_in_channel"}))
+    with pytest.raises(ValueError, match="not_in_channel"):
+        list(c.paginate_cursor("/x", key="items", cursor_param="cursor", next_cursor=lambda b: None, check=check))

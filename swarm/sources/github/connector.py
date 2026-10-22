@@ -145,6 +145,12 @@ class GitHubConnector:
         cursor = self._cursors.get(container.id)
         return Checkpoint(container.id, cursor, _iso(self.now)) if cursor else None
 
+    def published_state(self) -> dict[str, Any]:
+        """state/github/repos.json: lowercased owner/name -> repo id for every
+        granted repo, so Slack and Drive can link "acme/api#412" and GitHub
+        URLs to GitHub IDs (swarm/sources/links.py)."""
+        return {"repos": {name: repo_id for name, repo_id in sorted(self.index.full_names.items())}}
+
     def _lookup_kind(self, repo_id: int, number: int) -> str | None:
         repo = self._repos.get(repo_id)
         if repo is None:

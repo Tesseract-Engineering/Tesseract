@@ -30,21 +30,19 @@ from dataclasses import dataclass, field
 
 from ... import ids
 from ...records import Ref
+from ..links import DRIVE as _DRIVE
+from ..links import GITHUB_URL as _URL
+from ..links import REPO as _REPO
+from ..links import SLACK_PERMALINK as _SLACK
+from ..links import jira_keys
 
 _CODE = re.compile(r"```.*?(?:```|\Z)|`[^`\n]*`", re.S)
 _QUOTE = re.compile(r"^\s*>.*$", re.M)
 
-_REPO = r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"
 _ISSUE_URL = rf"https?://github\.com/({_REPO})/(?:issues|pull)/(\d+)"
 _CLOSING = re.compile(
     rf"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b:?\s+(?:(?:({_REPO}))?#(\d+)\b|{_ISSUE_URL})", re.I)
 _SHORT = re.compile(rf"(?<![\w/&#-])(?:({_REPO}))?#(\d+)\b")
-_URL = re.compile(rf"https?://github\.com/({_REPO})/(pull|issues|commit)/([0-9a-f]{{7,40}}|\d+)\b")
-_DRIVE = re.compile(r"https?://(?:docs\.google\.com/(?:document|presentation|spreadsheets)/d/|"
-                    r"drive\.google\.com/(?:file/d/|open\?id=))([A-Za-z0-9_-]{10,})")
-_JIRA = re.compile(r"\b([A-Z][A-Z0-9]{1,9}-\d+)\b")
-_JIRA_FALSE = {"SHA", "UTF", "ISO", "RFC", "CVE", "AES", "TLS", "HTTP", "COVID"}
-_SLACK = re.compile(r"https://[A-Za-z0-9-]+\.slack\.com/archives/[A-Z0-9]+/p\d{16}(?:\?[^\s)>\]]*)?")
 _MENTION = re.compile(r"(?<![\w@/.`])@([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))(?![\w/-])")
 
 
@@ -178,7 +176,7 @@ def extract(text: str, *, item_kind: str, repo_id: int, own_number: int | None,
     for m in _DRIVE.finditer(text):
         add("references", ids.gdrive_file(m.group(1)), "url")
 
-    found.jira_keys = sorted({k for k in _JIRA.findall(text) if k.split("-")[0] not in _JIRA_FALSE})
+    found.jira_keys = jira_keys(text)
     found.slack_links = sorted(set(_SLACK.findall(text)))
     found.external = [f"#{n}" for n in sorted(external_refs)]
     found.mentions = list(dict.fromkeys(_MENTION.findall(text)))

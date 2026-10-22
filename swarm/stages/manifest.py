@@ -31,7 +31,9 @@ def finish_run(writer: RunWriter, *, started_at: datetime,
                checkpoints: dict[str, Checkpoint] | None = None,
                extractor_versions: list[str] | None = None,
                llm_budget_hit: bool = False, tokens: Tokens | None = None,
-               finished_at: datetime | None = None) -> Manifest:
+               finished_at: datetime | None = None, published: dict[str, object] | None = None) -> Manifest:
+    """`published` is lookup state other sources may read, written as
+    state/{source}/{name}.json alongside the checkpoints."""
     writer.flush()
     manifest = Manifest(
         source=writer.source, run_id=writer.run_id,
@@ -49,6 +51,8 @@ def finish_run(writer: RunWriter, *, started_at: datetime,
         merged = {k: vars(v) for k, v in read_checkpoints(writer).items()}
         merged.update({k: vars(v) for k, v in checkpoints.items()})
         store.put(state_key(source, "checkpoints"), json.dumps(merged, sort_keys=True, indent=2).encode("utf-8"))
+    for name, value in (published or {}).items():
+        store.put(state_key(source, name), json.dumps(value, sort_keys=True).encode("utf-8"))
     return manifest
 
 

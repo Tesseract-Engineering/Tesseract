@@ -6,7 +6,8 @@ run.py - one run of one source, the same stages for every source.
      5-7  normalize to an item record, with its ACL and deterministic refs
        9  write records (and the source's group records)
           check the run: ACL coverage 100%, zero secret hits
-   10-11  write the manifest, then advance checkpoints
+   10-11  write the manifest, then advance checkpoints (and any lookup state
+          the connector publishes for other sources)
 
 Step 8, LLM extraction, arrives in Phase 3.
 
@@ -68,5 +69,7 @@ def run_source(connector: Connector, normalizer: Normalizer, store: ObjectStore,
 
     writer.flush()
     checks = check_run(store, source, writer.run_id)         # raises before any manifest exists
-    manifest = finish_run(writer, started_at=started, checkpoints=advanced)
+    published = getattr(connector, "published_state", None)
+    manifest = finish_run(writer, started_at=started, checkpoints=advanced,
+                          published=published() if published is not None else None)
     return manifest, checks
