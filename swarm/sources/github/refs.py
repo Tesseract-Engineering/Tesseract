@@ -34,10 +34,7 @@ from ..links import DRIVE as _DRIVE
 from ..links import GITHUB_URL as _URL
 from ..links import REPO as _REPO
 from ..links import SLACK_PERMALINK as _SLACK
-from ..links import jira_keys
-
-_CODE = re.compile(r"```.*?(?:```|\Z)|`[^`\n]*`", re.S)
-_QUOTE = re.compile(r"^\s*>.*$", re.M)
+from ..links import jira_keys, scrub
 
 _ISSUE_URL = rf"https?://github\.com/({_REPO})/(?:issues|pull)/(\d+)"
 _CLOSING = re.compile(
@@ -85,13 +82,6 @@ class Found:
     dropped: int = 0                     # out of scope or unresolvable
 
 
-def _scrub(text: str) -> str:
-    """Blank out code and quoted replies, keeping offsets."""
-    def blank(m: re.Match[str]) -> str:
-        return re.sub(r"[^\n]", " ", m.group(0))
-    return _QUOTE.sub(blank, _CODE.sub(blank, text))
-
-
 def _target(repo_id: int, number: int, kind: str) -> str:
     return ids.github_pr(repo_id, number) if kind == "pull_request" else ids.github_issue(repo_id, number)
 
@@ -99,7 +89,7 @@ def _target(repo_id: int, number: int, kind: str) -> str:
 def extract(text: str, *, item_kind: str, repo_id: int, own_number: int | None,
             index: RepoIndex) -> Found:
     found = Found()
-    text = _scrub(text or "")
+    text = scrub(text or "")
     seen: dict[str, str] = {}            # target -> relation; closes/implements outrank references
 
     def add(relation: str, target: str, via: str) -> None:

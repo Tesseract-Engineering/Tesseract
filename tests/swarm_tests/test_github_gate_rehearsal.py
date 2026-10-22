@@ -50,7 +50,8 @@ def test_run_is_manifest_complete_with_full_acl_coverage_and_no_secrets(first):
     assert read_manifest(store, "github", manifest.run_id) == manifest
     assert manifest.status == "complete"
     assert manifest.counts == {"items": 9, "extractions": 0, "changes": 0, "groups": 1, "identities": 0, "rejected": 0}
-    assert checks == {"items": 9, "acl_coverage": 1.0, "secret_hits": 0}
+    assert checks == {"items": 9, "written_with_acl": 1.0, "secret_hits": 0}
+    assert manifest.acl_coverage == 1.0 and manifest.rejections == {}
     everything = b"".join(store.get(k) for k in store.list(""))
     for token in planted().values():
         assert token.encode() not in everything

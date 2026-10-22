@@ -5,14 +5,15 @@ run.py - one run of one source, the same stages for every source.
      3-4  redact each payload in memory, then keep it under raw/
      5-7  normalize to an item record, with its ACL and deterministic refs
        9  write records (and the source's group records)
-          check the run: ACL coverage 100%, zero secret hits
+          check the run: every written item has an ACL, zero secret hits
    10-11  write the manifest, then advance checkpoints (and any lookup state
           the connector publishes for other sources)
 
 Step 8, LLM extraction, arrives in Phase 3.
 
 An item that fails to normalize or carries no ACL is counted as rejected and
-the run goes on. A source or storage failure ends the run before the
+the run goes on; the manifest records how many per reason, and the share of
+fetched items that had an ACL. A source or storage failure ends the run before the
 manifest, so the run stays invisible and is retried.
 """
 
@@ -26,7 +27,7 @@ from pydantic import ValidationError
 
 from .interfaces import Checkpoint, Connector, Normalizer
 from .records import Manifest
-from .stages.acl import MissingAcl, require_acl
+from .stages.acl import MissingAcl, coverage, require_acl
 from .stages.checks import check_run
 from .stages.manifest import finish_run, read_checkpoints
 from .stages.redact import redact_payload
@@ -47,6 +48,7 @@ def run_source(connector: Connector, normalizer: Normalizer, store: ObjectStore,
     advanced: dict[str, Checkpoint] = {}
     groups = getattr(connector, "groups", None)
     checkpoint = getattr(connector, "checkpoint", None)
+    with_acl = 0
 
     for container in connector.enumerate():
         for raw in connector.fetch(container, previous.get(container.id)):
@@ -54,6 +56,7 @@ def run_source(connector: Connector, normalizer: Normalizer, store: ObjectStore,
             writer.write_raw(_SAFE.sub("_", raw.native_id), raw.payload)
             try:
                 acl = require_acl(raw.native_id, connector.acl(raw))
+                with_acl += 1
                 item = normalizer.to_item(raw, acl)
             except (MissingAcl, ValidationError, KeyError, ValueError, TypeError) as e:
                 # Counted, never logged with content: the reason is the exception type.
@@ -71,5 +74,6 @@ def run_source(connector: Connector, normalizer: Normalizer, store: ObjectStore,
     checks = check_run(store, source, writer.run_id)         # raises before any manifest exists
     published = getattr(connector, "published_state", None)
     manifest = finish_run(writer, started_at=started, checkpoints=advanced,
+                          acl_coverage=coverage(with_acl, writer.rejections.get("MissingAcl", 0)),
                           published=published() if published is not None else None)
     return manifest, checks

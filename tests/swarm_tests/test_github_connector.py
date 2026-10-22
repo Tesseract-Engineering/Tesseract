@@ -109,3 +109,62 @@ def test_outside_tracker_setting_marks_repos_in_the_index():
                            external_tracker=["ACME-SBX/api"], now=connector()[0].now)
     list(conn.enumerate())
     assert conn.index.external == {9001}
+
+
+def test_a_gone_issue_is_absent_not_fatal():
+    # GitHub answers 410 for a deleted issue, and for any number in a repo with issues turned off.
+    from .github_fixture import FakeGitHub
+    fake = FakeGitHub({"GET /repos/acme-sbx/api/issues/99": {"status": 410, "body": {"message": "Gone"}}})
+    conn, _ = connector(fake)
+    list(conn.enumerate())
+    assert conn.index.kind(9001, 99) is None
+    assert (9001, 99) in conn.index.missing
+
+
+def test_unlistable_collaborators_write_an_empty_readers_group():
+    # Listing collaborators needs push access; a read-only token gets 403.
+    from .github_fixture import FakeGitHub
+    fake = FakeGitHub({"GET /repos/acme-sbx/api/collaborators": {"status": 403,
+                                                                "body": {"message": "Must have push access"}}})
+    conn, _ = connector(fake)
+    api = next(iter(conn.enumerate()))
+    [group] = conn.groups(api, run_id="r1")
+    assert group.id == "group:github:repo:9001:readers" and group.members == []
+
+
+def test_other_collaborator_errors_still_stop_the_run():
+    from swarm.http import SourceError
+
+    from .github_fixture import FakeGitHub
+    fake = FakeGitHub({"GET /repos/acme-sbx/api/collaborators": {"status": 401, "body": {}}})
+    conn, _ = connector(fake)
+    api = next(iter(conn.enumerate()))
+    with pytest.raises(SourceError):
+        conn.groups(api, run_id="r1")
+
+
+def test_a_future_commit_date_does_not_move_the_checkpoint_past_now():
+    from .github_fixture import FakeGitHub
+    fake = FakeGitHub()
+    sha = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"
+    fake.routes[f"GET /repos/acme-sbx/api/commits/{sha}"]["commit"]["committer"]["date"] = "2027-06-01T00:00:00Z"
+    conn, _ = connector(fake)
+    api = next(iter(conn.enumerate()))
+    list(conn.fetch(api, None))
+    assert conn.checkpoint(api).cursor == "2026-10-21T12:00:00Z"      # the run's clock, not 2027
+
+
+def test_a_checkpoint_already_in_the_future_heals():
+    conn, fake = connector()
+    api = next(iter(conn.enumerate()))
+    list(conn.fetch(api, Checkpoint(api.id, "2027-06-01T00:00:00Z", "x")))
+    issues = [r for r in fake.requests if r.url.path == "/repos/acme-sbx/api/issues"][0]
+    assert issues.url.params["since"] == "2026-10-14T12:00:00Z"        # now minus the lookback
+    assert conn.checkpoint(api).cursor <= "2026-10-21T12:00:00Z"
+
+
+def test_visibility_reads_older_payloads_with_only_private():
+    from swarm.sources.github.connector import repo_visibility
+    assert repo_visibility({"visibility": "internal", "private": True}) == "internal"
+    assert repo_visibility({"private": True}) == "private"
+    assert repo_visibility({"private": False}) == "public"

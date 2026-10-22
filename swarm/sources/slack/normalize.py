@@ -211,7 +211,9 @@ class SlackNormalizer:
 
     def _speaker(self, m: dict[str, Any], seen: _Seen, role: str) -> str:
         user = self.directory.get(m.get("user"))
-        bot = (m.get("subtype") == "bot_message" or (m.get("bot_id") and not m.get("user"))
+        # No user id at all (an integration's post, some file shares) is
+        # treated like a bot: there is no person to credit.
+        bot = (m.get("subtype") == "bot_message" or not m.get("user")
                or (user is not None and user.is_bot))
         if bot:
             name = (m.get("username") or (m.get("bot_profile") or {}).get("name")

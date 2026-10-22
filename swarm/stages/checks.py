@@ -3,6 +3,8 @@ checks.py - the hard-fail checks every run must pass (docs/SWARM.md,
 "Evaluation and cost controls").
 
   ACL coverage     every written item carries an acl          (100%)
+                   (fetched items refused for having no ACL are
+                   reported in the manifest, see acl.py)
   Secret leakage   no secret pattern anywhere in the run,     (zero hits)
                    records and raw payloads alike
 """
@@ -35,7 +37,7 @@ def check_run(store: ObjectStore, source: str, run_id: str) -> dict[str, float |
     for key in store.list(f"raw/{source}/{run_id}/"):
         _, found = redact((store.get(key) or b"").decode("utf-8"))
         hits += sum(r.count for r in found)
-    result = {"items": items, "acl_coverage": 1.0 if items == 0 else with_acl / items, "secret_hits": hits}
-    if result["acl_coverage"] < 1.0 or hits:
+    result = {"items": items, "written_with_acl": 1.0 if items == 0 else with_acl / items, "secret_hits": hits}
+    if result["written_with_acl"] < 1.0 or hits:
         raise CheckFailed(f"{prefix}: {result}")
     return result

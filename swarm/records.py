@@ -465,6 +465,11 @@ class Manifest(_Model):
     started_at: AwareDatetime
     finished_at: AwareDatetime
     counts: dict[Literal["items", "extractions", "changes", "groups", "identities", "rejected"], int]
+    rejections: dict[str, int] = Field(
+        default_factory=dict, description="Items not written, by reason (MissingAcl, ValidationError, ...)")
+    acl_coverage: float = Field(
+        default=1.0, ge=0.0, le=1.0,
+        description="Share of fetched items that had an ACL; the rest are counted as MissingAcl rejections")
     files: list[str] = Field(description="Part files of this run, relative to runs/{source}/{run_id}/")
     extractor_versions: list[str] = Field(default_factory=list)
     llm_budget_hit: bool = False

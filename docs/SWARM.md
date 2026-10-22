@@ -232,10 +232,10 @@ Group names use immutable IDs only, never a repo or org slug. Group members are 
 **Run manifest.** The graph side reads a run only once its manifest exists and `status` is `complete`.
 
 ```json
-{"schema_version": "2", "source": "slack", "run_id": "2026-10-20T03:00:00Z-slack", "status": "complete", "started_at": "...", "finished_at": "...", "counts": {"items": 1840, "extractions": 912, "changes": 14}, "files": ["items/part-00001.jsonl"], "extractor_versions": ["decisions-v3"], "llm_budget_hit": false}
+{"schema_version": "2", "source": "slack", "run_id": "2026-10-20T03:00:00Z-slack", "status": "complete", "started_at": "...", "finished_at": "...", "counts": {"items": 1840, "extractions": 912, "changes": 14, "rejected": 3}, "rejections": {"MissingAcl": 3}, "acl_coverage": 0.998, "files": ["items/part-00001.jsonl"], "extractor_versions": ["decisions-v3"], "llm_budget_hit": false}
 ```
 
-The counts above are illustrative. A run that fails writes no manifest; its partial files are ignored and overwritten on retry.
+The counts above are illustrative. `rejections` counts items not written, by reason; `acl_coverage` is the share of fetched items that had a readable ACL, the rest being the `MissingAcl` rejections. A run that fails writes no manifest; its partial files are ignored and overwritten on retry.
 
 ## Ontology
 
@@ -331,7 +331,8 @@ Extraction quality is checked by hand-reviewing samples for now; a labeled gold 
 
 | Check | Measures | Target | Runs |
 | --- | --- | --- | --- |
-| ACL coverage | Items with a non-empty `acl` | 100%, hard fail | Every run |
+| ACL coverage | Written items with a non-empty `acl` | 100%, hard fail | Every run |
+| Unreadable ACLs | Fetched items refused for having no readable ACL: `acl_coverage` and `rejections` in the manifest | Reported, not fatal | Every run |
 | Idempotency | Rerunning the same window produces no new records | Zero diff, hard fail | CI |
 | Secret leakage | Secret-pattern hits in staging | Zero, hard fail | Every run |
 | Ref resolution rate | Share of ref targets that exist as items | Tracked, no target | Every run |
@@ -528,7 +529,7 @@ The biggest risks are coverage gaps from source permissions, not engineering.
 | --- | --- | --- |
 | Slack rate tier for new internal apps is unclear | Bulk history fetch becomes impractically slow | Confirm the tier on first install; fall back to export for backfill |
 | Drive coverage without domain-wide delegation is partial | Docs outside shared drives are missed | Offer delegation as an opt-in upgrade; report coverage per drive |
-| A Viewer service account may not be allowed to list a file's permissions | Files without a readable ACL are rejected, not written | Parent-folder fallback; check the rejected count on the first real run before considering any wider role |
+| A Viewer service account may not be allowed to list a file's permissions | Files without a readable ACL are rejected, not written | Parent-folder fallback; check `acl_coverage` and `rejections` in the first real run's manifest before considering any wider role |
 | Google group members are unreadable without the Admin SDK | Readers who come in through a group are not granted anything | Group records carry the group's email; delegation fills members later |
 | A Slack reply to a thread quiet for over 30 days is missed nightly | The thread's text is stale until reconciliation | Weekly reconciliation rereads every thread |
 | Slack export omits private channels and DMs on most plans | Cold start misses private context | Backfill private channels via the API for channels the bot is invited to |

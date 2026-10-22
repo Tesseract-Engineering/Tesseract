@@ -44,9 +44,10 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ... import ids
-from ...http import Client, SourceError
+from ...http import GOOGLE_RATE_LIMITS, Client, SourceError
 from ...interfaces import Checkpoint, RawContainer, RawItem
 from ...records import Acl, GroupRecord
+from ...timeutil import iso, parse_iso
 
 log = logging.getLogger("swarm.gdrive")
 
@@ -67,14 +68,6 @@ FILE_FIELDS = ("id,name,mimeType,parents,driveId,webViewLink,createdTime,modifie
                "lastModifyingUser(displayName,emailAddress)")
 PERMISSION_FIELDS = "nextPageToken,permissions(id,type,role,emailAddress,domain,deleted)"
 ALL_DRIVES = {"supportsAllDrives": "true", "includeItemsFromAllDrives": "true"}
-
-
-def _iso(dt: datetime) -> str:
-    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _parse(stamp: str) -> datetime:
-    return datetime.fromisoformat(stamp.replace("Z", "+00:00"))
 
 
 def group_principal(permission_id: str) -> str:
@@ -125,7 +118,7 @@ class DriveConnector:
     # -- fetch ---------------------------------------------------------------- #
 
     def _window_start(self, since: Checkpoint | None) -> datetime:
-        return _parse(since.cursor) - LOOKBACK if since else self.now - self.backfill
+        return parse_iso(since.cursor) - LOOKBACK if since else self.now - self.backfill
 
     def _files(self, container: RawContainer, start: datetime | None) -> Iterator[dict[str, Any]]:
         """Every folder and file under the container's root (not the root),
@@ -133,7 +126,7 @@ class DriveConnector:
         root = container.meta["root"]
         fields = f"nextPageToken,files({FILE_FIELDS})"
         if container.meta["scope"] == "drive":
-            q = "trashed = false" + (f" and modifiedTime >= '{_iso(start)}'" if start else "")
+            q = "trashed = false" + (f" and modifiedTime >= '{iso(start)}'" if start else "")
             yield from self._pages("/drive/v3/files", {"corpora": "drive", "driveId": root["id"], "q": q,
                                                        "fields": fields, "pageSize": 1000, **ALL_DRIVES}, "files")
             return
@@ -146,14 +139,14 @@ class DriveConnector:
                 if f["mimeType"] == FOLDER and f["id"] not in seen:
                     seen.add(f["id"])
                     queue.append(f["id"])
-                if start is None or _parse(f["modifiedTime"]) >= start:
+                if start is None or parse_iso(f["modifiedTime"]) >= start:
                     yield f
 
     def fetch(self, container: RawContainer, since: Checkpoint | None) -> Iterator[RawItem]:
         start = self._window_start(since)
-        fetched = _iso(self.now)
+        fetched = iso(self.now)
         root = container.meta["root"]
-        newest = since.cursor if since else _iso(start)
+        newest = since.cursor if since else iso(start)
         self._groups.setdefault(container.id, {})
         for f in [root, *self._files(container, start)]:
             kind = FILE_TYPES.get(f["mimeType"])
@@ -161,7 +154,7 @@ class DriveConnector:
                 self.skipped[f["mimeType"]] = self.skipped.get(f["mimeType"], 0) + 1
                 continue
             if f.get("modifiedTime"):
-                newest = max(newest, _iso(_parse(f["modifiedTime"])))
+                newest = max(newest, iso(parse_iso(f["modifiedTime"])))
             text, status = self._text(f, kind)
             permissions, inherited = self._acl_source(f, root["id"])
             yield RawItem(source="gdrive", container=container, native_id=f"file-{f['id']}", fetched_at=fetched,
@@ -182,8 +175,10 @@ class DriveConnector:
                 # Docs exports start with a BOM and end lines with CRLF.
                 return text.lstrip("﻿").replace("\r\n", "\n"), "exported"
             except SourceError as e:
-                if e.status == 403:                         # exportSizeLimitExceeded: over 10 MB
+                if e.reason == "exportSizeLimitExceeded":     # over 10 MB
                     return "", "too_large"
+                if e.status == 403 and e.reason not in GOOGLE_RATE_LIMITS:
+                    return "", "unreadable"                 # e.g. the owner disabled downloads for viewers
                 raise
         if kind == "pdf":
             if int(f.get("size") or 0) > MAX_PDF_BYTES:
@@ -203,7 +198,8 @@ class DriveConnector:
                     f"/drive/v3/files/{file_id}/permissions",
                     {"fields": PERMISSION_FIELDS, "pageSize": 100, "supportsAllDrives": "true"}, "permissions"))
             except SourceError as e:
-                if e.status not in (403, 404):
+                # Throttling that outlasted the client's retries is not an answer.
+                if e.status not in (403, 404) or e.reason in GOOGLE_RATE_LIMITS:
                     raise
                 self._permissions[file_id] = None
         return self._permissions[file_id]
@@ -250,7 +246,7 @@ class DriveConnector:
 
     def checkpoint(self, container: RawContainer) -> Checkpoint | None:
         cursor = self._cursors.get(container.id)
-        return Checkpoint(container.id, cursor, _iso(self.now)) if cursor else None
+        return Checkpoint(container.id, cursor, iso(self.now)) if cursor else None
 
     def list_ids(self, container: RawContainer) -> Iterator[str]:
         yield container.id
@@ -261,11 +257,10 @@ class DriveConnector:
 
 def _pdf_text(data: bytes) -> tuple[str, str]:
     from pypdf import PdfReader
-    from pypdf.errors import PyPdfError
 
     try:
         reader = PdfReader(io.BytesIO(data))
         text = "\n\n".join((page.extract_text() or "").strip() for page in reader.pages).strip()
-    except (PyPdfError, ValueError, KeyError, TypeError):
+    except Exception:                    # pypdf raises many types on a malformed or hostile file
         return "", "unreadable"
     return (text, "extracted") if text else ("", "no_text")

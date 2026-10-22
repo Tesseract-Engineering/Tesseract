@@ -21,6 +21,7 @@ from ... import ids
 from ...interfaces import RawItem
 from ...records import Acl, ItemRecord, Person, content_hash
 from ...stages.redact import redactions_in
+from .connector import repo_visibility
 from .refs import RepoIndex, extract
 
 MAX_TEXT = 200_000
@@ -101,7 +102,7 @@ class GitHubNormalizer:
             created_at=repo["created_at"], updated_at=repo["updated_at"],
             version=repo.get("pushed_at") or repo["updated_at"], people=_People(),
             meta={"default_branch": repo.get("default_branch"), "language": repo.get("language"),
-                  "visibility": repo.get("visibility") or ("private" if repo.get("private") else "public"),
+                  "visibility": repo_visibility(repo),
                   "archived": bool(repo.get("archived")), "topics": topics},
             repo_id=repo["id"], number=None, scan="")
 

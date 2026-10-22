@@ -16,11 +16,12 @@ from __future__ import annotations
 import os
 import time
 from collections.abc import Callable
-from datetime import datetime
 from pathlib import Path
 
 import httpx
 import jwt
+
+from ...timeutil import parse_iso
 
 API = "https://api.github.com"
 HEADERS = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
@@ -51,7 +52,7 @@ class AppAuth:
             response.raise_for_status()
             body = response.json()
             self._token = body["token"]
-            self._expires = datetime.fromisoformat(body["expires_at"].replace("Z", "+00:00")).timestamp()
+            self._expires = parse_iso(body["expires_at"]).timestamp()
         return {"Authorization": f"Bearer {self._token}"}
 
 

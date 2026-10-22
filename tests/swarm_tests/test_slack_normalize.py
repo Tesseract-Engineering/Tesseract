@@ -163,3 +163,18 @@ def test_channels_become_items_owned_by_their_creator(items):
 def test_long_first_lines_make_short_titles(items):
     general = items["slack:T01ACME:thread:C10GEN:1792144800.000100"]
     assert len(general.title) <= 121 and general.title.endswith("…")
+
+
+def test_a_message_with_no_user_keeps_its_burst():
+    # An integration's post or a file share can carry neither user nor bot_id.
+    # It used to raise KeyError, which rejected every message in the burst.
+    conn, _ = api_connector()
+    norm = SlackNormalizer(conn.directory, GITHUB)
+    norm.run_id = "r1"
+    raws = {raw.native_id: raw for c in conn.enumerate() for raw in conn.fetch(c, None)}
+    raw = raws["burst-C42AUTH-1792195500.000200"]
+    raw.payload["messages"].append({"ts": "1792195560.000900", "subtype": "file_share", "text": "",
+                                    "files": [{"name": "cutover.png"}]})
+    item = norm.to_item(raw, conn.acl(raw))
+    assert "bot: [file: cutover.png]" in item.text
+    assert [p.handle for p in item.people] == ["U123SAM"]

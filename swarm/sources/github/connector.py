@@ -12,11 +12,19 @@ narrowed by GITHUB_REPOS when both are set. Every call is a read.
   acl         public repos are public; private and internal repos are
               readable by the repo's readers group
   groups      that readers group: every collaborator, including access via
-              teams and org defaults (affiliation=all), as person:github:{login}
+              teams and org defaults (affiliation=all), as person:github:{login}.
+              Listing collaborators needs push access; with a read-only
+              credential the group is written with no members, so the graph
+              side grants nobody through it rather than trusting stale members
+
+A checkpoint is the newest issue update or commit date seen, never later
+than the run's own clock: commit dates are set by whoever made the commit,
+and one dated in the future would push the window past real activity.
 """
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -25,18 +33,18 @@ from ... import ids
 from ...http import Client, SourceError
 from ...interfaces import Checkpoint, RawContainer, RawItem
 from ...records import Acl, GroupRecord
+from ...timeutil import iso, parse_iso
 from .refs import RepoIndex
+
+log = logging.getLogger("swarm.github")
 
 LOOKBACK = timedelta(days=7)
 COMMIT_DETAIL_CAP = 500        # commits per repo per run that get their file list
 
 
-def _iso(dt: datetime) -> str:
-    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _parse(stamp: str) -> datetime:
-    return datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+def repo_visibility(repo: dict[str, Any]) -> str:
+    """public, private or internal; older payloads carry only `private`."""
+    return repo.get("visibility") or ("private" if repo.get("private") else "public")
 
 
 def readers_group(repo_id: int) -> str:
@@ -84,17 +92,17 @@ class GitHubConnector:
     def _window_start(self, since: Checkpoint | None) -> datetime:
         if since is None:
             return self.now - self.backfill
-        return _parse(since.cursor) - LOOKBACK
+        return min(parse_iso(since.cursor), self.now) - LOOKBACK      # a cursor from the future heals
 
     # -- fetch ---------------------------------------------------------------- #
 
     def fetch(self, container: RawContainer, since: Checkpoint | None) -> Iterator[RawItem]:
         repo = container.meta["repo"]
         name, repo_id = repo["full_name"], repo["id"]
-        start = _iso(self._window_start(since))
-        fetched = _iso(self.now)
+        start = iso(self._window_start(since))
+        fetched = iso(self.now)
         brief = {k: repo.get(k) for k in ("id", "full_name", "default_branch", "private", "visibility")}
-        newest = since.cursor if since else start
+        newest = min(since.cursor, fetched) if since else start
 
         def item(native: str, payload: dict[str, Any]) -> RawItem:
             return RawItem(source="github", container=container, native_id=native, payload=payload,
@@ -109,7 +117,7 @@ class GitHubConnector:
             self.index.kinds[(repo_id, issue["number"])] = kind
         for issue in issues:
             n = issue["number"]
-            newest = max(newest, issue["updated_at"])
+            newest = max(newest, min(iso(parse_iso(issue["updated_at"])), fetched))
             comments = (list(self.client.paginate(f"/repos/{name}/issues/{n}/comments", {"per_page": 100}))
                         if issue.get("comments") else [])
             if "pull_request" in issue:
@@ -127,8 +135,9 @@ class GitHubConnector:
         for i, commit in enumerate(self._commits(name, repo, {"since": start})):
             if i < COMMIT_DETAIL_CAP:
                 commit = self.client.get_json(f"/repos/{name}/commits/{commit['sha']}")
-            date = (commit["commit"].get("committer") or {}).get("date") or start
-            newest = max(newest, date)
+            date = (commit["commit"].get("committer") or {}).get("date")
+            if date:
+                newest = max(newest, min(iso(parse_iso(date)), fetched))
             yield item(f"commit-{commit['sha']}", {"type": "commit", "repo": brief, "commit": commit})
 
         self._cursors[container.id] = newest
@@ -143,7 +152,7 @@ class GitHubConnector:
 
     def checkpoint(self, container: RawContainer) -> Checkpoint | None:
         cursor = self._cursors.get(container.id)
-        return Checkpoint(container.id, cursor, _iso(self.now)) if cursor else None
+        return Checkpoint(container.id, cursor, iso(self.now)) if cursor else None
 
     def published_state(self) -> dict[str, Any]:
         """state/github/repos.json: lowercased owner/name -> repo id for every
@@ -174,18 +183,22 @@ class GitHubConnector:
 
     def acl(self, item: RawItem) -> Acl:
         repo = item.container.meta["repo"]
-        visibility = repo.get("visibility") or ("private" if repo.get("private") else "public")
-        if visibility == "public":
+        if repo_visibility(repo) == "public":
             return Acl(visibility="public")
         return Acl(visibility="restricted", principals=[readers_group(repo["id"])])
 
     def groups(self, container: RawContainer, *, run_id: str) -> list[GroupRecord]:
         repo = container.meta["repo"]
-        visibility = repo.get("visibility") or ("private" if repo.get("private") else "public")
-        if visibility == "public":
+        if repo_visibility(repo) == "public":
             return []
-        logins = sorted({c["login"] for c in self.client.paginate(
-            f"/repos/{repo['full_name']}/collaborators", {"affiliation": "all", "per_page": 100})})
+        try:
+            logins = sorted({c["login"] for c in self.client.paginate(
+                f"/repos/{repo['full_name']}/collaborators", {"affiliation": "all", "per_page": 100})})
+        except SourceError as e:
+            if e.status != 403:
+                raise
+            log.warning("cannot list collaborators of repo %s; its readers group is written empty", repo["id"])
+            logins = []
         return [GroupRecord(run_id=run_id, id=readers_group(repo["id"]), source="github",
                             name=f"{repo['full_name']} readers",
                             members=[ids.person("github", login) for login in logins],

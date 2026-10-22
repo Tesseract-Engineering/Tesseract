@@ -34,6 +34,11 @@ def test_paginate_reads_a_key_inside_an_object():
 @pytest.mark.parametrize(("first", "expected_wait"), [
     (httpx.Response(429, headers={"retry-after": "7"}), 7.0),
     (httpx.Response(403, headers={"x-ratelimit-remaining": "0", "x-ratelimit-reset": "1030"}), 30.0),
+    # GitHub also reports an exhausted quota as a 429: wait for the reset, not 2**attempt.
+    (httpx.Response(429, headers={"x-ratelimit-remaining": "0", "x-ratelimit-reset": "1600"}), 600.0),
+    # Google reports throttling as a 403 with a reason in the body.
+    (httpx.Response(403, json={"error": {"errors": [{"reason": "userRateLimitExceeded"}]}}), 1.0),
+    (httpx.Response(403, json={"error": {"errors": [{"reason": "rateLimitExceeded"}]}}), 1.0),
     (httpx.Response(503), 1.0),
 ])
 def test_rate_limits_wait_then_retry(first, expected_wait):
@@ -46,6 +51,7 @@ def test_rate_limits_wait_then_retry(first, expected_wait):
 def test_plain_errors_are_final_and_404_can_be_optional():
     c = client(lambda r: httpx.Response(404, json={"message": "Not Found"}))
     assert c.get_optional("/missing") is None
+    assert client(lambda r: httpx.Response(410, json={"message": "Gone"})).get_optional("/gone") is None
     with pytest.raises(SourceError) as err:
         client(lambda r: httpx.Response(401)).get_json("/x")
     assert err.value.status == 401
@@ -101,3 +107,22 @@ def test_paginate_cursor_lets_the_caller_reject_a_200():
     c = client(lambda r: httpx.Response(200, json={"ok": False, "error": "not_in_channel"}))
     with pytest.raises(ValueError, match="not_in_channel"):
         list(c.paginate_cursor("/x", key="items", cursor_param="cursor", next_cursor=lambda b: None, check=check))
+
+
+def test_a_google_403_that_is_not_throttling_is_final_and_keeps_its_reason():
+    calls: list[httpx.Request] = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(403, json={"error": {"errors": [{"reason": "exportSizeLimitExceeded"}]}})
+
+    with pytest.raises(SourceError) as err:
+        client(handler).get_json("/export")
+    assert (err.value.status, err.value.reason, len(calls)) == (403, "exportSizeLimitExceeded", 1)
+
+
+def test_throttling_that_outlasts_the_retries_says_so():
+    with pytest.raises(SourceError) as err:
+        client(lambda r: httpx.Response(403, json={"error": {"errors": [{"reason": "rateLimitExceeded"}]}})
+               ).get_json("/x")
+    assert err.value.reason == "rateLimitExceeded"

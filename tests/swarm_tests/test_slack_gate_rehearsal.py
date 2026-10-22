@@ -57,7 +57,8 @@ def test_run_is_manifest_complete_with_full_acl_coverage_and_no_secrets(first):
     store, manifest, checks = first
     assert read_manifest(store, "slack", manifest.run_id) == manifest
     assert manifest.counts == {**ZERO, "items": 9, "groups": 1}
-    assert checks == {"items": 9, "acl_coverage": 1.0, "secret_hits": 0}
+    assert checks == {"items": 9, "written_with_acl": 1.0, "secret_hits": 0}
+    assert manifest.acl_coverage == 1.0 and manifest.rejections == {}
     everything = b"".join(store.get(k) for k in store.list("runs/slack/") + store.list("raw/slack/"))
     for token in planted().values():
         assert token.encode() not in everything
@@ -126,7 +127,7 @@ def test_a_channel_made_public_moves_acls_not_content(first):
 def test_cold_start_from_the_export_then_the_api_writes_nothing_new(store, tmp_path):
     export = write_export(tmp_path / "export")
     cold, checks = slack_run(store, export_connector(export, channels=["eng-auth", "general"]), NOW)
-    assert cold.counts["items"] == 9 and checks["acl_coverage"] == 1.0
+    assert cold.counts["items"] == 9 and checks["written_with_acl"] == 1.0
     conn, fake = api_connector(now=NOW + timedelta(hours=6))
     nightly, _ = slack_run(store, conn, NOW + timedelta(hours=6))
     assert nightly.counts == ZERO

@@ -7,8 +7,9 @@ A thin layer over httpx that every connector shares:
     the compose stack and the VPC route egress through the allowlist
   - pagination follows the Link header's rel="next" (GitHub), or a cursor
     in the body (Slack, Google)
-  - rate limits are honoured: 429, Retry-After, and GitHub's 403 with
-    x-ratelimit-remaining: 0 all wait and retry, up to a cap
+  - rate limits are honoured: 429, Retry-After, GitHub's 403 or 429 with
+    x-ratelimit-remaining: 0, and Google's 403 with a rate-limit reason all
+    wait and retry, up to a cap
 
 Bodies are never logged. Only method, path and status reach the log.
 """
@@ -28,15 +29,30 @@ log = logging.getLogger("swarm.http")
 MAX_TRIES = 6
 MAX_WAIT = 900.0          # never sleep longer than 15 minutes on one response
 _NEXT = re.compile(r'<([^>]+)>;\s*rel="next"')
+# Google reports throttling as a 403 whose body names one of these reasons.
+GOOGLE_RATE_LIMITS = {"userRateLimitExceeded", "rateLimitExceeded"}
 
 
 class SourceError(RuntimeError):
     """A source API failed in a way retrying will not fix. The run aborts
-    without a manifest and is retried next schedule."""
+    without a manifest and is retried next schedule. `reason` is Google's
+    error reason (exportSizeLimitExceeded, ...) when the body names one."""
+    reason: str | None = None
 
-    def __init__(self, status: int, method: str, path: str):
-        super().__init__(f"{method} {path} -> {status}")
+    def __init__(self, status: int, method: str, path: str, reason: str | None = None):
+        super().__init__(f"{method} {path} -> {status}" + (f" ({reason})" if reason else ""))
         self.status = status
+        self.reason = reason
+
+
+def _reason(response: httpx.Response) -> str | None:
+    """Google's error reason from a JSON error body, or None. Only the
+    reason code is kept; the rest of the body is never logged."""
+    try:
+        errors = response.json()["error"]["errors"]
+        return str(errors[0]["reason"])
+    except (ValueError, KeyError, IndexError, TypeError):
+        return None
 
 
 def _wait_for(response: httpx.Response, attempt: int, now: Callable[[], float]) -> float | None:
@@ -48,9 +64,10 @@ def _wait_for(response: httpx.Response, attempt: int, now: Callable[[], float]) 
             return min(float(headers["retry-after"]), MAX_WAIT)
         except ValueError:
             pass
-    if status == 403 and headers.get("x-ratelimit-remaining") == "0" and "x-ratelimit-reset" in headers:
+    if (status in (403, 429) and headers.get("x-ratelimit-remaining") == "0"
+            and "x-ratelimit-reset" in headers):
         return min(max(float(headers["x-ratelimit-reset"]) - now(), 1.0), MAX_WAIT)
-    if status in (429, 502, 503, 504):
+    if status in (429, 502, 503, 504) or (status == 403 and _reason(response) in GOOGLE_RATE_LIMITS):
         return min(2.0 ** attempt, MAX_WAIT)
     return None
 
@@ -79,7 +96,7 @@ class Client:
                 return response
             wait = _wait_for(response, attempt, self._now)
             if wait is None or attempt == MAX_TRIES - 1:
-                raise SourceError(response.status_code, method, response.request.url.path)
+                raise SourceError(response.status_code, method, response.request.url.path, _reason(response))
             log.info("%s %s -> %s; retrying in %.0fs", method, response.request.url.path,
                      response.status_code, wait)
             self._sleep(wait)
@@ -89,11 +106,12 @@ class Client:
         return self.request("GET", path, params=params).json()
 
     def get_optional(self, path: str, params: dict[str, Any] | None = None) -> Any | None:
-        """GET that treats 404 as absent rather than an error."""
+        """GET that treats 404 and 410 (Gone: deleted, or a feature turned
+        off) as absent rather than an error."""
         try:
             return self.get_json(path, params)
         except SourceError as e:
-            if e.status == 404:
+            if e.status in (404, 410):
                 return None
             raise
 

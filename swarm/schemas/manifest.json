@@ -24,6 +24,14 @@
   "additionalProperties": false,
   "description": "Written last. The graph side reads a run only once this exists and\nstatus is complete; a failed run writes none and is retried.",
   "properties": {
+    "acl_coverage": {
+      "default": 1.0,
+      "description": "Share of fetched items that had an ACL; the rest are counted as MissingAcl rejections",
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Acl Coverage",
+      "type": "number"
+    },
     "counts": {
       "additionalProperties": {
         "type": "integer"
@@ -65,6 +73,14 @@
       "default": false,
       "title": "Llm Budget Hit",
       "type": "boolean"
+    },
+    "rejections": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "description": "Items not written, by reason (MissingAcl, ValidationError, ...)",
+      "title": "Rejections",
+      "type": "object"
     },
     "run_id": {
       "minLength": 1,

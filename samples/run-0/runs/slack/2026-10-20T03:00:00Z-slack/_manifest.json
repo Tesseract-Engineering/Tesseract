@@ -13,6 +13,8 @@
     "identities": 0,
     "rejected": 0
   },
+  "rejections": {},
+  "acl_coverage": 1.0,
   "files": [
     "changes/part-00001.jsonl",
     "extractions/part-00001.jsonl",

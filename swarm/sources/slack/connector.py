@@ -39,6 +39,7 @@ from ... import ids
 from ...http import Client, SourceError
 from ...interfaces import Checkpoint, RawContainer, RawItem
 from ...records import Acl, GroupRecord
+from ...timeutil import iso
 from .directory import Directory
 from .normalize import Conversation, clean_message, group_conversations, time_ts, ts_key, ts_time
 
@@ -46,10 +47,6 @@ API = "https://slack.com/api"
 LOOKBACK = timedelta(days=7)
 ACTIVE_DAYS = 30
 PAGE = 200
-
-
-def _iso(dt: datetime) -> str:
-    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def members_group(team_id: str, channel_id: str) -> str:
@@ -105,7 +102,7 @@ class SlackBase:
     def _items(self, container: RawContainer, messages: list[dict[str, Any]],
                previous: dict[str, Any] | None) -> Iterator[RawItem]:
         brief = container.meta["channel"]
-        fetched = _iso(self.now)
+        fetched = iso(self.now)
         base = {"team_id": self.team_id, "workspace_url": self.workspace_url, "channel": brief}
 
         def item(native: str, payload: dict[str, Any]) -> RawItem:
@@ -135,7 +132,7 @@ class SlackBase:
         cursor = self._cursors.get(container.id)
         if cursor is None:
             return None
-        return Checkpoint(container.id, json.dumps(cursor, sort_keys=True), _iso(self.now))
+        return Checkpoint(container.id, json.dumps(cursor, sort_keys=True), iso(self.now))
 
     def _ids(self, container: RawContainer, messages: list[dict[str, Any]]) -> Iterator[str]:
         channel_id = container.meta["channel"]["id"]

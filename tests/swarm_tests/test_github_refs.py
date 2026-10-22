@@ -75,6 +75,16 @@ def test_code_and_quotes_are_ignored():
     assert refs(text)[0] == [("closes", "github:repo:9001:issue:1", "closing_keyword")]
 
 
+def test_scrubbing_is_the_one_every_source_uses():
+    # GitHub used to keep its own copy, which missed HTML-escaped quotes.
+    from swarm.sources import links
+    from swarm.sources.github import refs as github_refs
+
+    text = "Real: fixes #1\n&gt; fixes #3\n> closes #3"
+    assert refs(text)[0] == [("closes", "github:repo:9001:issue:1", "closing_keyword")]
+    assert github_refs.scrub is links.scrub
+
+
 def test_own_number_and_anchors_are_not_refs():
     assert refs("This PR (#2) see https://github.com/acme-sbx/api/pull/2#discussion_r1 and page#3x")[0] == []
 

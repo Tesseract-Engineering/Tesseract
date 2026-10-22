@@ -47,12 +47,15 @@ def first(tmp_path):
     return store, manifest, checks
 
 
-def test_run_is_manifest_complete_with_full_acl_coverage_and_no_secrets(first):
+def test_run_is_manifest_complete_and_reports_files_without_an_acl(first):
     store, manifest, checks = first
     assert read_manifest(store, "gdrive", manifest.run_id) == manifest
-    # The limited-access folder and the note inside it have no readable ACL.
+    # The limited-access folder and the note inside it have no readable ACL:
+    # not written, and reported rather than fatal.
     assert manifest.counts == {**ZERO, "items": 11, "groups": 1, "rejected": 2}
-    assert checks == {"items": 11, "acl_coverage": 1.0, "secret_hits": 0}
+    assert manifest.rejections == {"MissingAcl": 2}
+    assert manifest.acl_coverage == pytest.approx(11 / 13)
+    assert checks == {"items": 11, "written_with_acl": 1.0, "secret_hits": 0}
     everything = b"".join(store.get(k) for k in store.list("runs/gdrive/") + store.list("raw/gdrive/"))
     for token in planted().values():
         assert token.encode() not in everything

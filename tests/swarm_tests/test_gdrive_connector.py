@@ -189,3 +189,78 @@ def test_the_checkpoint_cursor_survives_a_quiet_run():
     since = Checkpoint("gdrive:file:0AENGdrive", "2026-10-20T00:00:00Z", "x")
     list(conn.fetch(containers["gdrive:file:0AENGdrive"], since))
     assert conn.checkpoint(containers["gdrive:file:0AENGdrive"]).cursor == "2026-10-20T00:00:00Z"
+
+
+# -- failures that must not pass for answers ---------------------------------------- #
+
+THROTTLED = httpx.Response(403, json={"error": {"errors": [{"reason": "userRateLimitExceeded"}]}})
+
+
+def _wrap(fake, intercept):
+    """Answer some requests with `intercept`; it returns None to let the fake answer."""
+    original = fake.handler
+
+    def handler(request):
+        return intercept(request) or original(request)
+
+    fake.handler = handler
+    return fake
+
+
+@pytest.mark.parametrize("error", [IndexError, RecursionError, AttributeError, OSError])
+def test_any_pdf_parser_failure_is_unreadable_not_fatal(monkeypatch, error):
+    import pypdf
+
+    def explode(*args, **kwargs):
+        raise error("bad pdf")
+
+    monkeypatch.setattr(pypdf, "PdfReader", explode)
+    raws = fetch_all(connector()[0])
+    assert raws["1PDFrunbook01"].payload["text_status"] == "unreadable"
+
+
+def test_a_throttled_export_is_retried_not_recorded_as_too_large():
+    throttled = []
+
+    def intercept(request):
+        if request.url.path.endswith("/1AbCdEfGhIjK/export") and not throttled:
+            throttled.append(request)
+            return THROTTLED
+
+    raws = fetch_all(connector(_wrap(FakeDrive(), intercept))[0])
+    assert throttled and raws["1AbCdEfGhIjK"].payload["text_status"] == "exported"
+
+
+def test_throttling_that_never_lets_up_stops_the_run():
+    from swarm.http import SourceError
+
+    def intercept(request):
+        if request.url.path.endswith("/export"):
+            return THROTTLED
+
+    with pytest.raises(SourceError):
+        fetch_all(connector(_wrap(FakeDrive(), intercept))[0])
+
+
+@pytest.mark.parametrize(("reason", "status"), [("exportSizeLimitExceeded", "too_large"),
+                                                ("cannotExportFile", "unreadable")])
+def test_export_refusals_are_named_by_their_reason(reason, status):
+    def intercept(request):
+        if request.url.path.endswith("/1AbCdEfGhIjK/export"):
+            return httpx.Response(403, json={"error": {"errors": [{"reason": reason}]}})
+
+    raws = fetch_all(connector(_wrap(FakeDrive(), intercept))[0])
+    assert raws["1AbCdEfGhIjK"].payload["text_status"] == status
+
+
+def test_throttled_permissions_are_not_taken_as_unlistable():
+    # Treating throttling as "may not list" would give the file its folder's
+    # readers (or reject it) when its own permissions were readable all along.
+    from swarm.http import SourceError
+
+    def intercept(request):
+        if request.url.path.endswith("/1PDFrunbook01/permissions"):
+            return THROTTLED
+
+    with pytest.raises(SourceError):
+        fetch_all(connector(_wrap(FakeDrive(), intercept))[0])

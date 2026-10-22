@@ -33,12 +33,13 @@ from ..records import (
     dump_line,
 )
 from ..store import ObjectStore
+from ..timeutil import iso
 
 PART_SIZE = 5000
 
 
 def new_run_id(source: str, now: datetime | None = None) -> str:
-    stamp = (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    stamp = iso(now or datetime.now(timezone.utc))
     return f"{stamp}-{source}"
 
 

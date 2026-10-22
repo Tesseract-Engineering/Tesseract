@@ -31,14 +31,16 @@ def finish_run(writer: RunWriter, *, started_at: datetime,
                checkpoints: dict[str, Checkpoint] | None = None,
                extractor_versions: list[str] | None = None,
                llm_budget_hit: bool = False, tokens: Tokens | None = None,
-               finished_at: datetime | None = None, published: dict[str, object] | None = None) -> Manifest:
+               finished_at: datetime | None = None, published: dict[str, object] | None = None,
+               acl_coverage: float = 1.0) -> Manifest:
     """`published` is lookup state other sources may read, written as
     state/{source}/{name}.json alongside the checkpoints."""
     writer.flush()
     manifest = Manifest(
         source=writer.source, run_id=writer.run_id,
         started_at=started_at, finished_at=finished_at or datetime.now(timezone.utc),
-        counts=dict(writer.counts), files=sorted(writer.files),
+        counts=dict(writer.counts), rejections=dict(sorted(writer.rejections.items())),
+        acl_coverage=acl_coverage, files=sorted(writer.files),
         extractor_versions=sorted(set(extractor_versions or [])),
         llm_budget_hit=llm_budget_hit, tokens=tokens or Tokens(),
     )
