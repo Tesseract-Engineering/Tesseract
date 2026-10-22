@@ -3,7 +3,7 @@ connector.py - Google Drive behind the Connector interface.
 
 Scope is what the service account was granted: every shared drive it is a
 member of (narrowed by GDRIVE_DRIVES), plus the folders listed in
-GDRIVE_FOLDERS, which is how a club without Google Workspace shares in.
+GDRIVE_FOLDERS, which is how an account without Google Workspace shares in.
 Personal files outside those are never seen. Every call is a read.
 
   enumerate   one container per shared drive or listed folder; a shared

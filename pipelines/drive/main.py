@@ -7,7 +7,7 @@ The Google Drive pipeline: one run over every shared drive and folder in scope.
 Settings come from the environment (see .env.example):
 GDRIVE_SERVICE_ACCOUNT_KEY_PATH (or GDRIVE_SERVICE_ACCOUNT_KEY) for the
 service account; GDRIVE_DRIVES narrows the shared drives it joined, by name
-or id; GDRIVE_FOLDERS lists folders shared with it, for clubs without Google
+or id; GDRIVE_FOLDERS lists folders shared with it, for accounts without Google
 Workspace; SWARM_BACKFILL_DAYS sets the first run's window (default 730).
 
 GitHub links in documents resolve through what the GitHub pipeline left in

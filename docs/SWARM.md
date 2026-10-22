@@ -46,6 +46,7 @@ Every design question below is settled. Rows marked default were open questions;
 | Models | Customer's cloud model service (Bedrock or Vertex) via private endpoint; in local dev, the Anthropic API with the same Claude model we run on Bedrock, so prompts carry over unchanged. | Default |
 | Cadence | Nightly incremental run per source; weekly reconciliation; first backfill 2 years, configurable. | Default |
 | Quality | Spot-check reviews of sampled extractions after each prompt change; a labeled gold set is deferred. | Default |
+| Test data | A sandbox we own across the sources (GitHub, Slack, Drive, and Jira when added), seeded with realistic content. The club pilot is dropped: access was not granted. | Settled |
 | Cost | Skip LLM extraction on trivial items; per-run token budget that halts LLM steps, not fetching. | Default |
 
 ## Architecture
@@ -351,13 +352,13 @@ Everything except LLM extraction is deterministic, so most of the code is covere
 | Layer | What it covers | How |
 | --- | --- | --- |
 | Unit tests | Normalizers, ID builders, deterministic ref extraction, thread grouping, redaction | `pytest`, one test module per source |
-| Fixtures | Realistic source data without real club data | Small hand-made exports and recorded API responses in `tests/fixtures/{source}/`, each including at least one planted secret |
+| Fixtures | Realistic source data, hand-made | Small hand-made exports and recorded API responses in `tests/fixtures/{source}/`, each including at least one planted secret |
 | Contract tests | Every record matches the schema | Validate all output against the JSON Schema generated from the Pydantic models |
 | Idempotency | Reruns change nothing | Run a pipeline twice on fixtures against MinIO and assert the second run writes no new records |
 | Integration | The Compose stack works end to end | CI starts `minio` and `proxy`, runs each pipeline on fixtures, and checks the manifest |
 | LLM steps | Prompt and parsing code paths | Recorded model responses replayed in CI; real model calls only in spot-check reviews |
 
-Real club data never enters the repo or CI. `data/` and `.env` are in `.gitignore`.
+Data fetched from the sandbox (or, later, a customer) never enters the repo or CI. `data/` and `.env` are in `.gitignore`.
 
 **Repo layout**
 
@@ -378,17 +379,17 @@ company-brain/
 
 ## Access prerequisites
 
-Each phase is blocked until someone with the right role grants access. Request these before the phase starts.
+Every source is now our own sandbox, so the team grants all access itself. The sandbox is built; each source still has to be connected to the pipelines (credentials in `.env` and `data/`).
 
 | Access | Needed for | Provided by | Status |
 | --- | --- | --- | --- |
-| Owner or admin on the club's GitHub org, to create and install the GitHub App | Phase 1 | Club GitHub org owner | Not started |
-| Slack workspace export | Phase 2 | Club Slack workspace owner or admin | Not started |
-| Permission to create an internal Slack app and invite its bot to channels | Phase 2 | Club Slack workspace admin | Not started |
-| A Google Cloud project for the Drive service account | Phase 2 | Whoever on the team owns our Google Cloud account | Not started |
-| The service account added to a shared drive, or folders shared with its email | Phase 2 | Club Google Workspace admin, or the folder owners | Not started |
-| Anthropic API key for local dev | Phase 3 | Our team | Not started |
-| Free Jira Cloud site, seeded with realistic tickets | Phase 4 | Our team | Not started |
+| The sandbox GitHub org, with the read-only GitHub App created and installed (or a token for a first run) | Phase 1 | Our team | Sandbox built; not yet connected |
+| A Slack export of the sandbox workspace | Phase 2 | Our team | Sandbox built; not yet connected |
+| An internal Slack app in the sandbox workspace, its bot invited to the channels in scope | Phase 2 | Our team | Sandbox built; not yet connected |
+| A Google Cloud project for the Drive service account | Phase 2 | Our team | Not started |
+| The service account added to the sandbox's shared drive, or its folders shared with the account's email | Phase 2 | Our team | Sandbox built; not yet connected |
+| Anthropic API key for local dev | Phase 3 | Our team | Done (in `.env`) |
+| A Jira Cloud site in the sandbox, seeded with realistic tickets, epics and links | Phase 4 | Our team | To confirm |
 | AWS test account with Bedrock model access enabled | Phase 5 | Our team | Not started |
 
 ## In this repo
@@ -442,7 +443,7 @@ swarm/nightly.sh                                          # github, then slack, 
 
 ## Roadmap
 
-The build runs in six phases, each ending at a gate the graph engineer can verify. Phases are sequenced, not dated; the first real data flows at the end of Phase 1.
+The build runs in six phases, each ending at a gate the graph engineer can verify. Phases are sequenced, not dated; the first real data flows when the sandbox is connected.
 
 &#91;embedded content: swarm roadmap · 6 phases, each with a gate\]
 
@@ -471,26 +472,26 @@ Each diamond is the phase's exit gate; the next phase starts only when its gate 
 
 ### Phase 1: GitHub end to end
 
-- [x] GitHub App manifest and `GitHubConnector` (built and tested on fixtures; not yet run on the club's repos)
+- [x] GitHub App manifest and `GitHubConnector` (built and tested on fixtures; not yet run on the sandbox)
 - [x] Repos, PRs, issues and commits normalized, with review comments folded into each PR
 - [x] ACLs from repo visibility and collaborators
 - [x] Secret redaction with a test corpus of planted tokens
 - [x] Deterministic refs from closing keywords, `#123` references and URLs
 
-**Gate:** a valid manifest-complete run from the club's GitHub repos, ingested by the graph side, with zero secret hits and 100% ACL coverage.
+**Gate:** a valid manifest-complete run from the sandbox's GitHub repos, ingested by the graph side, with zero secret hits and 100% ACL coverage.
 
-**Gate status: deferred.** No source access exists yet. Until the sandbox org does, `tests/swarm_tests/test_github_gate_rehearsal.py` runs the whole pipeline on hand-made GitHub API responses (`tests/fixtures/github/`) and checks the gate's criteria. The first real run is `GITHUB_TOKEN=... GITHUB_REPOS=org/repo docker compose -f swarm/compose.yaml run --rm github`.
+**Gate status: waiting on the sandbox.** Until the sandbox is connected, `tests/swarm_tests/test_github_gate_rehearsal.py` runs the whole pipeline on hand-made GitHub API responses (`tests/fixtures/github/`) and checks the gate's criteria. The first real run is `GITHUB_TOKEN=... GITHUB_REPOS=org/repo docker compose -f swarm/compose.yaml run --rm github`.
 
 ### Phase 2: Slack and Google Drive
 
-- [x] `SlackExportConnector`: thread and burst grouping, mention resolution, ACLs from channel membership (built and tested on fixtures; not yet run on the club's export)
+- [x] `SlackExportConnector`: thread and burst grouping, mention resolution, ACLs from channel membership (built and tested on fixtures; not yet run on the sandbox's export)
 - [x] `SlackApiConnector` with checkpoints, lookback and backoff; threads active in the last 30 days are reread so late replies are not missed
-- [x] `DriveConnector` for Docs, Slides and text PDFs, over shared drives or folders shared with the service account. If the club has Google Workspace, add the service account to a shared drive; if it uses personal Google accounts, share the relevant folders with the service account's email instead, since shared drives require Workspace
-- [ ] Nightly runs for all three sources on club data (`swarm/nightly.sh` is ready; needs the access in the table above)
+- [x] `DriveConnector` for Docs, Slides and text PDFs, over shared drives or folders shared with the service account. With Google Workspace, add the service account to a shared drive; with personal Google accounts, share the relevant folders with the service account's email instead, since shared drives require Workspace
+- [ ] Nightly runs for all three sources on the sandbox (`swarm/nightly.sh` is ready; needs the access in the table above)
 
 **Gate:** three sources run nightly; rerunning a window produces zero new records.
 
-**Gate status: deferred.** No source access exists yet. `test_slack_gate_rehearsal.py` and `test_gdrive_gate_rehearsal.py` run each pipeline on fixtures (`tests/fixtures/slack/`, `tests/fixtures/gdrive/`) into a bucket the GitHub fixture run already wrote, and check that reruns write zero records. They also check that a Slack cold start from the export followed by an API run writes nothing new. The real images were also run in the compose stack on the fixture export: the first run wrote 11 items and the rerun wrote zero.
+**Gate status: waiting on the sandbox.** Until it is connected, `test_slack_gate_rehearsal.py` and `test_gdrive_gate_rehearsal.py` run each pipeline on fixtures (`tests/fixtures/slack/`, `tests/fixtures/gdrive/`) into a bucket the GitHub fixture run already wrote, and check that reruns write zero records. They also check that a Slack cold start from the export followed by an API run writes nothing new. The real images were also run in the compose stack on the fixture export: the first run wrote 11 items and the rerun wrote zero.
 
 ### Phase 3: LLM extraction and evaluation
 
@@ -503,9 +504,9 @@ Each diamond is the phase's exit gate; the next phase starts only when its gate 
 
 ### Phase 4: Jira, identity and change handling
 
-- [ ] Jira sandbox seeded with tickets, epics and links, and `JiraConnector`
+- [ ] The sandbox's Jira site seeded with tickets, epics and links, and `JiraConnector`
 - [ ] Identity pass: email clustering, LLM matching for leftovers, `identity` records
-- [ ] Hand-made roster of club members and their handles in each source, used to review identity clusters
+- [ ] Roster of the sandbox's people and their handles in each source, used to review identity clusters
 - [ ] Weekly reconciliation writing tombstones and ACL updates
 - [ ] Graph engineer signs off on the three new record shapes
 
@@ -532,7 +533,7 @@ The biggest risks are coverage gaps from source permissions, not engineering.
 | Google group members are unreadable without the Admin SDK | Readers who come in through a group are not granted anything | Group records carry the group's email; delegation fills members later |
 | A Slack reply to a thread quiet for over 30 days is missed nightly | The thread's text is stale until reconciliation | Weekly reconciliation rereads every thread |
 | Slack export omits private channels and DMs on most plans | Cold start misses private context | Backfill private channels via the API for channels the bot is invited to |
-| Club test data is shallow (free Slack plans show limited history) | Extraction quality is judged on a thin corpus | Seed a Jira sandbox and add synthetic test threads |
+| Sandbox data is synthetic: cleaner and smaller than a real company's | Prompts and costs tuned on it may not hold for a customer | Seed it with messy, realistic content (long threads, edits, deletions, bots, planted secrets); recheck extraction and cost on the first customer's data |
 | LLM quality varies by model available in the customer's region | Extraction targets missed on some deployments | Spot-check extractions on the customer's model before go-live |
 | Deletions lag up to 7 days | Deleted content is briefly queryable | Shorten the reconciliation interval for sensitive sources if a customer requires it |
 | Schema changes break the graph side | Ingest failures | `schema_version` on every record; changes only by agreement |

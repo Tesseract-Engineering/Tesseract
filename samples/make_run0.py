@@ -5,7 +5,7 @@ engineer.
 The records below are written by hand, but every file is produced by the
 real write and manifest stages, so the content hashes, part names and
 manifests are exactly what a pipeline would emit. All data is fictional
-(Acme, acme.com). Real club data never enters the repo.
+(Acme, acme.com). Fetched source data never enters the repo.
 
     python samples/make_run0.py      rewrite samples/run-0/runs/
 """

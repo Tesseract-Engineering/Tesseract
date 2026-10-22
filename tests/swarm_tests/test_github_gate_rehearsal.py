@@ -1,10 +1,9 @@
 """Phase 1 gate, rehearsed on fixtures.
 
-The real gate is "a valid manifest-complete run from the club's GitHub repos,
-ingested by the graph side, with zero secret hits and 100% ACL coverage". No
-source access exists yet, so this runs the whole pipeline on the fake
-acme-sbx org and checks the same criteria. Replace with a real run once the
-sandbox org exists.
+The real gate is "a valid manifest-complete run from the sandbox's GitHub
+repos, ingested by the graph side, with zero secret hits and 100% ACL
+coverage". Until the sandbox is connected, this runs the whole pipeline on the
+fake acme-sbx org and checks the same criteria.
 """
 
 import json
