@@ -59,74 +59,85 @@ Sources are pulled in read-only; the bucket is the handoff point, and the graph 
 
 | Component | In the customer VPC | In local dev |
 | --- | --- | --- |
-| Pipeline jobs | One container image per source, run as batch jobs (ECS Fargate, Cloud Run Jobs or Kubernetes Jobs) | `docker compose run <source>` |
+| Pipeline jobs | One container image per source, run as batch jobs (ECS Fargate, Cloud Run Jobs or Kubernetes Jobs) | `docker compose -f swarm/compose.yaml run --rm <source>` |
 | Identity pass | Batch job after the source jobs finish | Same image, run by hand |
-| Scheduler | EventBridge Scheduler or Cloud Scheduler | Manual runs |
-| Secrets | Secrets Manager or Secret Manager | `.env` file, never committed |
+| Scheduler | EventBridge Scheduler or Cloud Scheduler | `swarm/nightly.sh`, by hand or from cron |
+| Secrets | Secrets Manager or Secret Manager | `.env` for tokens, key files under `data/`; neither is committed |
 | Model endpoint | Bedrock or Vertex AI over a private endpoint | Direct model API behind the same interface |
-| Staging bucket | S3 or GCS, customer-managed keys, VPC-only bucket policy | MinIO |
+| Staging bucket | S3 or GCS, customer-managed keys, VPC-only bucket policy | RustFS, an S3-compatible server |
 | Network | Private subnets; egress only to source APIs and the model endpoint | Docker network with `internal: true` plus an allowlisted egress proxy |
 
 The same image runs in both columns. Only configuration differs: endpoint URLs, bucket names and credentials. The model call sits behind one interface, `extract(text, schema) -> entities`, so moving from a direct API to Bedrock or Vertex is a config change.
 
 ## Local development setup
 
-Until Phase 5, everything runs on a laptop as a single Docker Compose project. Each service is its own container, and two Docker networks enforce the same rule as the customer VPC: pipelines can reach the internet only through an allowlisting proxy.
+Until Phase 5, everything runs on a laptop as a single Docker Compose project, `swarm/compose.yaml`. Each service is its own container, and two Docker networks enforce the same rule as the customer VPC: pipelines can reach the internet only through an allowlisting proxy.
 
 &#91;embedded content: local dev · one Docker Compose project\]
 
-The arrows from the bottom row are mounts: `.env` supplies tokens, the Slack export is mounted read-only into `slack`, and `./minio-data` holds MinIO's files.
+The arrows from the bottom row are mounts: `.env` supplies tokens; `data/` holds the Slack export and the GitHub and Drive key files, each mounted read-only into its pipeline; and `./storage-data` holds the bucket's files.
+
+**Staging bucket.** The MinIO image is no longer published on Docker Hub, so the bucket is RustFS (`rustfs/rustfs`), another S3-compatible server on the same ports (API 9000, console 9001). Pipelines speak plain S3 through `swarm/store.py`, so nothing above the compose file depends on which server it is.
 
 | Service | Image | Networks | Lifecycle | Role |
 | --- | --- | --- | --- | --- |
-| `minio` | `minio/minio` | internal | Always on | S3-compatible staging bucket; API on port 9000, console on 9001 |
+| `storage` | `rustfs/rustfs` | internal, host | Always on | S3-compatible staging bucket; API on 9000, console on 9001, published on localhost only |
 | `proxy` | `ubuntu/squid` | internal, egress | Always on | The only route to the internet, limited to an allowlist |
-| `github`, `jira`, `slack`, `drive` | Built from `pipelines/{source}` | internal | On demand | One batch run of that source's pipeline, then exit |
-| `identity` | Built from `pipelines/identity` | internal | On demand, after source runs | Reads the run's items from MinIO and writes identity records |
+| `init` | Built from `pipelines/sample` | internal | Once | Creates the bucket |
+| `sample` | Built from `pipelines/sample` | internal | On demand | Replays `samples/run-0` through the real stages; `sample probe URL...` checks the allowlist |
+| `github`, `slack`, `drive` | Built from `pipelines/{source}` | internal | On demand | One batch run of that source's pipeline, then exit |
+| `jira`, `identity` | Built from `pipelines/{source}` | internal | Not built yet (Phase 4) | Jira runs like the other sources; identity reads the night's items from the bucket and writes identity records |
+
+The `host` network exists only so Docker publishes the bucket's ports to the laptop: it publishes nothing for a container that is on internal networks alone. No pipeline is on it.
 
 **Everyday commands**
 
 ```bash
-docker compose up -d minio proxy     # start the always-on services
-docker compose run --rm github       # one GitHub run
-docker compose run --rm identity     # identity pass after the sources
+docker compose -f swarm/compose.yaml up -d storage proxy     # start the always-on services
+docker compose -f swarm/compose.yaml run --rm init           # create the bucket, once
+docker compose -f swarm/compose.yaml run --rm github         # one GitHub run
+swarm/nightly.sh                                             # github, then slack, then drive
 ```
 
-**Compose skeleton**
+**Compose shape** (abridged; `swarm/compose.yaml` is the source of truth)
 
 ```yaml
+x-pipeline: &pipeline
+  env_file: [{path: ../.env, required: false}]
+  environment:
+    HTTPS_PROXY: http://proxy:3128
+    NO_PROXY: storage
+    S3_ENDPOINT: http://storage:9000
+  networks: [internal]
+  profiles: [jobs]
+
 services:
-  minio:
-    image: minio/minio
-    command: server /data --console-address ":9001"
-    ports: ["9000:9000", "9001:9001"]
-    volumes: ["./minio-data:/data"]
-    networks: [internal]
+  storage:
+    image: rustfs/rustfs:1.0.1
+    ports: ["127.0.0.1:9000:9000", "127.0.0.1:9001:9001"]
+    volumes: ["../storage-data:/data"]
+    networks: [internal, host]
 
   proxy:
-    image: ubuntu/squid
+    image: ubuntu/squid:6.6-24.04_edge
     volumes: ["./proxy/squid.conf:/etc/squid/squid.conf:ro"]
     networks: [internal, egress]
 
   slack:
-    build: ./pipelines/slack
-    env_file: .env
-    environment:
-      HTTPS_PROXY: http://proxy:3128
-      S3_ENDPOINT: http://minio:9000
-    volumes: ["./data/slack-export:/data/slack-export:ro"]
-    networks: [internal]
-    profiles: [jobs]
+    <<: *pipeline
+    build: {context: .., dockerfile: pipelines/slack/Dockerfile}
+    volumes: ["../data/slack-export:/data/slack-export:ro"]
 
-  # github, jira, drive and identity follow the same pattern
+  # github and drive follow the same pattern, mounting data/github and data/gdrive
 
 networks:
   internal:
     internal: true
   egress: {}
+  host: {}
 ```
 
-`profiles: [jobs]` keeps `docker compose up` from starting the pipelines; they run only when called by name. The proxy allowlist in `proxy/squid.conf` covers `api.github.com`, `*.atlassian.net`, `slack.com`, `www.googleapis.com`, `oauth2.googleapis.com` and `api.anthropic.com`; anything else is refused.
+`profiles: [jobs]` keeps `docker compose up` from starting the pipelines; they run only when called by name. The proxy allowlist in `swarm/proxy/squid.conf` covers `api.github.com`, `*.atlassian.net`, `slack.com`, `www.googleapis.com`, `oauth2.googleapis.com` and `api.anthropic.com`; anything else is refused.
 
 ## Sources and connector interface
 
@@ -151,8 +162,18 @@ class Connector(Protocol):
     def acl(self, item: RawItem) -> Acl: ...
 
 class Normalizer(Protocol):
+    run_id: str                               # set by the runner before the first to_item
+
     def to_item(self, raw: RawItem, acl: Acl) -> ItemRecord: ...
 ```
+
+A connector may also have three optional methods, which the runner calls when they are present. All three current sources implement the first two, and GitHub implements the third.
+
+| Method | Runner calls it | Used for |
+| --- | --- | --- |
+| `groups(container, *, run_id) -> list[GroupRecord]` | After each container's items | The group records that the container's item ACLs name |
+| `checkpoint(container) -> Checkpoint \| None` | After each container's items | Where this run got to; saved only once the manifest is written |
+| `published_state() -> dict` | When the manifest is written | Lookup state for other sources, written to `state/{source}/{name}.json` (GitHub's `repos.json`) |
 
 Slack has two connectors behind the same interface: `SlackExportConnector` for the cold start and tests, and `SlackApiConnector` for nightly runs. Both feed one normalizer, which groups messages into threads.
 
@@ -286,7 +307,7 @@ Deterministic relations are written on the `item` record as `refs` or `people`; 
 Every source runs the same eleven stages; only the first two are source-specific. Checkpoints advance only after the manifest is written, so a failed run is simply retried.
 
 1. **Enumerate** containers in scope: repos, projects, channels, shared drives. Cache users for mention resolution.
-2. **Fetch** items changed since the per-container checkpoint, plus a 7-day lookback to catch edits and late replies. Paginate with cursors and honor `Retry-After`.
+2. **Fetch** items changed since the per-container checkpoint, plus a 7-day lookback to catch edits and late replies. Slack also rereads threads active in the last 30 days. Paginate with cursors and honor `Retry-After`.
 3. **Redact** secrets in memory with detect-secrets or gitleaks patterns, before anything touches disk. Record what was stripped in `redactions`.
 4. **Write raw** redacted payloads to `raw/`, expiring after 14 days.
 5. **Normalize** to item records. Slack groups messages into threads and bursts; GitHub and Jira fold comments into their parent; Drive exports Docs and Slides to text.
@@ -354,28 +375,12 @@ Everything except LLM extraction is deterministic, so most of the code is covere
 | Unit tests | Normalizers, ID builders, deterministic ref extraction, thread grouping, redaction | `pytest`, one test module per source |
 | Fixtures | Realistic source data, hand-made | Small hand-made exports and recorded API responses in `tests/fixtures/{source}/`, each including at least one planted secret |
 | Contract tests | Every record matches the schema | Validate all output against the JSON Schema generated from the Pydantic models |
-| Idempotency | Reruns change nothing | Run a pipeline twice on fixtures against MinIO and assert the second run writes no new records |
-| Integration | The Compose stack works end to end | CI starts `minio` and `proxy`, runs each pipeline on fixtures, and checks the manifest |
+| Idempotency | Reruns change nothing | Each source's gate rehearsal (`test_{source}_gate_rehearsal.py`) runs its pipeline twice on fixtures and asserts the second run writes no new records |
+| Storage | The write and manifest stages work against a real S3 API | `s3`-marked tests; CI starts the RustFS bucket as a service, and locally they are skipped unless `S3_ENDPOINT` answers |
+| Compose stack | The pipeline images run end to end | Not in CI yet: run by hand with `docker compose -f swarm/compose.yaml run --rm sample` (and the source pipelines on fixtures) |
 | LLM steps | Prompt and parsing code paths | Recorded model responses replayed in CI; real model calls only in spot-check reviews |
 
-Data fetched from the sandbox (or, later, a customer) never enters the repo or CI. `data/` and `.env` are in `.gitignore`.
-
-**Repo layout**
-
-```
-company-brain/
-  docker-compose.yml
-  ontology.yaml
-  proxy/squid.conf
-  swarm/            # shared stages: redact, acl, extract, write, manifest
-    records.py      # Pydantic models for all record types
-  pipelines/
-    github/  jira/  slack/  drive/  identity/
-  tests/
-    fixtures/{source}/
-  eval/reviews/     # spot-check review notes
-  data/             # local only, gitignored
-```
+Data fetched from the sandbox (or, later, a customer) never enters the repo or CI. `data/`, `storage-data/` and `.env` are in `.gitignore`. The repo layout is under "In this repo"; spot-check review notes will go in `eval/reviews/` from Phase 3.
 
 ## Access prerequisites
 
@@ -403,39 +408,44 @@ This branch holds the swarm alone. The earlier graph, API and UI code lives on t
 
 ```
 ontology.yaml          the closed vocabulary, v1
+swarm/records.py       Pydantic models for every record type and the manifest
+swarm/schema.py        generates swarm/schemas/*.json from those models
+swarm/ids.py           the ID builders, in the formats above
+swarm/interfaces.py    Connector, Normalizer and the raw types they pass
 swarm/run.py           the shared runner: the pipeline stages for any Connector + Normalizer
+swarm/stages/          redact, acl, write, manifest, and the hard-fail run checks
+swarm/store.py         the bucket: S3 (RustFS in local dev) or a local folder
 swarm/http.py          the shared HTTP client: proxy from env, pagination, rate-limit backoff
 swarm/sources/github/  GitHub: App auth, connector, normalizer, deterministic refs
 swarm/sources/slack/   Slack: Web API and export connectors, thread and burst grouping, normalizer
 swarm/sources/gdrive/  Drive: service-account auth, connector (text export, PDFs, permissions), normalizer
 swarm/sources/links.py links between sources: Drive URLs, GitHub links via state/github/, Jira keys
 swarm/cli.py           what every pipeline's main.py shares
+swarm/compose.yaml     the local dev stack; swarm/proxy/squid.conf is its egress allowlist
 swarm/nightly.sh       one night's runs in order: github, slack, drive
 pipelines/github/      the GitHub pipeline image and its read-only App manifest
 pipelines/slack/       the Slack pipeline image and its read-only internal app manifest
 pipelines/drive/       the Drive pipeline image
-swarm/                 records.py, ids.py, interfaces.py, store.py, stages/, schemas/*.json, compose.yaml, proxy/
 pipelines/sample/      the Phase 0 job: replays samples/run-0 through the real stages
-tests/fixtures/        hand-made source API responses and the planted-token corpus
 samples/run-0/         the sample run for the graph engineer (rebuilt by samples/make_run0.py)
-tests/swarm_tests/     unit, contract and s3-marked tests
+tests/fixtures/        hand-made source API responses and the planted-token corpus
+tests/swarm_tests/     unit, contract, gate-rehearsal and s3-marked tests
+data/                  local only, git-ignored: the Slack export and the GitHub and Drive key files
 ```
 
-**Staging bucket in local dev.** The MinIO image is no longer published on Docker Hub, so `swarm/compose.yaml` runs RustFS (`rustfs/rustfs`), another S3-compatible server. It uses the same ports (API 9000, console 9001) and keeps its files in `./storage-data`. Pipelines speak plain S3 through `swarm/store.py`, so nothing above the compose file depends on which server it is.
+Not here yet: `pipelines/jira/` and `pipelines/identity/` (Phase 4), the model interface and extraction prompts (Phase 3), and `eval/reviews/`.
 
 ```bash
-pip install -e '.[dev,swarm]'
+pip install -e '.[dev,swarm]'                             # into .venv; tests need detect-secrets from [swarm]
 python -m swarm.schema                                    # regenerate swarm/schemas after a model change
 python samples/make_run0.py                               # regenerate samples/run-0 after a schema change
 
-docker compose -f swarm/compose.yaml up -d storage proxy
-docker compose -f swarm/compose.yaml run --rm init        # create the bucket, once
 docker compose -f swarm/compose.yaml run --rm sample      # a second run writes zero records
 docker compose -f swarm/compose.yaml run --rm sample probe https://api.github.com https://example.com
-
 docker compose -f swarm/compose.yaml run --rm slack --export /data/slack-export   # cold start, once
-swarm/nightly.sh                                          # github, then slack, then drive
 ```
+
+The always-on services and the nightly script are under "Local development setup".
 
 **Connecting Slack.** A workspace admin creates an app from `pipelines/slack/app-manifest.yaml` (read-only scopes, no DMs), installs it, and invites its bot to each channel in scope. The bot token goes in `SLACK_BOT_TOKEN`. For the cold start, unpack the admin's export into `data/slack-export/` (or put the `.zip` there and pass its path) and set `SLACK_WORKSPACE_URL`. The export run writes checkpoints in the API's shape, so the first nightly run reads only the last week; private channels the export left out are backfilled from the API on that first run.
 
@@ -447,9 +457,16 @@ The build runs in six phases, each ending at a gate the graph engineer can verif
 
 &#91;embedded content: swarm roadmap · 6 phases, each with a gate\]
 
-Each diamond is the phase's exit gate; the next phase starts only when its gate passes.
+Each diamond is the phase's exit gate. The plan was to start each phase only after the previous gate passed. In practice, the gates for Phases 0–2 depend on people and access outside the code (the graph engineer's sign-off, a connected sandbox), so Phases 1 and 2 were built against fixtures while those gates were still open. Each gate still has to pass, in order, before its phase counts as done.
 
-**Owners.** Each phase has one owner who drives it to its gate. Fill in the owner column before Phase 0 starts.
+| Phase | Built | Gate |
+| --- | --- | --- |
+| 0 | Yes | Open: waiting on the graph engineer's ontology sign-off and sample-run ingest |
+| 1 | Yes, on fixtures | Open: waiting on the sandbox |
+| 2 | Yes, on fixtures | Open: waiting on the sandbox |
+| 3–5 | Not started | — |
+
+**Owners.** Each phase has one owner who drives it to its gate. No owners are assigned yet; fill in the column before the Phase 0 gate review.
 
 | Phase | Owner | Signs off on the gate |
 | --- | --- | --- |
@@ -465,7 +482,7 @@ Each diamond is the phase's exit gate; the next phase starts only when its gate 
 - [ ] `ontology.yaml` v1 with the entity and relation lists, signed off by the graph engineer (written; awaiting sign-off)
 - [x] Pydantic models and JSON Schema for all six record types and the manifest
 - [x] Repo skeleton: `Connector` and `Normalizer` interfaces, shared redact, ACL, write and manifest stages
-- [x] Docker Compose with MinIO, an internal network and an egress allowlist (RustFS stands in for MinIO; see below)
+- [x] Docker Compose with an S3-compatible bucket (RustFS), an internal network and an egress allowlist
 - [ ] Hand-written sample run that the graph engineer ingests (`samples/run-0/` written; awaiting ingest)
 
 **Gate:** the graph engineer reads a sample run end to end with no schema questions.
@@ -532,6 +549,7 @@ The biggest risks are coverage gaps from source permissions, not engineering.
 | A Viewer service account may not be allowed to list a file's permissions | Files without a readable ACL are rejected, not written | Parent-folder fallback; check `acl_coverage` and `rejections` in the first real run's manifest before considering any wider role |
 | Google group members are unreadable without the Admin SDK | Readers who come in through a group are not granted anything | Group records carry the group's email; delegation fills members later |
 | A Slack reply to a thread quiet for over 30 days is missed nightly | The thread's text is stale until reconciliation | Weekly reconciliation rereads every thread |
+| A container's checkpoint advances past items rejected in that run (for example, no readable ACL) | A rejected item is fetched again only while it is inside the 7-day lookback or after it changes; after that it is missing until reconciliation, which is not built yet | `rejections` in each manifest shows the count; reconciliation (Phase 4) rereads every item |
 | Slack export omits private channels and DMs on most plans | Cold start misses private context | Backfill private channels via the API for channels the bot is invited to |
 | Sandbox data is synthetic: cleaner and smaller than a real company's | Prompts and costs tuned on it may not hold for a customer | Seed it with messy, realistic content (long threads, edits, deletions, bots, planted secrets); recheck extraction and cost on the first customer's data |
 | LLM quality varies by model available in the customer's region | Extraction targets missed on some deployments | Spot-check extractions on the customer's model before go-live |

@@ -1,5 +1,4 @@
 # The swarm's local dev stack (docs/SWARM.md, "Local development setup").
-# Separate from the graph side's compose.yaml at the repo root.
 #
 #   docker compose -f swarm/compose.yaml up -d storage proxy   always-on services
 #   docker compose -f swarm/compose.yaml run --rm init         create the bucket, once
@@ -9,9 +8,9 @@
 # has no route out, so the proxy's allowlist is their only way to the
 # internet.
 #
-# The staging bucket is RustFS, an S3-compatible server: the MinIO image the
-# design doc names is no longer published on Docker Hub. Pipelines speak plain
-# S3, so swapping it changes nothing above this file.
+# The staging bucket is RustFS, an S3-compatible server: the MinIO image is
+# no longer published on Docker Hub. Pipelines speak plain S3, so swapping it
+# changes nothing above this file.
 
 name: swarm
 
