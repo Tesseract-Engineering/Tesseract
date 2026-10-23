@@ -121,10 +121,10 @@ def store(tmp_path):
 
 # A prompt's text and its version move together: change one, change both.
 PINNED = {
-    "document": ("document-v1", "f518a60991dcf969"),
-    "issue": ("issue-v1", "a56962dcd68863bb"),
-    "pull_request": ("pull_request-v1", "e6098c8459835b38"),
-    "thread": ("thread-v1", "8cdf48c4b5e6bd62"),
+    "document": ("document-v2", "af2eb6836b9585b4"),
+    "issue": ("issue-v2", "b2daadd3aa805645"),
+    "pull_request": ("pull_request-v2", "7b6fab9c5e91b9f5"),
+    "thread": ("thread-v2", "382070e7e9370746"),
 }
 
 
@@ -179,7 +179,7 @@ def thread_item(store):
 
 def test_an_answer_keeps_only_what_checks_out(store):
     item = thread_item(store)
-    record, dropped = build_record(item, THREAD_ANSWER, model="scripted", prompt_version="thread-v1",
+    record, dropped = build_record(item, THREAD_ANSWER, model="scripted", prompt_version="thread-v2",
                                    run_id="r", now=NOW)
     assert [(e.local_id, e.type, e.name) for e in record.entities] == [
         ("e1", "decision", "Use OIDC instead of SAML for staff login"),
@@ -197,7 +197,7 @@ def test_spans_count_code_points(store):
     item = thread_item(store).model_copy(update={"text": "🚀 Ünïcode first. Decided: ship OIDC."})
     record, _ = build_record(item, {"entities": [{"id": "e1", "type": "decision", "name": "Ship OIDC",
                                                   "attributes": [], "evidence": ["Decided: ship OIDC."]}],
-                                    "relations": []}, model="m", prompt_version="thread-v1", run_id="r", now=NOW)
+                                    "relations": []}, model="m", prompt_version="thread-v2", run_id="r", now=NOW)
     span = record.entities[0].evidence[0]
     assert (span.start, span.end) == (17, 36) and item.text[span.start:span.end] == span.quote
 
@@ -210,8 +210,8 @@ def test_a_run_writes_valid_extractions_and_reports_tokens_and_versions(store):
     github, slack = run_both(store, model)
     assert read_manifest(store, "slack", slack.run_id) == slack
     assert slack.counts["extractions"] == 2 and github.counts["extractions"] == 4
-    assert slack.extractor_versions == ["thread-v1"]
-    assert github.extractor_versions == ["issue-v1", "pull_request-v1"]
+    assert slack.extractor_versions == ["thread-v2"]
+    assert github.extractor_versions == ["issue-v2", "pull_request-v2"]
     assert slack.tokens == Tokens(input=200, output=40) and not slack.llm_budget_hit
     spec = json.loads((schema.OUT / "extraction.json").read_text(encoding="utf-8"))
     for record in extractions(store, github, slack):
@@ -230,7 +230,7 @@ def test_rerunning_the_window_asks_the_model_nothing(store):
 
 def test_a_new_prompt_version_re_extracts_what_the_run_fetches(store, monkeypatch):
     run_both(store, Scripted())
-    monkeypatch.setitem(prompts._KINDS, "thread", ("thread-v2",) + prompts._KINDS["thread"][1:])
+    monkeypatch.setitem(prompts._KINDS, "thread", ("thread-v3",) + prompts._KINDS["thread"][1:])
     prompts.for_kind.cache_clear()
     try:
         again = Scripted()
@@ -238,7 +238,7 @@ def test_a_new_prompt_version_re_extracts_what_the_run_fetches(store, monkeypatc
     finally:
         prompts.for_kind.cache_clear()
     assert sorted(again.calls) == sorted(i for i in WORTH if i.startswith("slack:"))
-    assert slack.extractor_versions == ["thread-v2"] and slack.counts["items"] == 0
+    assert slack.extractor_versions == ["thread-v3"] and slack.counts["items"] == 0
 
 
 def test_over_budget_items_wait_for_the_next_run(store):
@@ -374,7 +374,7 @@ def test_the_backend_follows_the_environment(monkeypatch):
 
 def test_the_review_sheet_shows_each_sample_with_its_text_and_quotes(store):
     run_both(store, Scripted({THREAD: THREAD_ANSWER}))
-    picked = sample(store, n=20, prompt="thread-v1", all_runs=False, seed=0)
+    picked = sample(store, n=20, prompt="thread-v2", all_runs=False, seed=0)
     assert len(picked) == 2 and all(item is not None for _, item in picked)
     out = sheet(picked, now=NOW)
     assert "Use OIDC instead of SAML for staff login" in out and "“I'll draft the rollout plan by Friday”" in out
@@ -450,7 +450,7 @@ def test_a_batch_run_writes_what_direct_calls_would(store, tmp_path, no_sleep):
     assert len(model.batches) == 2 and set(model.sent()) == WORTH          # one batch per source run
     strip = lambda rs: sorted((r.item_id, r.entities, r.relations) for r in rs)          # noqa: E731
     assert strip(extractions(store, github, slack)) == strip(extractions(direct, d_github, d_slack))
-    assert slack.tokens == d_slack.tokens and slack.extractor_versions == ["thread-v1"]
+    assert slack.tokens == d_slack.tokens and slack.extractor_versions == ["thread-v2"]
     assert json.loads(store.get("state/slack/batches.json")) == {}
     assert json.loads(store.get("state/slack/backlog.json")) == {}
 
