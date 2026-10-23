@@ -15,6 +15,7 @@ from swarm import schema
 from swarm.records import parse_line
 from swarm.run import run_source
 from swarm.sources.github import GitHubNormalizer
+from swarm.sources.github.connector import read_known_docs
 from swarm.stages.checks import CheckFailed
 from swarm.stages.manifest import read_manifest
 from swarm.store import LocalStore
@@ -25,7 +26,7 @@ NOW = datetime.fromisoformat(NOW_ISO.replace("Z", "+00:00"))
 
 
 def run(store, fake=None, now=NOW):
-    conn, fake = connector(fake, now=now)
+    conn, fake = connector(fake, now=now, known_docs=read_known_docs(store))      # as pipelines/github/main.py
     manifest, checks = run_source(conn, GitHubNormalizer(conn.index), store, now=now)
     return manifest, checks, fake
 
@@ -48,8 +49,8 @@ def test_run_is_manifest_complete_with_full_acl_coverage_and_no_secrets(first):
     store, manifest, checks = first
     assert read_manifest(store, "github", manifest.run_id) == manifest
     assert manifest.status == "complete"
-    assert manifest.counts == {"items": 9, "extractions": 0, "changes": 0, "groups": 1, "identities": 0, "rejected": 0}
-    assert checks == {"items": 9, "written_with_acl": 1.0, "secret_hits": 0}
+    assert manifest.counts == {"items": 13, "extractions": 0, "changes": 0, "groups": 1, "identities": 0, "rejected": 0}
+    assert checks == {"items": 13, "written_with_acl": 1.0, "secret_hits": 0}
     assert manifest.acl_coverage == 1.0 and manifest.rejections == {}
     everything = b"".join(store.get(k) for k in store.list(""))
     for token in planted().values():
@@ -93,10 +94,13 @@ def test_repo_made_public_produces_acl_updates_not_new_items(first):
     second, _, _ = run(store, fake, now=NOW + timedelta(hours=1))
     recs = records(store, second)
     # The repo's own record changes (its meta says public now); everything in
-    # it only changed who may read it, so those arrive as acl_updates.
+    # it only changed who may read it, so those arrive as acl_updates: 2 issues,
+    # a PR and 2 commits from the window, and its 3 docs, read again because the
+    # visibility the last run published for them changed.
     assert [r.id for r in recs if r.record_type == "item"] == ["github:repo:9001"]
     changes = [r for r in recs if r.record_type == "acl_update"]
-    assert len(changes) == 5 and all(c.acl.visibility == "public" for c in changes)
+    assert len(changes) == 8 and all(c.acl.visibility == "public" for c in changes)
+    assert len([c for c in changes if ":file:" in c.id]) == 3
 
 
 def test_a_leaked_secret_fails_the_run_before_any_manifest(tmp_path, monkeypatch):
@@ -106,3 +110,9 @@ def test_a_leaked_secret_fails_the_run_before_any_manifest(tmp_path, monkeypatch
     with pytest.raises(CheckFailed):
         run_source(conn, GitHubNormalizer(conn.index), store, now=NOW)
     assert store.list("runs/github/") and not [k for k in store.list("runs/") if k.endswith("_manifest.json")]
+
+
+def test_a_rerun_reads_no_doc_again(first):
+    store, _, _ = first
+    _, _, fake = run(store, now=NOW + timedelta(hours=1))
+    assert not [p for p in fake.paths() if "/git/blobs/" in p]

@@ -1,13 +1,15 @@
 """A fake api.github.com built from tests/fixtures/github/acme-sbx.json.
 
 Serves each 'METHOD /path' entry through httpx.MockTransport, paginates
-{"pages": [...]} entries with real Link headers, resolves {"$ref": ...}, and
-fills {{PLANTED:name}} from the redaction corpus. Every request is recorded so
-tests can check what the connector asked for.
+{"pages": [...]} entries with real Link headers, resolves {"$ref": ...},
+fills {{PLANTED:name}} from the redaction corpus, and base64-encodes a blob's
+"$text" into its "content", as the git blobs API returns it. Every request is
+recorded so tests can check what the connector asked for.
 """
 
 from __future__ import annotations
 
+import base64
 import copy
 import json
 import re
@@ -47,6 +49,9 @@ class FakeGitHub:
                 base = copy.deepcopy((self.users if kind == "user" else self.repos)[name])
                 base.update({k: self._resolve(v) for k, v in value.items() if k != "$ref"})
                 return base
+            if "$text" in value:
+                blob = {k: v for k, v in value.items() if k != "$text"}
+                return {**blob, "content": base64.b64encode(value["$text"].encode("utf-8")).decode("ascii")}
             return {k: self._resolve(v) for k, v in value.items()}
         if isinstance(value, list):
             return [self._resolve(v) for v in value]
@@ -55,6 +60,8 @@ class FakeGitHub:
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
         key = f"{request.method} {request.url.path}"
+        if "path" in request.url.params:         # commits?path=...: GitHub answers per file
+            key = f"{key}?path={request.url.params['path']}"
         if key not in self.routes:
             return httpx.Response(404, json={"message": "Not Found"})
         entry = self.routes[key]
@@ -79,7 +86,8 @@ class FakeGitHub:
         return [r.url.path for r in self.requests if r.method == method]
 
 
-def connector(fake: FakeGitHub | None = None, *, mode: str = "app", repos: list[str] | None = None, now=None):
+def connector(fake: FakeGitHub | None = None, *, mode: str = "app", repos: list[str] | None = None, now=None,
+              known_docs: dict | None = None):
     """A GitHubConnector wired to the fake API, with sleeps disabled."""
     from datetime import datetime
 
@@ -89,4 +97,4 @@ def connector(fake: FakeGitHub | None = None, *, mode: str = "app", repos: list[
     fake = fake or FakeGitHub()
     client = Client("https://api.github.com", transport=fake.transport(), sleep=lambda s: None)
     now = now or datetime.fromisoformat(NOW_ISO.replace("Z", "+00:00"))
-    return GitHubConnector(client, mode=mode, repos=repos, now=now), fake
+    return GitHubConnector(client, mode=mode, repos=repos, now=now, known_docs=known_docs), fake

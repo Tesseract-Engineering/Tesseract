@@ -25,7 +25,7 @@ def items():
 
 
 def test_every_kind_round_trips_through_the_contract(items):
-    assert sorted({i.kind for i in items.values()}) == ["commit", "issue", "pull_request", "repo"]
+    assert sorted({i.kind for i in items.values()}) == ["commit", "document", "issue", "pull_request", "repo"]
     for item in items.values():
         assert parse_line(item.model_dump_json()) == item
 
@@ -98,3 +98,22 @@ def test_bots_are_not_people(items):
     assert "github-actions[bot]" not in {p.handle for p in pr.people}
     assert pr.meta["bots"] == ["github-actions[bot]"]
     assert "--- comment: github-actions[bot] ---\nAll checks passed." in pr.text
+
+
+def test_doc_items(items):
+    adr = items["github:repo:9001:file:docs/adr/0002%20use%20oidc.md"]
+    assert adr.kind == "document" and adr.container == "github:repo:9001"
+    assert adr.title == "docs/adr/0002 use oidc.md" and adr.aliases == ["acme-sbx/api/docs/adr/0002 use oidc.md"]
+    assert adr.url == "https://github.com/acme-sbx/api/blob/main/docs/adr/0002%20use%20oidc.md"
+    assert adr.version == "d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3"
+    assert adr.created_at == adr.updated_at and adr.updated_at.isoformat() == "2026-10-14T16:05:00+00:00"
+    assert [(r.type, r.target) for r in adr.refs] == [("references", "github:repo:9001:pr:2")]
+    assert adr.meta["jira_keys"] == ["AUTH-12"] and adr.meta["last_commit"]
+    assert [(p.handle, p.roles) for p in adr.people] == [("sam-lee", ["mentioned"])]
+    assert planted()["github_fine_grained"] not in adr.text and adr.redactions
+    readme = items["github:repo:9001:file:README.md"]
+    assert [r.target for r in readme.refs] == ["gdrive:file:1AbCdEfGhIjKlMnOpQrStUvWxYz"]
+    owners = items["github:repo:9001:file:.github/CODEOWNERS"]
+    # A team (@acme-sbx/platform) is not a person.
+    assert [p.handle for p in owners.people] == ["sam-lee", "priya-r"]
+    assert items["github:repo:9002:file:README.md"].acl.visibility == "public"

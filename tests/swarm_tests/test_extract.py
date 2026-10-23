@@ -29,6 +29,8 @@ THREAD = "slack:T01ACME:thread:C42AUTH:1791986400.000100"
 SAM = "person:slack:U123SAM"
 # Every item of the fixture runs that the cost filter lets through.
 WORTH = {"github:repo:9001:issue:1", "github:repo:9001:pr:2", "github:repo:9001:issue:3", "github:repo:9002:issue:1",
+         "github:repo:9001:file:.github/CODEOWNERS", "github:repo:9001:file:README.md",
+         "github:repo:9001:file:docs/adr/0002%20use%20oidc.md", "github:repo:9002:file:README.md",
          "slack:T01ACME:thread:C42AUTH:1785578400.000100", THREAD}
 
 THREAD_ANSWER = {
@@ -121,7 +123,7 @@ def store(tmp_path):
 
 # A prompt's text and its version move together: change one, change both.
 PINNED = {
-    "document": ("document-v2", "af2eb6836b9585b4"),
+    "document": ("document-v3", "6f764fe2d80370eb"),
     "issue": ("issue-v2", "b2daadd3aa805645"),
     "pull_request": ("pull_request-v2", "7b6fab9c5e91b9f5"),
     "thread": ("thread-v2", "382070e7e9370746"),
@@ -209,9 +211,9 @@ def test_a_run_writes_valid_extractions_and_reports_tokens_and_versions(store):
     model = Scripted({THREAD: THREAD_ANSWER})
     github, slack = run_both(store, model)
     assert read_manifest(store, "slack", slack.run_id) == slack
-    assert slack.counts["extractions"] == 2 and github.counts["extractions"] == 4
+    assert slack.counts["extractions"] == 2 and github.counts["extractions"] == 8
     assert slack.extractor_versions == ["thread-v2"]
-    assert github.extractor_versions == ["issue-v2", "pull_request-v2"]
+    assert github.extractor_versions == ["document-v3", "issue-v2", "pull_request-v2"]
     assert slack.tokens == Tokens(input=200, output=40) and not slack.llm_budget_hit
     spec = json.loads((schema.OUT / "extraction.json").read_text(encoding="utf-8"))
     for record in extractions(store, github, slack):
@@ -247,12 +249,12 @@ def test_over_budget_items_wait_for_the_next_run(store):
     assert len(model.calls) == 4 and github.llm_budget_hit       # GitHub hit it on its second call
     assert github.counts["extractions"] == 2 and github.counts["items"] > 0   # fetching went on
     backlog = json.loads(store.get("state/github/backlog.json"))
-    assert len(backlog) == 2
+    assert len(backlog) == 6
 
     later = Scripted()
     github2, slack2 = run_both(store, later, now=NOW + timedelta(hours=1))
     assert sorted(later.calls) == sorted(backlog)                # only the backlog; Slack was done
-    assert github2.counts["extractions"] == 2 and not github2.llm_budget_hit
+    assert github2.counts["extractions"] == 6 and not github2.llm_budget_hit
     assert json.loads(store.get("state/github/backlog.json")) == {}
 
 

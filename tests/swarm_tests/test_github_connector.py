@@ -34,7 +34,8 @@ def test_fetch_yields_every_kind_with_sub_resources():
     items = {raw.native_id: raw.payload for raw in conn.fetch(api, None)}
     assert list(items) == ["repo-9001", "issue-9001-1", "pr-9001-2", "issue-9001-3",
                            "commit-a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
-                           "commit-b2c3d4e5f60718293a4b5c6d7e8f901234567890"]
+                           "commit-b2c3d4e5f60718293a4b5c6d7e8f901234567890",
+                           "file-9001-.github/CODEOWNERS", "file-9001-README.md", "file-9001-docs/adr/0002 use oidc.md"]
     pr = items["pr-9001-2"]
     assert pr["pull"]["merged_at"] and len(pr["reviews"]) == 2 and len(pr["review_comments"]) == 1
     assert len(pr["comments"]) == 2              # one person, one bot
@@ -79,19 +80,21 @@ def test_readers_group_lists_every_collaborator_for_private_repos_only():
     assert conn.groups(web, run_id="r1") == []
 
 
-def test_list_ids_covers_issues_prs_and_commits():
+def test_list_ids_covers_issues_prs_commits_and_docs():
     conn, _ = connector()
     api = next(iter(conn.enumerate()))
     assert list(conn.list_ids(api)) == [
         "github:repo:9001", "github:repo:9001:issue:1", "github:repo:9001:pr:2", "github:repo:9001:issue:3",
         "github:repo:9001:commit:a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
-        "github:repo:9001:commit:b2c3d4e5f60718293a4b5c6d7e8f901234567890"]
+        "github:repo:9001:commit:b2c3d4e5f60718293a4b5c6d7e8f901234567890",
+        "github:repo:9001:file:.github/CODEOWNERS", "github:repo:9001:file:README.md",
+        "github:repo:9001:file:docs/adr/0002%20use%20oidc.md"]
 
 
-def test_empty_repository_has_no_commits():
+def test_empty_repository_has_no_commits_or_docs():
     from .github_fixture import FakeGitHub
-    fake = FakeGitHub({"GET /repos/acme-sbx/web/commits": {"status": 409,
-                                                          "body": {"message": "Git Repository is empty."}}})
+    empty = {"status": 409, "body": {"message": "Git Repository is empty."}}
+    fake = FakeGitHub({"GET /repos/acme-sbx/web/commits": empty, "GET /repos/acme-sbx/web/git/trees/main": empty})
     conn, _ = connector(fake)
     web = list(conn.enumerate())[1]
     kinds = [raw.payload["type"] for raw in conn.fetch(web, None)]
@@ -168,3 +171,65 @@ def test_visibility_reads_older_payloads_with_only_private():
     assert repo_visibility({"visibility": "internal", "private": True}) == "internal"
     assert repo_visibility({"private": True}) == "private"
     assert repo_visibility({"private": False}) == "public"
+
+
+# -- docs --------------------------------------------------------------------- #
+
+API_DOCS = {".github/CODEOWNERS": "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1",
+            "README.md": "d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2",
+            "docs/adr/0002 use oidc.md": "d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3"}
+
+
+def docs_fetched(conn):
+    api = next(iter(conn.enumerate()))
+    return {raw.payload["path"]: raw.payload for raw in conn.fetch(api, None) if raw.payload["type"] == "file"}
+
+
+def blob_calls(fake):
+    return sorted(p.rsplit("/", 1)[1] for p in fake.paths() if "/git/blobs/" in p)
+
+
+def test_docs_are_prose_and_codeowners_never_code_vendored_or_generated():
+    conn, fake = connector()
+    docs = docs_fetched(conn)
+    assert list(docs) == list(API_DOCS)
+    # api/auth/oidc.py is code, node_modules/ is vendored, docs/api-reference.md is 900 kB: none is read.
+    assert blob_calls(fake) == sorted(API_DOCS.values())
+    adr = docs["docs/adr/0002 use oidc.md"]
+    assert adr["content"].startswith("# ADR 0002: Use OIDC for staff login")       # decoded, not base64
+    assert adr["last_commit"]["commit"]["committer"]["date"] == "2026-10-14T16:05:00Z"
+    tree = [r for r in fake.requests if r.url.path == "/repos/acme-sbx/api/git/trees/main"][0]
+    assert tree.url.params["recursive"] == "1"
+
+
+def test_a_doc_whose_blob_is_unchanged_is_not_read_again():
+    known = {"9001": {"visibility": "private", "docs": {**API_DOCS, "README.md": "0" * 40}},
+             "9002": {"visibility": "public", "docs": {"README.md": "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4"}}}
+    conn, fake = connector(known_docs=known)
+    assert list(docs_fetched(conn)) == ["README.md"]                 # its sha changed; the other two did not
+    assert blob_calls(fake) == ["d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2"]
+    # Every doc read or confirmed unchanged is published; web, not reached this run, keeps its entry.
+    assert conn.published_state()["docs"] == {"9001": {"visibility": "private", "docs": API_DOCS},
+                                              "9002": known["9002"]}
+
+
+def test_a_visibility_change_reads_every_doc_again():
+    conn, fake = connector(known_docs={"9001": {"visibility": "public", "docs": API_DOCS}})
+    assert list(docs_fetched(conn)) == list(API_DOCS)
+    assert conn.published_state()["docs"]["9001"]["visibility"] == "private"
+
+
+def test_a_doc_with_no_commit_to_date_it_is_skipped_and_retried():
+    from .github_fixture import FakeGitHub
+    fake = FakeGitHub({"GET /repos/acme-sbx/api/commits?path=README.md": {"pages": [[]]}})
+    conn, _ = connector(fake)
+    assert "README.md" not in docs_fetched(conn)
+    assert "README.md" not in conn.published_state()["docs"]["9001"]["docs"]
+
+
+def test_is_doc():
+    from swarm.sources.github.connector import is_doc
+    assert all(is_doc(p) for p in ["README.md", "docs/adr/0014-retrain.md", "guide.rst", "CHANGES.markdown",
+                                   "CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS"])
+    assert not any(is_doc(p) for p in ["app.py", "config.yaml", ".env", "notes.txt", "vendor/lib/README.md",
+                                       "web/node_modules/x/README.md", "codeowners.py"])

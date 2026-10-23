@@ -7,8 +7,9 @@ narrowed by GITHUB_REPOS when both are set. Every call is a read.
   enumerate   one container per granted repo
   fetch       the repo itself, then issues and PRs updated since the
               checkpoint (minus a 7-day lookback for edits and late
-              comments), then default-branch commits in the same window
-  list_ids    every issue, PR and commit id, for weekly reconciliation
+              comments), then default-branch commits in the same window,
+              then the docs on the default branch whose blob changed
+  list_ids    every issue, PR, commit and doc id, for weekly reconciliation
   acl         public repos are public; private and internal repos are
               readable by the repo's readers group
   groups      that readers group: every collaborator, including access via
@@ -17,6 +18,18 @@ narrowed by GITHUB_REPOS when both are set. Every call is a read.
               credential the group is written with no members, so the graph
               side grants nobody through it rather than trusting stale members
 
+Docs are the files that hold decisions and ownership in prose: Markdown and
+reStructuredText (ADRs, READMEs, handbooks) and CODEOWNERS. Source code and
+config are never read: they are where real secrets live, they dwarf
+everything else, and they say what a system does rather than who decided
+what. One tree call per repo lists the docs with their blob shas; a doc's
+content and last commit are fetched only when its sha differs from the one
+the last complete run published in state/github/docs.json, so an unchanged
+doc costs nothing. A repo whose visibility changed since has all its docs
+read again, so their records carry the new ACL. A file over MAX_DOC_BYTES is
+generated, not written, and is out of scope. A doc left unread (past
+MAX_DOCS, binary, undated) is not published, so every run reconsiders it.
+
 A checkpoint is the newest issue update or commit date seen, never later
 than the run's own clock: commit dates are set by whoever made the commit,
 and one dated in the future would push the window past real activity.
@@ -24,6 +37,8 @@ and one dated in the future would push the window past real activity.
 
 from __future__ import annotations
 
+import base64
+import json
 import logging
 from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
@@ -33,6 +48,8 @@ from ... import ids
 from ...http import Client, SourceError
 from ...interfaces import Checkpoint, RawContainer, RawItem
 from ...records import Acl, GroupRecord
+from ...stages.write import state_key
+from ...store import ObjectStore
 from ...timeutil import iso, parse_iso
 from .refs import RepoIndex
 
@@ -40,6 +57,11 @@ log = logging.getLogger("swarm.github")
 
 LOOKBACK = timedelta(days=7)
 COMMIT_DETAIL_CAP = 500        # commits per repo per run that get their file list
+DOC_SUFFIXES = (".md", ".markdown", ".rst")
+DOC_NAMES = ("CODEOWNERS",)
+SKIP_DIRS = {"node_modules", "vendor", "third_party", ".venv", "venv", "site-packages", "dist", "build"}
+MAX_DOC_BYTES = 200_000        # the normalizer's MAX_TEXT; bigger files are generated, not written
+MAX_DOCS = 500                 # docs per repo per run that get their content
 
 
 def repo_visibility(repo: dict[str, Any]) -> str:
@@ -51,12 +73,26 @@ def readers_group(repo_id: int) -> str:
     return f"group:{ids.github_repo(repo_id)}:readers"
 
 
+def read_known_docs(store: ObjectStore) -> dict[str, dict[str, Any]]:
+    """What the last complete run published in state/github/docs.json."""
+    raw = store.get(state_key("github", "docs"))
+    return json.loads(raw) if raw else {}
+
+
+def is_doc(path: str) -> bool:
+    parts = path.split("/")
+    if SKIP_DIRS.intersection(parts[:-1]):
+        return False
+    return parts[-1].lower().endswith(DOC_SUFFIXES) or parts[-1] in DOC_NAMES
+
+
 class GitHubConnector:
     source = "github"
 
     def __init__(self, client: Client, *, mode: str, repos: list[str] | None = None,
                  external_tracker: list[str] | None = None,
-                 now: datetime | None = None, backfill_days: int = 730):
+                 now: datetime | None = None, backfill_days: int = 730,
+                 known_docs: dict[str, dict[str, Any]] | None = None):
         if mode == "token" and not repos:
             raise ValueError("token mode needs GITHUB_REPOS: a token has no installation to list")
         self.client = client
@@ -69,6 +105,10 @@ class GitHubConnector:
         self.index = RepoIndex(lookup=self._lookup_kind)
         self._repos: dict[int, dict[str, Any]] = {}
         self._cursors: dict[str, str] = {}
+        # repo id -> {"visibility": ..., "docs": {path: blob sha}}: what the last
+        # complete run read (state/github/docs.json), and what this one has.
+        self._known_docs = known_docs or {}
+        self._docs_now: dict[str, dict[str, Any]] = {}
 
     # -- scope ---------------------------------------------------------------- #
 
@@ -140,7 +180,57 @@ class GitHubConnector:
                 newest = max(newest, min(iso(parse_iso(date)), fetched))
             yield item(f"commit-{commit['sha']}", {"type": "commit", "repo": brief, "commit": commit})
 
+        for doc in self._docs(repo):
+            yield item(f"file-{repo_id}-{doc['path']}", {"type": "file", "repo": brief, **doc})
+
         self._cursors[container.id] = newest
+
+    def _tree(self, repo: dict[str, Any]) -> list[dict[str, Any]]:
+        """Every doc blob on the default branch, in path order."""
+        branch = repo.get("default_branch") or "main"
+        try:
+            tree = self.client.get_json(f"/repos/{repo['full_name']}/git/trees/{branch}", {"recursive": "1"})
+        except SourceError as e:
+            if e.status in (404, 409):   # no default branch yet; the repository is empty
+                return []
+            raise
+        if tree.get("truncated"):
+            log.warning("tree of repo %s is truncated; some docs are not read this run", repo["id"])
+        return sorted((e for e in tree.get("tree") or [] if e.get("type") == "blob" and is_doc(e["path"])
+                       and (e.get("size") or 0) <= MAX_DOC_BYTES), key=lambda e: e["path"])
+
+    def _docs(self, repo: dict[str, Any]) -> Iterator[dict[str, Any]]:
+        name, key = repo["full_name"], str(repo["id"])
+        last_run = self._known_docs.get(key) or {}
+        known = last_run.get("docs", {}) if last_run.get("visibility") == repo_visibility(repo) else {}
+        current: dict[str, str] = {}
+        self._docs_now[key] = {"visibility": repo_visibility(repo), "docs": current}
+        read = skipped = 0
+        for entry in self._tree(repo):
+            path, sha = entry["path"], entry["sha"]
+            if known.get(path) == sha:
+                current[path] = sha
+                continue
+            if read >= MAX_DOCS:
+                skipped += 1
+                continue
+            blob = self.client.get_json(f"/repos/{name}/git/blobs/{sha}")
+            data = base64.b64decode(blob.get("content") or "") if blob.get("encoding") == "base64" \
+                else (blob.get("content") or "").encode("utf-8")
+            if b"\0" in data:
+                skipped += 1
+                continue
+            last = next(iter(self.client.paginate(f"/repos/{name}/commits", {
+                "sha": repo.get("default_branch") or "main", "path": path, "per_page": 1})), None)
+            if last is None:             # nothing to date it by; not published, so retried next run
+                skipped += 1
+                continue
+            read += 1
+            current[path] = sha
+            # Decoded here, so redaction (run.py) sees the text, never base64.
+            yield {"path": path, "sha": sha, "content": data.decode("utf-8", errors="replace"), "last_commit": last}
+        if skipped:
+            log.info("repo %s: %d docs not read (binary, undated or over the per-run cap)", repo["id"], skipped)
 
     def _commits(self, name: str, repo: dict[str, Any], params: dict[str, Any]) -> Iterator[dict[str, Any]]:
         try:
@@ -158,7 +248,17 @@ class GitHubConnector:
         """state/github/repos.json: lowercased owner/name -> repo id for every
         granted repo, so Slack and Drive can link "acme/api#412" and GitHub
         URLs to GitHub IDs (swarm/sources/links.py)."""
-        return {"repos": {name: repo_id for name, repo_id in sorted(self.index.full_names.items())}}
+        return {"repos": {name: repo_id for name, repo_id in sorted(self.index.full_names.items())},
+                "docs": self._published_docs()}
+
+    def _published_docs(self) -> dict[str, dict[str, Any]]:
+        """state/github/docs.json: per repo id, its visibility and the blob sha
+        of every doc read or confirmed unchanged, so the next run skips them.
+        A granted repo this run did not reach keeps what the last run published."""
+        merged = {k: v for k, v in self._known_docs.items() if int(k) in self._repos}
+        merged.update(self._docs_now)
+        return {k: {"visibility": v["visibility"], "docs": dict(sorted(v["docs"].items()))}
+                for k, v in sorted(merged.items())}
 
     def _lookup_kind(self, repo_id: int, number: int) -> str | None:
         repo = self._repos.get(repo_id)
@@ -180,6 +280,8 @@ class GitHubConnector:
             yield build(repo_id, issue["number"])
         for commit in self._commits(name, repo, {}):
             yield ids.github_commit(repo_id, commit["sha"])
+        for entry in self._tree(repo):
+            yield ids.github_file(repo_id, entry["path"])
 
     def acl(self, item: RawItem) -> Acl:
         repo = item.container.meta["repo"]

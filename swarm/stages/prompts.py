@@ -82,8 +82,9 @@ already recorded; do not repeat them."""),
 This item is an issue: its description, then comments, each headed with who wrote it. Look for the systems \
 affected, the customers who reported or are affected, the project it belongs to, dependencies, decisions \
 reached in the discussion, and work someone agreed to do. Authorship and assignees are already recorded."""),
-    "document": ("document-v2", "Google Drive", """\
-This item is a document: a Doc, a Slides deck or a PDF, as plain text. Look for decisions it records, the \
+    "document": ("document-v3", "documents", """\
+This item is a document as plain text: a Doc, a Slides deck or a PDF from Google Drive, or a Markdown file, \
+reStructuredText file or CODEOWNERS file from a GitHub repo (its path is the title). Look for decisions it records, the \
 projects and systems it describes and who owns them, teams and who is in them, action items, customers, and \
 whether it says it replaces an earlier decision. A decision the document records gets decided_in to the \
 item's id."""),

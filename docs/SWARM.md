@@ -39,6 +39,7 @@ Every design question below is settled. Rows marked default were open questions;
 | Jira auth | Service account with an API token, read-only project permissions. | Default |
 | Drive auth | Service account added to selected shared drives, or to shared folders where there is no Google Workspace. Domain-wide delegation is an opt-in upgrade for full coverage. | Default |
 | Drive file types | Docs, Slides and text PDFs get full text. Sheets get metadata, ACLs and refs only in v1. | Default |
+| GitHub files | Docs on the default branch only: Markdown, reStructuredText and CODEOWNERS (ADRs, READMEs, handbooks, ownership), as `document` items. Source code and config are never read: they hold real secrets, dwarf everything else, and say what a system does rather than who decided what. A doc is re-read only when its blob changes. | Default |
 | Slack ACLs | Public channels are `internal` (the whole workspace can read them); private channels name a members group. | Default |
 | Slack grouping | Threads keep their `thread_ts`; other messages form bursts (gaps of 20 minutes at most, never across midnight UTC), so the export and the API build the same IDs. | Default |
 | Drive ACL fallback | A file whose permissions the service account cannot list takes its parent folder's; a limited-access folder never does, and a file with neither is not written. | Default |
@@ -145,7 +146,7 @@ Each source is a thin fetcher behind one interface; redaction, ACLs, extraction 
 
 | Source | Category | Auth | Scope granted by | Item kinds | Notes |
 | --- | --- | --- | --- | --- | --- |
-| GitHub | Code | Customer-created GitHub App, read-only | Repos selected at install | `repo`, `commit`, `pull_request`, `issue` | Review comments fold into the PR's text |
+| GitHub | Code | Customer-created GitHub App, read-only | Repos selected at install | `repo`, `commit`, `pull_request`, `issue`, `document` | Review comments fold into the PR's text; `document` is a doc file on the default branch (see "GitHub files" under Decisions) |
 | Jira | Tickets | Service account, API token | Projects the account can browse | `issue` (`issue_type` in meta) | ID uses the internal issue id; the key is an alias, since keys change on project moves |
 | Slack | Chat | Customer-created internal app, bot token | Channels the bot is invited to | `thread`, `channel` | Internal apps keep Tier 3 rate limits; confirm on first install. No DMs. |
 | Google Drive | Docs | Service account | Shared drives it is added to, or folders shared with its email (domain-wide delegation optional) | `document`, `folder` | Docs and Slides exported to text; Sheets metadata only in v1 |
@@ -173,7 +174,7 @@ A connector may also have three optional methods, which the runner calls when th
 | --- | --- | --- |
 | `groups(container, *, run_id) -> list[GroupRecord]` | After each container's items | The group records that the container's item ACLs name |
 | `checkpoint(container) -> Checkpoint \| None` | After each container's items | Where this run got to; saved only once the manifest is written |
-| `published_state() -> dict` | When the manifest is written | Lookup state for other sources, written to `state/{source}/{name}.json` (GitHub's `repos.json`) |
+| `published_state() -> dict` | When the manifest is written | Lookup state for other sources, or for the source's own next run, written to `state/{source}/{name}.json` (GitHub's `repos.json` and `docs.json`) |
 
 Slack has two connectors behind the same interface: `SlackExportConnector` for the cold start and tests, and `SlackApiConnector` for nightly runs. Both feed one normalizer, which groups messages into threads.
 
@@ -208,6 +209,7 @@ The swarm emits six record types. `item` and `extraction` are approved; `tombsto
 | GitHub repo | `github:repo:{repo_id}` | `acme/api` |
 | GitHub PR or issue | `github:repo:{repo_id}:pr:{number}`, `...:issue:{number}` | `acme/api#412` |
 | GitHub commit | `github:repo:{repo_id}:commit:{sha}` | short sha |
+| GitHub doc file | `github:repo:{repo_id}:file:{path}`, path percent-encoded except `/`; a rename is a new ID | `acme/api/docs/adr/0002.md` |
 | Jira issue | `jira:{site}:issue:{issue_id}` | `NEXP-318` |
 | Jira project | `jira:{site}:project:{project_id}` | `NEXP` |
 | Slack channel | `slack:{team_id}:channel:{channel_id}` | `#eng-auth` |
@@ -230,6 +232,7 @@ state/{source}/checkpoints.json
 state/{source}/backlog.json                          # items still due an LLM extraction
 state/{source}/batches.json                          # Message Batches sent but not yet read
 state/github/repos.json                              # repo names -> ids, read by Slack and Drive
+state/github/docs.json                               # per repo: visibility and each doc's blob sha, read by the next GitHub run
 ```
 
 **ACL principals.** An item's `acl` names who may read it, as principals of three kinds:

@@ -1,13 +1,18 @@
 """
 normalize.py - GitHub payloads to item records.
 
-Four kinds, one record each:
+Five kinds, one record each:
 
   repo           description and topics
   issue          body, with every comment folded in
   pull_request   body, then reviews, review comments (with their file), then
                  comments: the whole discussion in one text, as the design asks
   commit         the message
+  document       a doc file on the default branch (connector.py says which),
+                 versioned by its blob sha and dated by its last commit. Git
+                 keeps no creation date short of walking the file's history,
+                 so created_at is that last commit's date too. No people:
+                 whoever last touched a file did not necessarily write it.
 
 Payloads arrive already redacted (swarm/run.py redacts before anything is
 kept), so the redactions list is read back from the markers left in the text.
@@ -16,6 +21,7 @@ kept), so the redactions list is read back from the markers left in the text.
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import quote
 
 from ... import ids
 from ...interfaces import RawItem
@@ -86,7 +92,7 @@ class GitHubNormalizer:
     def to_item(self, raw: RawItem, acl: Acl) -> ItemRecord:
         payload = raw.payload
         builder = {"repo": self._repo, "issue": self._issue, "pull_request": self._pull,
-                   "commit": self._commit}[payload["type"]]
+                   "commit": self._commit, "file": self._file}[payload["type"]]
         fields = builder(payload)
         return self._finish(fields, acl, raw.fetched_at)
 
@@ -183,6 +189,23 @@ class GitHubNormalizer:
             meta={"sha": c["sha"], "files": files[:MAX_FILES], "files_truncated": len(files) > MAX_FILES,
                   "parents": len(c.get("parents") or []), "branch": repo.get("default_branch")},
             repo_id=repo["id"], number=None, scan=message)
+
+    def _file(self, p: dict[str, Any]) -> dict[str, Any]:
+        repo, path = p["repo"], p["path"]
+        last = p.get("last_commit") or {}
+        git = last.get("commit") or {}
+        date = (git.get("committer") or {}).get("date") or (git.get("author") or {}).get("date")
+        if not date:
+            raise ValueError("a doc with no commit to date it")
+        branch = repo.get("default_branch") or "main"
+        text = p["content"]
+        return dict(
+            id=ids.github_file(repo["id"], path), kind="document", container=ids.github_repo(repo["id"]),
+            aliases=[f"{repo['full_name']}/{path}"], title=path, text=text,
+            url=f"https://github.com/{repo['full_name']}/blob/{quote(branch)}/{quote(path)}",
+            created_at=date, updated_at=date, version=p["sha"], people=_People(),
+            meta={"path": path, "branch": branch, "last_commit": last.get("sha")},
+            repo_id=repo["id"], number=None, scan=text)
 
     # -- shared ------------------------------------------------------------- #
 

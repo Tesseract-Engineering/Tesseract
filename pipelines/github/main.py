@@ -25,6 +25,7 @@ from swarm.http import Client
 from swarm.run import run_source
 from swarm.sources.github import GitHubConnector, GitHubNormalizer
 from swarm.sources.github.auth import API, HEADERS, from_env
+from swarm.sources.github.connector import read_known_docs
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -34,11 +35,13 @@ def main(argv: list[str] | None = None) -> int:
     setup_logging()
 
     auth = from_env()
+    store = store_for(args.local)
     connector = GitHubConnector(Client(API, headers=HEADERS, auth=auth.headers), mode=auth.mode,
                                 repos=listed("GITHUB_REPOS") or None,
                                 external_tracker=listed("GITHUB_EXTERNAL_TRACKER_REPOS"),
-                                backfill_days=backfill_days())
-    manifest, checks = run_source(connector, GitHubNormalizer(connector.index), store_for(args.local), **llm())
+                                backfill_days=backfill_days(),
+                                known_docs=read_known_docs(store))
+    manifest, checks = run_source(connector, GitHubNormalizer(connector.index), store, **llm())
     report(manifest, checks)
     return 0
 

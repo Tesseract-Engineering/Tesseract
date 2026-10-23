@@ -1,5 +1,5 @@
 {
-  "_about": "Hand-made GitHub REST responses for a fictional org, acme-sbx, in the shapes the real API returns (trimmed to the fields the connector reads, plus a few it ignores). Keys are 'METHOD /path'; a value is a body, {\"pages\": [...]} for a Link-paginated list, or {\"status\": N}. {{PLANTED:name}} is replaced with a fake token from tests/fixtures/redaction/corpus.yaml. No club data.",
+  "_about": "Hand-made GitHub REST responses for a fictional org, acme-sbx, in the shapes the real API returns (trimmed to the fields the connector reads, plus a few it ignores). Keys are 'METHOD /path'; a value is a body, {\"pages\": [...]} for a Link-paginated list, or {\"status\": N}. {{PLANTED:name}} is replaced with a fake token from tests/fixtures/redaction/corpus.yaml. A blob's \"$text\" is base64-encoded into its \"content\" when loaded. No club data.",
 
   "_users": {
     "sam": {"login": "sam-lee", "id": 101, "type": "User", "html_url": "https://github.com/sam-lee"},
@@ -151,5 +151,31 @@
                "author": {"name": "Sam Lee", "email": "sam@acme-sbx.dev", "date": "2026-10-16T10:59:00Z"},
                "committer": {"name": "Sam Lee", "email": "sam@acme-sbx.dev", "date": "2026-10-16T10:59:00Z"}},
     "files": [{"filename": "README.md"}]
-  }
+  },
+  "GET /repos/acme-sbx/api/git/trees/main": {
+    "sha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678", "truncated": false,
+    "tree": [
+      {"path": "docs", "mode": "040000", "type": "tree", "sha": "e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0"},
+      {"path": ".github/CODEOWNERS", "mode": "100644", "type": "blob", "sha": "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1", "size": 50},
+      {"path": "README.md", "mode": "100644", "type": "blob", "sha": "d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2", "size": 118},
+      {"path": "docs/adr/0002 use oidc.md", "mode": "100644", "type": "blob", "sha": "d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3", "size": 203},
+      {"path": "api/auth/oidc.py", "mode": "100644", "type": "blob", "sha": "f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1", "size": 2048},
+      {"path": "node_modules/left-pad/README.md", "mode": "100644", "type": "blob", "sha": "f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2", "size": 300},
+      {"path": "docs/api-reference.md", "mode": "100644", "type": "blob", "sha": "f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3", "size": 900000}
+    ]
+  },
+  "GET /repos/acme-sbx/api/git/blobs/d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1": {"sha": "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1", "encoding": "base64", "size": 50, "$text": "/api/auth/ @sam-lee @priya-r\n* @acme-sbx/platform\n"},
+  "GET /repos/acme-sbx/api/commits?path=.github/CODEOWNERS": {"pages": [[{"sha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678", "author": {"$ref": "user:sam"}, "commit": {"author": {"name": "Sam Lee", "email": "sam@acme-sbx.dev", "date": "2026-09-02T10:00:00Z"}, "committer": {"name": "GitHub", "email": "noreply@github.com", "date": "2026-09-02T10:00:00Z"}}}]]},
+  "GET /repos/acme-sbx/api/git/blobs/d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2": {"sha": "d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2", "encoding": "base64", "size": 118, "$text": "# api\n\nStaff auth and the public API. Design doc: https://docs.google.com/document/d/1AbCdEfGhIjKlMnOpQrStUvWxYz/edit\n"},
+  "GET /repos/acme-sbx/api/commits?path=README.md": {"pages": [[{"sha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678", "author": {"$ref": "user:sam"}, "commit": {"author": {"name": "Sam Lee", "email": "sam@acme-sbx.dev", "date": "2026-08-20T09:30:00Z"}, "committer": {"name": "GitHub", "email": "noreply@github.com", "date": "2026-08-20T09:30:00Z"}}}]]},
+  "GET /repos/acme-sbx/api/git/blobs/d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3": {"sha": "d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3", "encoding": "base64", "size": 203, "$text": "# ADR 0002: Use OIDC for staff login\n\nStatus: Accepted\n\nWe replace SAML with OIDC (see #2, tracked in AUTH-12). Owner: @sam-lee.\n\nStaging token, rotate after the cutover: {{PLANTED:github_fine_grained}}\n"},
+  "GET /repos/acme-sbx/api/commits?path=docs/adr/0002 use oidc.md": {"pages": [[{"sha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678", "author": {"$ref": "user:sam"}, "commit": {"author": {"name": "Sam Lee", "email": "sam@acme-sbx.dev", "date": "2026-10-14T16:05:00Z"}, "committer": {"name": "GitHub", "email": "noreply@github.com", "date": "2026-10-14T16:05:00Z"}}}]]},
+  "GET /repos/acme-sbx/web/git/trees/main": {
+    "sha": "c3d4e5f60718293a4b5c6d7e8f90123456789012", "truncated": false,
+    "tree": [
+      {"path": "README.md", "mode": "100644", "type": "blob", "sha": "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4", "size": 32}
+    ]
+  },
+  "GET /repos/acme-sbx/web/git/blobs/d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4": {"sha": "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4", "encoding": "base64", "size": 32, "$text": "# web\n\nMarketing site and docs.\n"},
+  "GET /repos/acme-sbx/web/commits?path=README.md": {"pages": [[{"sha": "c3d4e5f60718293a4b5c6d7e8f90123456789012", "author": {"$ref": "user:sam"}, "commit": {"author": {"name": "Sam Lee", "email": "sam@acme-sbx.dev", "date": "2026-07-01T12:00:00Z"}, "committer": {"name": "GitHub", "email": "noreply@github.com", "date": "2026-07-01T12:00:00Z"}}}]]}
 }

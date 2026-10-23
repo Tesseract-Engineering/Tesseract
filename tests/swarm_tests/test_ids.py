@@ -9,6 +9,7 @@ CASES = [
     (ids.github_pr(7001, 412), "github_pr"),
     (ids.github_issue(7001, 398), "github_issue"),
     (ids.github_commit(7001, "3F9C2E1"), "github_commit"),
+    (ids.github_file(7001, "docs/adr/0014 retrain: v2.md"), "github_file"),
     (ids.jira_issue("acme", 10318), "jira_issue"),
     (ids.jira_project("acme", 10000), "jira_project"),
     (ids.slack_channel("T01", "C42"), "slack_channel"),
@@ -37,3 +38,8 @@ def test_aliases_and_malformed_ids_are_not_ids(value):
 
 def test_commit_sha_is_lowercased():
     assert ids.github_commit(1, "ABCDEF1") == "github:repo:1:commit:abcdef1"
+
+
+def test_file_paths_stay_one_segment():
+    assert ids.github_file(1, "docs/a b:c.md") == "github:repo:1:file:docs/a%20b%3Ac.md"
+    assert ids.entity_types(ids.github_file(1, "README.md")) == {"document"}
