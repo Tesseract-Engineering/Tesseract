@@ -4,16 +4,19 @@ Serves drives.list, files.list (a shared drive's corpus with a modifiedTime
 filter, or a folder's children), files.get (metadata, or a PDF's bytes with
 alt=media), files.export and permissions.list through httpx.MockTransport,
 in small pageToken pages so pagination is exercised. PDFs are built on the
-fly: a text PDF from the file's _text, an image-only one for a scan. Every
-request is recorded.
+fly: a text PDF from the file's _text, an image-only one for a scan; so are
+Word and PowerPoint files (make_office). Every request is recorded.
 """
 
 from __future__ import annotations
 
 import copy
+import io
 import json
 import re
+import zipfile
 from datetime import datetime
+from xml.sax.saxutils import escape
 
 import httpx
 
@@ -32,6 +35,41 @@ def load() -> dict:
     data = json.loads(text)
     data.pop("_about")
     return data
+
+
+OFFICE = {"application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+          "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx"}
+W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+A = "http://schemas.openxmlformats.org/drawingml/2006/main"
+
+
+def make_office(kind: str, text: str) -> bytes:
+    """A minimal .docx (one paragraph per line, split into two runs to show
+    runs join) or .pptx (one slide per \\f-separated block, one paragraph
+    per line), as a zip of the XML parts the connector reads."""
+    def paras(block: str, ns: str, pre: str) -> str:
+        out = []
+        for line in block.split("\n"):
+            half = len(line) // 2
+            runs = "".join(f"<{pre}:r><{pre}:t xml:space=\"preserve\">{escape(t)}</{pre}:t></{pre}:r>"
+                           for t in (line[:half], line[half:]) if t)
+            out.append(f"<{pre}:p>{runs}</{pre}:p>")
+        return "".join(out)
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("[Content_Types].xml", "<Types/>")
+        if kind == "docx":
+            z.writestr("word/document.xml", f'<w:document xmlns:w="{W}"><w:body>{paras(text, W, "w")}'
+                                            f"</w:body></w:document>")
+        else:
+            # Slide 10 before slide 2 in the zip: order comes from the number, not the listing.
+            blocks = text.split("\f")
+            for n in sorted(range(1, len(blocks) + 1), key=str):
+                z.writestr(f"ppt/slides/slide{n}.xml",
+                           f'<p:sld xmlns:p="urn:p" xmlns:a="{A}"><p:cSld><p:spTree><p:sp><p:txBody>'
+                           f"{paras(blocks[n - 1], A, 'a')}</p:txBody></p:sp></p:spTree></p:cSld></p:sld>")
+    return buf.getvalue()
 
 
 def make_pdf(text: str | None) -> bytes:
@@ -120,6 +158,9 @@ class FakeDrive:
             assert q["mimeType"] == "text/plain"
             return httpx.Response(200, text=f["_text"], headers={"content-type": "text/plain; charset=utf-8"})
         if q.get("alt") == "media":
+            if f["mimeType"] in OFFICE:
+                return httpx.Response(200, content=make_office(OFFICE[f["mimeType"]], f["_text"]),
+                                      headers={"content-type": f["mimeType"]})
             return httpx.Response(200, content=make_pdf(f["_text"]), headers={"content-type": "application/pdf"})
         return httpx.Response(200, json=self.public(f))
 

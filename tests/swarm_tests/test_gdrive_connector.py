@@ -6,9 +6,9 @@ import httpx
 import pytest
 
 from swarm.interfaces import Checkpoint
-from swarm.sources.gdrive.connector import MAX_PDF_BYTES
+from swarm.sources.gdrive.connector import MAX_OFFICE_XML, MAX_PDF_BYTES, _office_text
 
-from .gdrive_fixture import NOW, FakeDrive, connector, make_pdf
+from .gdrive_fixture import NOW, FakeDrive, connector, make_office, make_pdf
 
 
 def fetch_all(conn, since=None):
@@ -67,10 +67,13 @@ def test_checkpoint_is_the_newest_modified_time_and_the_next_run_looks_back_a_we
     assert "1PDFscanned01" not in raws and "1AbCdEfGhIjK" in raws
 
 
-def test_other_file_types_are_skipped_and_counted():
-    conn, _ = connector()
+def test_other_file_types_keep_metadata_and_are_counted():
+    conn, fake = connector()
     raws = fetch_all(conn)
-    assert "1PNGdiagram01" not in raws and conn.skipped == {"image/png": 1}
+    assert raws["1PNGdiagram01"].payload["type"] == "file"
+    assert raws["1PNGdiagram01"].payload["text_status"] == "metadata_only"
+    assert conn.metadata_only == {"image/png": 1}
+    assert "/drive/v3/files/1PNGdiagram01" not in {r.url.path for r in fake.requests if r.url.params.get("alt")}
 
 
 # -- text ------------------------------------------------------------------------- #
@@ -180,7 +183,7 @@ def test_list_ids_covers_everything_in_scope():
     containers = {c.id: c for c in conn.enumerate()}
     listed = list(conn.list_ids(containers["gdrive:file:0AENGdrive"]))
     assert listed[0] == "gdrive:file:0AENGdrive"
-    assert "gdrive:file:1OLDdoc000001" in listed and "gdrive:file:1PNGdiagram01" not in listed
+    assert "gdrive:file:1OLDdoc000001" in listed and "gdrive:file:1PNGdiagram01" in listed
 
 
 def test_the_checkpoint_cursor_survives_a_quiet_run():
@@ -264,3 +267,64 @@ def test_throttled_permissions_are_not_taken_as_unlistable():
 
     with pytest.raises(SourceError):
         fetch_all(connector(_wrap(FakeDrive(), intercept))[0])
+
+
+# -- Word and PowerPoint uploads ------------------------------------------------- #
+
+def test_word_and_powerpoint_uploads_are_read_and_excel_keeps_metadata():
+    conn, fake = connector()
+    raws = fetch_all(conn)
+    docx = raws["1DOCXadr00001"].payload
+    assert docx["type"] == "docx" and docx["text_status"] == "extracted"
+    assert docx["text"].startswith("ADR-007: Put the proxy in front of the IdP\nStatus: Accepted, see AUTH-12\n")
+    pptx = raws["1PPTXreview01"].payload
+    assert pptx["text"] == "Q4 auth review\n\nOIDC is live for staff\nNext: retire SAML"     # slides apart
+    xlsx = raws["1XLSXcosts001"].payload
+    assert xlsx["type"] == "xlsx" and xlsx["text_status"] == "metadata_only" and xlsx["text"] == ""
+    downloads = {r.url.path for r in fake.requests if r.url.params.get("alt") == "media"}
+    assert "/drive/v3/files/1XLSXcosts001" not in downloads
+
+
+def test_slides_are_read_in_number_order():
+    text, status = _office_text(make_office("pptx", "\f".join(f"slide {n}" for n in range(1, 12))), "pptx")
+    assert status == "extracted" and text.split("\n\n") == [f"slide {n}" for n in range(1, 12)]
+
+
+def test_text_box_paragraphs_follow_the_paragraph_that_holds_them():
+    w = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    body = (f'<w:document xmlns:w="{w}"><w:body><w:p><w:r><w:t>Before</w:t></w:r><w:r><w:txbxContent>'
+            f"<w:p><w:r><w:t>In the box</w:t></w:r></w:p></w:txbxContent></w:r><w:r><w:tab/><w:t>after</w:t>"
+            f"</w:r></w:p><w:p><w:r><w:t>Next</w:t></w:r></w:p></w:body></w:document>")
+    assert _office_text(_zip({"word/document.xml": body}), "docx") == ("Before\tafter\nIn the box\nNext", "extracted")
+
+
+def _zip(parts: dict[str, str | bytes]) -> bytes:
+    import io
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for name, data in parts.items():
+            z.writestr(name, data)
+    return buf.getvalue()
+
+
+@pytest.mark.parametrize(("data", "status"), [
+    (b"PK\x03\x04 not really a zip", "unreadable"),
+    (_zip({"[Content_Types].xml": "<Types/>"}), "unreadable"),                     # no word/document.xml
+    (_zip({"word/document.xml": "<w:document"}), "unreadable"),                    # broken XML
+    (_zip({"word/document.xml": '<?xml version="1.0"?><!DOCTYPE lol [<!ENTITY a "aaaa">]><d>&a;</d>'}),
+     "unreadable"),                                                               # entity expansion refused
+    (_zip({"word/document.xml": b"<d>" + b" " * (MAX_OFFICE_XML + 1) + b"</d>"}), "too_large"),   # a zip bomb
+    (make_office("docx", ""), "no_text"),
+])
+def test_hostile_or_empty_office_files_are_never_fatal(data, status):
+    assert _office_text(data, "docx") == ("", status)
+
+
+def test_an_oversized_office_file_is_not_downloaded():
+    fake = FakeDrive()
+    fake.files["1DOCXadr00001"]["size"] = "90000000"
+    conn, _ = connector(fake)
+    raws = fetch_all(conn)
+    assert raws["1DOCXadr00001"].payload["text_status"] == "too_large"
+    assert "/drive/v3/files/1DOCXadr00001" not in {r.url.path for r in fake.requests if r.url.params.get("alt")}

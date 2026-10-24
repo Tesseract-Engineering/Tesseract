@@ -38,7 +38,7 @@ Every design question below is settled. Rows marked default were open questions;
 | GitHub auth | Customer-created GitHub App, read-only, installed on selected repos. | Default |
 | Jira auth | Service account with an API token, read-only project permissions. | Default |
 | Drive auth | Service account added to selected shared drives, or to shared folders where there is no Google Workspace. Domain-wide delegation is an opt-in upgrade for full coverage. | Default |
-| Drive file types | Docs, Slides and text PDFs get full text. Sheets get metadata, ACLs and refs only in v1. | Default |
+| Drive file types | Docs, Slides, text PDFs and uploaded Word and PowerPoint files get full text; Office files are unzipped and read with the standard library, against size budgets, refusing any part with a DOCTYPE. Sheets and Excel files get metadata, ACLs and refs only in v1. Every other file type keeps metadata, so the graph still knows the file, its owner and who may read it. | Default |
 | GitHub files | Docs on the default branch only: Markdown, reStructuredText and CODEOWNERS (ADRs, READMEs, handbooks, ownership), as `document` items. Source code and config are never read: they hold real secrets, dwarf everything else, and say what a system does rather than who decided what. A doc is re-read only when its blob changes. | Default |
 | Slack ACLs | Public channels are `internal` (the whole workspace can read them); private channels name a members group. | Default |
 | Slack grouping | Threads keep their `thread_ts`; other messages form bursts (gaps of 20 minutes at most, never across midnight UTC), so the export and the API build the same IDs. | Default |
@@ -149,7 +149,7 @@ Each source is a thin fetcher behind one interface; redaction, ACLs, extraction 
 | GitHub | Code | Customer-created GitHub App, read-only | Repos selected at install | `repo`, `commit`, `pull_request`, `issue`, `document` | Review comments fold into the PR's text; `document` is a doc file on the default branch (see "GitHub files" under Decisions) |
 | Jira | Tickets | Service account, API token | Projects the account can browse | `issue` (`issue_type` in meta) | ID uses the internal issue id; the key is an alias, since keys change on project moves |
 | Slack | Chat | Customer-created internal app, bot token | Channels the bot is invited to | `thread`, `channel` | Internal apps keep Tier 3 rate limits; confirm on first install. No DMs. |
-| Google Drive | Docs | Service account | Shared drives it is added to, or folders shared with its email (domain-wide delegation optional) | `document`, `folder` | Docs and Slides exported to text; Sheets metadata only in v1 |
+| Google Drive | Docs | Service account | Shared drives it is added to, or folders shared with its email (domain-wide delegation optional) | `document`, `folder` | Docs and Slides exported to text; PDFs, Word and PowerPoint files read; Sheets, Excel and other types metadata only in v1 |
 
 **Connector interface**
 
@@ -315,7 +315,7 @@ Every source runs the same eleven stages; only the first two are source-specific
 2. **Fetch** items changed since the per-container checkpoint, plus a 7-day lookback to catch edits and late replies. Slack also rereads threads active in the last 30 days. Paginate with cursors and honor `Retry-After`.
 3. **Redact** secrets in memory with detect-secrets or gitleaks patterns, before anything touches disk. Record what was stripped in `redactions`.
 4. **Write raw** redacted payloads to `raw/`, expiring after 14 days.
-5. **Normalize** to item records. Slack groups messages into threads and bursts; GitHub and Jira fold comments into their parent; Drive exports Docs and Slides to text.
+5. **Normalize** to item records. Slack groups messages into threads and bursts; GitHub and Jira fold comments into their parent; Drive exports Docs and Slides to text and reads PDFs, Word and PowerPoint files.
 6. **Attach ACLs** from the source: channel members, repo visibility, Jira project permissions, Drive sharing. An item with no ACL fails validation and is not written.
 7. **Deterministic extraction:** people with roles, container, and typed refs from fields, URLs and keys in text (Jira keys, `#123`, Drive links).
 8. **LLM extraction** on items that pass the cost filter, against the closed ontology, writing extraction records with evidence spans and `item_version`. The model answers in a fixed JSON shape and quotes its evidence; code finds each quote in the item text to make the span. Anything it cannot check is dropped, not written: a quote not in the text, a type outside the ontology, a relation to an ID the model was not given, or a relation the ontology does not allow. One prompt per kind: Slack conversations, PRs, issues and documents. Repos, channels and folders are containers, and a commit's message is short and repeated on its PR, so those kinds are never sent.

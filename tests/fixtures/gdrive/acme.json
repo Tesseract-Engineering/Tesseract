@@ -1,5 +1,5 @@
 {
-  "_about": "A fictional Drive the service account can see: one shared drive (Engineering) and one folder shared with it from a personal account (Club shared), in the Drive API v3 shapes (trimmed to the fields the connector asks for). tests/swarm_tests/gdrive_fixture.py serves it as a fake API. A file's _text is what export or a PDF holds (null: a scanned PDF); _permissions is its permission list, or 403 when the account may not list it. {{PLANTED:name}} is replaced with a fake token from tests/fixtures/redaction/corpus.yaml. No club data.",
+  "_about": "A fictional Drive the service account can see: one shared drive (Engineering) and one folder shared with it from a personal account (Club shared), in the Drive API v3 shapes (trimmed to the fields the connector asks for). tests/swarm_tests/gdrive_fixture.py serves it as a fake API. A file's _text is what export, a PDF or a Word or PowerPoint file holds (null: a scanned PDF; \\f separates slides); _permissions is its permission list, or 403 when the account may not list it. {{PLANTED:name}} is replaced with a fake token from tests/fixtures/redaction/corpus.yaml. No club data.",
 
   "service_account": "swarm-reader@acme-swarm.iam.gserviceaccount.com",
 
@@ -57,6 +57,28 @@
      "createdTime": "2026-10-04T09:00:00.000Z", "modifiedTime": "2026-10-04T09:00:00.000Z", "version": "1",
      "webViewLink": "https://drive.google.com/file/d/1PDFhuge00001/view",
      "_text": "never downloaded", "_permissions": "$drive:0AENGdrive"},
+
+    {"id": "1DOCXadr00001", "name": "ADR-007 Proxy in front of the IdP.docx",
+     "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "size": "18000",
+     "parents": ["1SPECSfolder00"], "driveId": "0AENGdrive",
+     "createdTime": "2026-10-05T09:00:00.000Z", "modifiedTime": "2026-10-06T09:00:00.000Z", "version": "3",
+     "webViewLink": "https://drive.google.com/file/d/1DOCXadr00001/view",
+     "_text": "ADR-007: Put the proxy in front of the IdP\nStatus: Accepted, see AUTH-12\nProxy admin token: {{PLANTED:github_classic}}",
+     "_permissions": "$drive:0AENGdrive"},
+
+    {"id": "1PPTXreview01", "name": "Q4 auth review.pptx",
+     "mimeType": "application/vnd.openxmlformats-officedocument.presentationml.presentation", "size": "52000",
+     "parents": ["0AENGdrive"], "driveId": "0AENGdrive",
+     "createdTime": "2026-10-07T09:00:00.000Z", "modifiedTime": "2026-10-07T09:00:00.000Z", "version": "1",
+     "webViewLink": "https://drive.google.com/file/d/1PPTXreview01/view",
+     "_text": "Q4 auth review\fOIDC is live for staff\nNext: retire SAML", "_permissions": "$drive:0AENGdrive"},
+
+    {"id": "1XLSXcosts001", "name": "Proxy costs.xlsx",
+     "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "size": "9000",
+     "parents": ["0AENGdrive"], "driveId": "0AENGdrive",
+     "createdTime": "2026-10-07T10:00:00.000Z", "modifiedTime": "2026-10-07T10:00:00.000Z", "version": "1",
+     "webViewLink": "https://drive.google.com/file/d/1XLSXcosts001/view",
+     "_text": null, "_permissions": "$drive:0AENGdrive"},
 
     {"id": "1PNGdiagram01", "name": "diagram.png", "mimeType": "image/png",
      "parents": ["1SPECSfolder00"], "driveId": "0AENGdrive",

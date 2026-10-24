@@ -41,7 +41,7 @@ def test_code_and_quotes_link_nothing():
 
 
 def test_jira_keys_and_slack_permalinks_go_to_meta():
-    found = scan("NEXP-318 and UTF-8, https://acme.slack.com/archives/C1/p1792054800000100", GITHUB)
+    found = scan("NEXP-318 and UTF-8, per ADR-014, https://acme.slack.com/archives/C1/p1792054800000100", GITHUB)
     assert found.meta() == {"jira_keys": ["NEXP-318"],
                             "slack_links": ["https://acme.slack.com/archives/C1/p1792054800000100"]}
 

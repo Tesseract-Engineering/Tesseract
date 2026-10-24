@@ -37,7 +37,7 @@ GITHUB_KEY = re.compile(rf"(?<![\w/&#-])({REPO})#(\d+)\b")
 DRIVE = re.compile(r"https?://(?:docs\.google\.com/(?:document|presentation|spreadsheets)/d/|"
                    r"drive\.google\.com/(?:file/d/|open\?id=|drive/folders/))([A-Za-z0-9_-]{10,})")
 JIRA = re.compile(r"\b([A-Z][A-Z0-9]{1,9}-\d+)\b")
-JIRA_FALSE = {"SHA", "UTF", "ISO", "RFC", "CVE", "AES", "TLS", "HTTP", "COVID"}
+JIRA_FALSE = {"SHA", "UTF", "ISO", "RFC", "CVE", "ADR", "AES", "TLS", "HTTP", "COVID"}
 SLACK_PERMALINK = re.compile(r"https://[A-Za-z0-9-]+\.slack\.com/archives/[A-Z0-9]+/p\d{16}(?:\?[^\s)>\]|]*)?")
 
 _CODE = re.compile(r"```.*?(?:```|\Z)|`[^`\n]*`", re.S)
