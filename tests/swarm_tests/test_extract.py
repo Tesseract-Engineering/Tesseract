@@ -124,7 +124,7 @@ def store(tmp_path):
 # A prompt's text and its version move together: change one, change both.
 PINNED = {
     "document": ("document-v3", "6f764fe2d80370eb"),
-    "issue": ("issue-v2", "b2daadd3aa805645"),
+    "issue": ("issue-v3", "4d43e63aa2623010"),
     "pull_request": ("pull_request-v2", "7b6fab9c5e91b9f5"),
     "thread": ("thread-v2", "382070e7e9370746"),
 }
@@ -213,7 +213,7 @@ def test_a_run_writes_valid_extractions_and_reports_tokens_and_versions(store):
     assert read_manifest(store, "slack", slack.run_id) == slack
     assert slack.counts["extractions"] == 2 and github.counts["extractions"] == 8
     assert slack.extractor_versions == ["thread-v2"]
-    assert github.extractor_versions == ["document-v3", "issue-v2", "pull_request-v2"]
+    assert github.extractor_versions == ["document-v3", "issue-v3", "pull_request-v2"]
     assert slack.tokens == Tokens(input=200, output=40) and not slack.llm_budget_hit
     spec = json.loads((schema.OUT / "extraction.json").read_text(encoding="utf-8"))
     for record in extractions(store, github, slack):
@@ -570,3 +570,15 @@ def test_a_workspace_id_goes_on_every_request(monkeypatch):
     assert "anthropic-workspace-id" not in ClaudeApi().client.default_headers
     monkeypatch.setenv("ANTHROPIC_WORKSPACE_ID", "wrkspc_test")
     assert ClaudeApi().client.default_headers["anthropic-workspace-id"] == "wrkspc_test"
+
+
+def test_a_ticket_only_automation_touched_is_not_sent():
+    from swarm.records import Acl, Person
+    base = dict(id="jira:site:issue:1", kind="issue", source="jira", container="jira:site:project:1", title="t",
+                text="Automation: SLA breached, escalating.", url="https://x.atlassian.net/browse/A-1",
+                created_at=NOW, updated_at=NOW, version="v", acl=Acl(visibility="public"), fetched_at=NOW,
+                run_id="r", content_hash="sha256:" + "0" * 64)
+    bot_only = ItemRecord.model_construct(**base, people=[], meta={"bots": ["Automation for Jira"]})
+    touched = ItemRecord.model_construct(**base, meta={"bots": ["Automation for Jira"]}, people=[
+        Person(id="person:jira:a", source="jira", handle="a", roles=["commenter"])])
+    assert not worth_extracting(bot_only) and worth_extracting(touched)

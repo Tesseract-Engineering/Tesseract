@@ -26,6 +26,7 @@ from swarm.run import run_source
 from swarm.sources.github import GitHubConnector, GitHubNormalizer
 from swarm.sources.github.auth import API, HEADERS, from_env
 from swarm.sources.github.connector import read_known_docs
+from swarm.sources.links import JiraLinks
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -41,7 +42,9 @@ def main(argv: list[str] | None = None) -> int:
                                 external_tracker=listed("GITHUB_EXTERNAL_TRACKER_REPOS"),
                                 backfill_days=backfill_days(),
                                 known_docs=read_known_docs(store))
-    manifest, checks = run_source(connector, GitHubNormalizer(connector.index), store, **llm())
+    # Jira runs after GitHub, so its keys resolve through the previous night's state.
+    normalizer = GitHubNormalizer(connector.index, JiraLinks.from_store(store))
+    manifest, checks = run_source(connector, normalizer, store, **llm())
     report(manifest, checks)
     return 0
 

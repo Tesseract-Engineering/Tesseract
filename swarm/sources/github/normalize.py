@@ -27,6 +27,7 @@ from ... import ids
 from ...interfaces import RawItem
 from ...records import Acl, ItemRecord, Person, content_hash
 from ...stages.redact import redactions_in
+from ..links import JiraLinks
 from .connector import repo_visibility
 from .refs import RepoIndex, extract
 
@@ -85,8 +86,9 @@ def _fold(blocks: list[tuple[str, str | None]]) -> str:
 
 
 class GitHubNormalizer:
-    def __init__(self, index: RepoIndex):
+    def __init__(self, index: RepoIndex, jira: JiraLinks | None = None):
         self.index = index
+        self.jira = jira or JiraLinks()
         self.run_id = ""
 
     def to_item(self, raw: RawItem, acl: Acl) -> ItemRecord:
@@ -216,6 +218,8 @@ class GitHubNormalizer:
         for login in found.mentions:
             people.add(login, "mentioned")
         meta = f["meta"]
+        # Jira keys resolve through the Jira pipeline's last published keys (state/jira/keys.json).
+        found.jira_keys = self.jira.resolve(found.jira_keys, found.refs, own_id=f["id"])
         if found.jira_keys:
             meta["jira_keys"] = found.jira_keys
         if found.slack_links:

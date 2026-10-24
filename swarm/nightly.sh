@@ -1,12 +1,12 @@
 #!/usr/bin/env sh
 # swarm/nightly.sh - one night's runs, in order, against the local dev stack.
 #
-# GitHub runs first: Slack and Drive resolve GitHub links through what its run
-# leaves in the bucket. A failed source does not stop the others (its run
+# GitHub runs first and Jira second: the sources after each resolve links to
+# it through what its run leaves in the bucket. A failed source does not stop the others (its run
 # writes no manifest and is simply retried tomorrow); the script exits
 # non-zero if any failed.
 #
-#   swarm/nightly.sh                          github, slack, drive
+#   swarm/nightly.sh                          github, jira, slack, drive
 #   SWARM_SOURCES="slack drive" swarm/nightly.sh
 #
 # Until Phase 5 schedules these as cloud jobs, cron on the dev machine runs it
@@ -21,7 +21,7 @@ compose="docker compose -f swarm/compose.yaml"
 $compose up -d storage proxy || exit 1
 
 failed=""
-for source in ${SWARM_SOURCES:-github slack drive}; do
+for source in ${SWARM_SOURCES:-github jira slack drive}; do
     echo "== $(date -u +%Y-%m-%dT%H:%M:%SZ) $source"
     $compose run --rm "$source" || failed="$failed $source"
 done

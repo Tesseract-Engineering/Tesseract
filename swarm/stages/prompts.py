@@ -78,10 +78,11 @@ This item is a GitHub pull request: its description, then reviews and comments, 
 it. Look for the systems the change touches, the project it serves, decisions reached in review, follow-up \
 work someone agreed to do, and dependencies between systems. Authorship, reviewers and linked issues are \
 already recorded; do not repeat them."""),
-    "issue": ("issue-v2", "GitHub", """\
-This item is an issue: its description, then comments, each headed with who wrote it. Look for the systems \
-affected, the customers who reported or are affected, the project it belongs to, dependencies, decisions \
-reached in the discussion, and work someone agreed to do. Authorship and assignees are already recorded."""),
+    "issue": ("issue-v3", "issue trackers", """\
+This item is a GitHub issue or a Jira ticket: its description, then comments, each headed with who wrote it. \
+Look for the systems affected, the customers who reported or are affected, the project it belongs to, \
+dependencies, decisions reached in the discussion, and work someone agreed to do. Authorship, assignees, \
+the parent epic and links between tickets are already recorded."""),
     "document": ("document-v3", "documents", """\
 This item is a document as plain text: a Doc, a Slides deck or a PDF from Google Drive, or a Markdown file, \
 reStructuredText file or CODEOWNERS file from a GitHub repo (its path is the title). Look for decisions it records, the \

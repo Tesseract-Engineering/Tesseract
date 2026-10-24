@@ -22,14 +22,15 @@ from ... import ids
 from ...interfaces import RawItem
 from ...records import Acl, ItemRecord, Person, content_hash
 from ...stages.redact import redactions_in
-from ..links import GitHubLinks, scan
+from ..links import GitHubLinks, JiraLinks, scan
 
 MAX_TEXT = 200_000
 
 
 class DriveNormalizer:
-    def __init__(self, github: GitHubLinks | None = None):
+    def __init__(self, github: GitHubLinks | None = None, jira: JiraLinks | None = None):
         self.github = github or GitHubLinks()
+        self.jira = jira
         self.run_id = ""
 
     def to_item(self, raw: RawItem, acl: Acl) -> ItemRecord:
@@ -51,7 +52,7 @@ class DriveNormalizer:
             meta["drive_id"] = f["driveId"]
         if p.get("acl_inherited_from"):
             meta["acl_inherited_from"] = ids.gdrive_file(p["acl_inherited_from"])
-        links = scan(text, self.github, own_id=item_id)
+        links = scan(text, self.github, own_id=item_id, jira=self.jira)
         meta.update(links.meta())
         if len(text) > MAX_TEXT:
             text, meta["truncated"] = text[:MAX_TEXT], True

@@ -10,8 +10,8 @@ the API; SLACK_WORKSPACE_URL (and SLACK_TEAM_ID if users.json cannot tell)
 for an export; SLACK_CHANNELS narrows scope by name or id;
 SWARM_BACKFILL_DAYS sets the first API run's window (default 730).
 
-GitHub links in messages resolve through what the GitHub pipeline left in
-the same bucket, so run GitHub first.
+GitHub links and Jira keys in messages resolve through what the GitHub and
+Jira pipelines left in the same bucket, so run them first.
 
 LLM extraction follows SWARM_MODEL_BACKEND (anthropic, bedrock or off),
 SWARM_MODEL and SWARM_LLM_TOKEN_BUDGET; see swarm/model.py.
@@ -26,7 +26,7 @@ import sys
 from swarm.cli import backfill_days, listed, llm, report, setup_logging, store_for
 from swarm.http import Client
 from swarm.run import run_source
-from swarm.sources.links import GitHubLinks
+from swarm.sources.links import GitHubLinks, JiraLinks
 from swarm.sources.slack import SlackApiConnector, SlackExportConnector, SlackNormalizer
 from swarm.sources.slack.connector import API
 
@@ -49,7 +49,7 @@ def main(argv: list[str] | None = None) -> int:
         client = Client(API, auth=lambda: {"Authorization": f"Bearer {token}"})
         connector = SlackApiConnector(client, channels=channels, backfill_days=backfill_days())
     store = store_for(args.local)
-    normalizer = SlackNormalizer(connector.directory, GitHubLinks.from_store(store))
+    normalizer = SlackNormalizer(connector.directory, GitHubLinks.from_store(store), JiraLinks.from_store(store))
     manifest, checks = run_source(connector, normalizer, store, **llm())
     report(manifest, checks)
     return 0

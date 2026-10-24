@@ -9,21 +9,26 @@ normalizer reads them the same way.
   GitHub URLs and     github:repo:{id}:pr|issue|commit:..., when the repo was
   owner/repo#N        granted to the GitHub pipeline and, for a number, it is
                       known to be an issue or a PR
-  Jira keys and       kept in meta: Jira IDs need the Jira pipeline, and a
-  Slack permalinks    permalink's message may sit inside a burst whose id
-                      starts at another message
+  Jira keys           jira:{site}:issue:{id}, when the Jira pipeline has seen
+                      the key (an old key from before a move counts); else
+                      kept in meta.jira_keys
+  Slack permalinks    kept in meta: a permalink's message may sit inside a
+                      burst whose id starts at another message
 
 Outside GitHub itself, the GitHub side comes from what the GitHub pipeline
 left in the bucket: repo names from state/github/repos.json (published each
 run) and issue and PR numbers from the item ids in state/github/seen.json.
 Other pipelines only read those two keys. A GitHub link that does not resolve
-is kept in meta.github_links, so a later run can resolve it.
+is kept in meta.github_links, so a later run can resolve it. Jira keys
+resolve the same way through state/jira/keys.json, which the Jira pipeline
+publishes each run.
 """
 
 from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from .. import ids
@@ -37,7 +42,7 @@ GITHUB_KEY = re.compile(rf"(?<![\w/&#-])({REPO})#(\d+)\b")
 DRIVE = re.compile(r"https?://(?:docs\.google\.com/(?:document|presentation|spreadsheets)/d/|"
                    r"drive\.google\.com/(?:file/d/|open\?id=|drive/folders/))([A-Za-z0-9_-]{10,})")
 JIRA = re.compile(r"\b([A-Z][A-Z0-9]{1,9}-\d+)\b")
-JIRA_FALSE = {"SHA", "UTF", "ISO", "RFC", "CVE", "ADR", "AES", "TLS", "HTTP", "COVID"}
+JIRA_FALSE = {"SHA", "UTF", "ISO", "RFC", "CVE", "ADR", "SEV", "AES", "TLS", "HTTP", "COVID"}
 SLACK_PERMALINK = re.compile(r"https://[A-Za-z0-9-]+\.slack\.com/archives/[A-Z0-9]+/p\d{16}(?:\?[^\s)>\]|]*)?")
 
 _CODE = re.compile(r"```.*?(?:```|\Z)|`[^`\n]*`", re.S)
@@ -87,6 +92,44 @@ class GitHubLinks:
 
 
 @dataclass
+class JiraLinks:
+    """Jira keys the Jira pipeline has seen, old keys included. In the Jira
+    pipeline itself, `lookup` asks the API about a key not seen yet."""
+    site: str | None = None                                          # the Jira site's cloud id
+    keys: dict[str, str] = field(default_factory=dict)               # KEY-12 -> issue id
+    lookup: Callable[[str], str | None] | None = None
+    missing: set[str] = field(default_factory=set)
+
+    @classmethod
+    def from_store(cls, store: ObjectStore) -> JiraLinks:
+        data = json.loads(store.get(state_key("jira", "keys")) or b"{}")
+        return cls(site=data.get("site"), keys=dict(data.get("keys", {})))
+
+    def target(self, key: str) -> str | None:
+        if not self.site:
+            return None
+        issue_id = self.keys.get(key)
+        if issue_id is None and self.lookup is not None and key not in self.missing:
+            issue_id = self.lookup(key)
+            if issue_id is None:
+                self.missing.add(key)
+            else:
+                self.keys[key] = issue_id
+        return ids.jira_issue(self.site, issue_id) if issue_id else None
+
+    def resolve(self, keys: list[str], found: list[Ref], *, own_id: str | None = None) -> list[str]:
+        """Adds a references ref for each key that resolves; returns the rest."""
+        rest = []
+        for key in keys:
+            target = self.target(key)
+            if target is None:
+                rest.append(key)
+            elif target != own_id and all(r.target != target for r in found):
+                found.append(Ref(type="references", target=target, via="key"))
+        return rest
+
+
+@dataclass
 class Links:
     refs: list[Ref] = field(default_factory=list)
     github_links: list[str] = field(default_factory=list)   # GitHub links not resolved (yet)
@@ -103,7 +146,7 @@ class Links:
         return {k: v for k, v in out.items() if v}
 
 
-def scan(text: str, github: GitHubLinks, *, own_id: str | None = None) -> Links:
+def scan(text: str, github: GitHubLinks, *, own_id: str | None = None, jira: JiraLinks | None = None) -> Links:
     """Cross-source links in text that is not GitHub's own (GitHub items use
     swarm/sources/github/refs.py, which also knows bare #N and closing
     keywords)."""
@@ -128,5 +171,7 @@ def scan(text: str, github: GitHubLinks, *, own_id: str | None = None) -> Links:
             found.add(target, "url")
     found.github_links = sorted(unresolved)
     found.jira_keys = jira_keys(text)
+    if jira is not None:
+        found.jira_keys = jira.resolve(found.jira_keys, found.refs, own_id=own_id)
     found.slack_links = sorted(set(SLACK_PERMALINK.findall(text)))
     return found

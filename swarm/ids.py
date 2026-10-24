@@ -116,5 +116,11 @@ def person(source: str, handle: str) -> str:
     return f"person:{source}:{handle}"
 
 
+def jira_person(account_id: str) -> str:
+    """A Jira account id holds colons ("712020:0ec7..."), which would split
+    the id; they are percent-encoded. The raw id stays in Person.handle."""
+    return person("jira", quote(account_id, safe=""))
+
+
 def person_cluster(cluster_hash: str) -> str:
     return f"person:c:{cluster_hash}"

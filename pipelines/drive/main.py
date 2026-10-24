@@ -10,8 +10,8 @@ service account; GDRIVE_DRIVES narrows the shared drives it joined, by name
 or id; GDRIVE_FOLDERS lists folders shared with it, for accounts without Google
 Workspace; SWARM_BACKFILL_DAYS sets the first run's window (default 730).
 
-GitHub links in documents resolve through what the GitHub pipeline left in
-the same bucket, so run GitHub first.
+GitHub links and Jira keys in documents resolve through what the GitHub and
+Jira pipelines left in the same bucket, so run them first.
 
 LLM extraction follows SWARM_MODEL_BACKEND (anthropic, bedrock or off),
 SWARM_MODEL and SWARM_LLM_TOKEN_BUDGET; see swarm/model.py.
@@ -28,7 +28,7 @@ from swarm.run import run_source
 from swarm.sources.gdrive import DriveConnector, DriveNormalizer
 from swarm.sources.gdrive.auth import from_env
 from swarm.sources.gdrive.connector import API
-from swarm.sources.links import GitHubLinks
+from swarm.sources.links import GitHubLinks, JiraLinks
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -42,7 +42,8 @@ def main(argv: list[str] | None = None) -> int:
                                folders=listed("GDRIVE_FOLDERS"), service_account=auth.email,
                                backfill_days=backfill_days())
     store = store_for(args.local)
-    manifest, checks = run_source(connector, DriveNormalizer(GitHubLinks.from_store(store)), store, **llm())
+    normalizer = DriveNormalizer(GitHubLinks.from_store(store), JiraLinks.from_store(store))
+    manifest, checks = run_source(connector, normalizer, store, **llm())
     report(manifest, checks)
     return 0
 

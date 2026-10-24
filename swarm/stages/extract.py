@@ -5,7 +5,8 @@ For each item a run writes or sees again, in order:
 
   cost filter     kinds with no prompt, and trivial items, are never sent:
                   Slack conversations under 3 messages or 200 characters,
-                  empty PRs and issues, documents with no text
+                  empty PRs and issues, Jira tickets no person has touched,
+                  documents with no text
   already done    an extraction for this item version and prompt version
                   exists, so an unchanged item is not re-extracted; a new
                   prompt version re-extracts what the run fetches
@@ -69,6 +70,8 @@ def worth_extracting(item: ItemRecord) -> bool:
         return False
     if item.kind == "thread":
         return item.meta.get("message_count", 0) >= MIN_MESSAGES and len(item.text) >= MIN_CHARS
+    if item.source == "jira" and not item.people and item.meta.get("bots"):
+        return False                                          # a ticket only automation has touched
     return True
 
 

@@ -96,7 +96,14 @@ services:
     # The service account's JSON key lives in data/gdrive/: git-ignored, read-only here.
     volumes: ["../data/gdrive:/run/secrets/gdrive:ro"]
 
-  # jira and identity follow the same pattern, each built from pipelines/{source}.
+  # Run after github (its links resolve through GitHub's state) and before
+  # slack and drive (their Jira keys resolve through this one's).
+  jira:
+    <<: *pipeline
+    build: {context: .., dockerfile: pipelines/jira/Dockerfile}
+    image: swarm-jira:dev
+
+  # identity follows the same pattern, built from pipelines/identity.
 
 networks:
   internal:

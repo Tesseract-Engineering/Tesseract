@@ -36,14 +36,14 @@ Every design question below is settled. Rows marked default were open questions;
 | Scope | Opt-in by grant: invited Slack channels, selected repos, permitted Jira projects, shared drives the service account joins. | Default |
 | Slack auth | Customer-created internal app from our manifest; bot token. Export as cold-start path. | Default |
 | GitHub auth | Customer-created GitHub App, read-only, installed on selected repos. | Default |
-| Jira auth | Service account with an API token, read-only project permissions. | Default |
+| Jira auth | Service account with an API token, read-only project permissions. Project readers come from who may browse each project, which needs the global "Browse users and groups" permission; without it the readers group is written empty and grants nobody. Issues with a security level are readable by that level's group, written with no members. | Default |
 | Drive auth | Service account added to selected shared drives, or to shared folders where there is no Google Workspace. Domain-wide delegation is an opt-in upgrade for full coverage. | Default |
 | Drive file types | Docs, Slides, text PDFs and uploaded Word and PowerPoint files get full text; Office files are unzipped and read with the standard library, against size budgets, refusing any part with a DOCTYPE. Sheets and Excel files get metadata, ACLs and refs only in v1. Every other file type keeps metadata, so the graph still knows the file, its owner and who may read it. | Default |
 | GitHub files | Docs on the default branch only: Markdown, reStructuredText and CODEOWNERS (ADRs, READMEs, handbooks, ownership), as `document` items. Source code and config are never read: they hold real secrets, dwarf everything else, and say what a system does rather than who decided what. A doc is re-read only when its blob changes. | Default |
 | Slack ACLs | Public channels are `internal` (the whole workspace can read them); private channels name a members group. | Default |
 | Slack grouping | Threads keep their `thread_ts`; other messages form bursts (gaps of 20 minutes at most, never across midnight UTC), so the export and the API build the same IDs. | Default |
 | Drive ACL fallback | A file whose permissions the service account cannot list takes its parent folder's; a limited-access folder never does, and a file with neither is not written. | Default |
-| Cross-source links | Slack and Drive resolve GitHub links through the GitHub pipeline's state in the bucket; unresolved links stay in `meta`. | Default |
+| Cross-source links | Slack, Drive and Jira resolve GitHub links through the GitHub pipeline's state in the bucket, and every source resolves Jira keys through the Jira pipeline's; unresolved links stay in `meta`. A night runs GitHub, then Jira, then the rest, so GitHub resolves Jira keys from the previous night. | Default |
 | Models | Customer's cloud model service (Bedrock or Vertex) via private endpoint; in local dev, the Anthropic API with the same Claude model we run on Bedrock, so prompts carry over unchanged. | Default |
 | Cadence | Nightly incremental run per source; weekly reconciliation; first backfill 2 years, configurable. | Default |
 | Quality | Spot-check reviews of sampled extractions after each prompt change; a labeled gold set is deferred. | Default |
@@ -87,7 +87,8 @@ The arrows from the bottom row are mounts: `.env` supplies tokens; `data/` holds
 | `init` | Built from `pipelines/sample` | internal | Once | Creates the bucket |
 | `sample` | Built from `pipelines/sample` | internal | On demand | Replays `samples/run-0` through the real stages; `sample probe URL...` checks the allowlist |
 | `github`, `slack`, `drive` | Built from `pipelines/{source}` | internal | On demand | One batch run of that source's pipeline, then exit |
-| `jira`, `identity` | Built from `pipelines/{source}` | internal | Not built yet (Phase 4) | Jira runs like the other sources; identity reads the night's items from the bucket and writes identity records |
+| `jira` | Built from `pipelines/jira` | internal | On demand | One batch run of the Jira pipeline, then exit; runs after `github` and before `slack` and `drive` |
+| `identity` | Built from `pipelines/identity` | internal | Not built yet (Phase 4) | Reads the night's items from the bucket and writes identity records |
 
 The `host` network exists only so Docker publishes the bucket's ports to the laptop: it publishes nothing for a container that is on internal networks alone. No pipeline is on it.
 
@@ -97,7 +98,7 @@ The `host` network exists only so Docker publishes the bucket's ports to the lap
 docker compose -f swarm/compose.yaml up -d storage proxy     # start the always-on services
 docker compose -f swarm/compose.yaml run --rm init           # create the bucket, once
 docker compose -f swarm/compose.yaml run --rm github         # one GitHub run
-swarm/nightly.sh                                             # github, then slack, then drive
+swarm/nightly.sh                                             # github, jira, slack, then drive
 ```
 
 **Compose shape** (abridged; `swarm/compose.yaml` is the source of truth)
@@ -147,7 +148,7 @@ Each source is a thin fetcher behind one interface; redaction, ACLs, extraction 
 | Source | Category | Auth | Scope granted by | Item kinds | Notes |
 | --- | --- | --- | --- | --- | --- |
 | GitHub | Code | Customer-created GitHub App, read-only | Repos selected at install | `repo`, `commit`, `pull_request`, `issue`, `document` | Review comments fold into the PR's text; `document` is a doc file on the default branch (see "GitHub files" under Decisions) |
-| Jira | Tickets | Service account, API token | Projects the account can browse | `issue` (`issue_type` in meta) | ID uses the internal issue id; the key is an alias, since keys change on project moves |
+| Jira | Tickets | Service account, API token | Projects the account can browse | `issue` (`issue_type` in meta) | ID uses the site's cloud id and the internal issue id; the key and any key from before a move are aliases. Descriptions and comments arrive as ADF and are turned into text before redaction |
 | Slack | Chat | Customer-created internal app, bot token | Channels the bot is invited to | `thread`, `channel` | Internal apps keep Tier 3 rate limits; confirm on first install. No DMs. |
 | Google Drive | Docs | Service account | Shared drives it is added to, or folders shared with its email (domain-wide delegation optional) | `document`, `folder` | Docs and Slides exported to text; PDFs, Word and PowerPoint files read; Sheets, Excel and other types metadata only in v1 |
 
@@ -233,6 +234,7 @@ state/{source}/backlog.json                          # items still due an LLM ex
 state/{source}/batches.json                          # Message Batches sent but not yet read
 state/github/repos.json                              # repo names -> ids, read by Slack and Drive
 state/github/docs.json                               # per repo: visibility and each doc's blob sha, read by the next GitHub run
+state/jira/keys.json                                 # every Jira key seen, old keys included -> issue id, read by every source
 ```
 
 **ACL principals.** An item's `acl` names who may read it, as principals of three kinds:
@@ -395,13 +397,13 @@ Every source is now our own sandbox, so the team grants all access itself. The s
 
 | Access | Needed for | Provided by | Status |
 | --- | --- | --- | --- |
-| The sandbox GitHub org, with the read-only GitHub App created and installed (or a token for a first run) | Phase 1 | Our team | Sandbox built; not yet connected |
-| A Slack export of the sandbox workspace | Phase 2 | Our team | Sandbox built; not yet connected |
-| An internal Slack app in the sandbox workspace, its bot invited to the channels in scope | Phase 2 | Our team | Sandbox built; not yet connected |
-| A Google Cloud project for the Drive service account | Phase 2 | Our team | Not started |
-| The service account added to the sandbox's shared drive, or its folders shared with the account's email | Phase 2 | Our team | Sandbox built; not yet connected |
+| The sandbox GitHub org, with the read-only GitHub App created and installed (or a token for a first run) | Phase 1 | Our team | Connected (2026-10-23) |
+| A Slack export of the sandbox workspace | Phase 2 | Our team | None yet: Slack cannot backdate messages, so the sandbox runs through the API only |
+| An internal Slack app in the sandbox workspace, its bot invited to the channels in scope | Phase 2 | Our team | Connected (2026-10-23) |
+| A Google Cloud project for the Drive service account | Phase 2 | Our team | Done |
+| The service account added to the sandbox's shared drive, or its folders shared with the account's email | Phase 2 | Our team | Connected (2026-10-23): five folders |
 | Anthropic API key for local dev | Phase 3 | Our team | Done (in `.env`) |
-| A Jira Cloud site in the sandbox, seeded with realistic tickets, epics and links | Phase 4 | Our team | To confirm |
+| A Jira Cloud site in the sandbox, seeded with realistic tickets, epics and links | Phase 4 | Our team | Seeded (79 issues in five projects); not yet connected |
 | AWS test account with Bedrock model access enabled | Phase 5 | Our team | Not started |
 
 ## In this repo
@@ -425,18 +427,20 @@ swarm/store.py         the bucket: S3 (RustFS in local dev) or a local folder
 swarm/http.py          the shared HTTP client: proxy from env, pagination, rate-limit backoff
 swarm/sources/github/  GitHub: App auth, connector, normalizer, deterministic refs
 swarm/sources/slack/   Slack: Web API and export connectors, thread and burst grouping, normalizer
-swarm/sources/gdrive/  Drive: service-account auth, connector (text export, PDFs, permissions), normalizer
-swarm/sources/links.py links between sources: Drive URLs, GitHub links via state/github/, Jira keys
+swarm/sources/gdrive/  Drive: service-account auth, connector (text export, PDFs, Office files, permissions), normalizer
+swarm/sources/jira/    Jira: basic auth, connector (search, comments, browsers), ADF to text, normalizer
+swarm/sources/links.py links between sources: Drive URLs, GitHub links via state/github/, Jira keys via state/jira/
 swarm/model.py         the model interface: direct API, Bedrock, and replay of recorded answers
 swarm/stages/extract.py stage 8: cost filter, the call or the batch, quotes to spans, budget and backlog
 swarm/stages/prompts.py the extraction prompts, one per kind, versioned
 swarm/review.py        the spot-check review sheet
 swarm/cli.py           what every pipeline's main.py shares
 swarm/compose.yaml     the local dev stack; swarm/proxy/squid.conf is its egress allowlist
-swarm/nightly.sh       one night's runs in order: github, slack, drive
+swarm/nightly.sh       one night's runs in order: github, jira, slack, drive
 pipelines/github/      the GitHub pipeline image and its read-only App manifest
 pipelines/slack/       the Slack pipeline image and its read-only internal app manifest
 pipelines/drive/       the Drive pipeline image
+pipelines/jira/        the Jira pipeline image
 pipelines/sample/      the Phase 0 job: replays samples/run-0 through the real stages
 samples/run-0/         the sample run for the graph engineer (rebuilt by samples/make_run0.py)
 tests/fixtures/        hand-made source API responses and the planted-token corpus
@@ -444,7 +448,7 @@ tests/swarm_tests/     unit, contract, gate-rehearsal and s3-marked tests
 data/                  local only, git-ignored: the Slack export and the GitHub and Drive key files
 ```
 
-Not here yet: `pipelines/jira/` and `pipelines/identity/` (Phase 4), and `eval/reviews/` (with the first spot-check review).
+Not here yet: `pipelines/identity/` (Phase 4), and `eval/reviews/` (with the first spot-check review).
 
 ```bash
 pip install -e '.[dev,swarm]'                             # into .venv; tests need detect-secrets from [swarm]
@@ -473,10 +477,11 @@ Each diamond is the phase's exit gate. The plan was to start each phase only aft
 | Phase | Built | Gate |
 | --- | --- | --- |
 | 0 | Yes | Open: waiting on the graph engineer's ontology sign-off and sample-run ingest |
-| 1 | Yes, on fixtures | Open: waiting on the sandbox |
-| 2 | Yes, on fixtures | Open: waiting on the sandbox |
-| 3 | Yes, with a scripted model | Open: needs real model runs on the sandbox and a spot-check review |
-| 4–5 | Not started | — |
+| 1 | Yes, run on the sandbox | Open: the run meets the swarm's criteria; waiting on the graph side's ingest |
+| 2 | Yes, run on the sandbox | Open: all three sources pass by hand, reruns write nothing; nightly scheduling not set up |
+| 3 | Yes, first real runs | Open: GitHub extracted on the sandbox; Slack and Drive still to run; no spot-check review yet |
+| 4 | Jira built, on fixtures | Open: Jira not yet run on the sandbox; identity and reconciliation not started |
+| 5 | Not started | — |
 
 **Owners.** Each phase has one owner who drives it to its gate. No owners are assigned yet; fill in the column before the Phase 0 gate review.
 
@@ -501,26 +506,27 @@ Each diamond is the phase's exit gate. The plan was to start each phase only aft
 
 ### Phase 1: GitHub end to end
 
-- [x] GitHub App manifest and `GitHubConnector` (built and tested on fixtures; not yet run on the sandbox)
+- [x] GitHub App manifest and `GitHubConnector`, run on the sandbox
 - [x] Repos, PRs, issues and commits normalized, with review comments folded into each PR
 - [x] ACLs from repo visibility and collaborators
 - [x] Secret redaction with a test corpus of planted tokens
 - [x] Deterministic refs from closing keywords, `#123` references and URLs
+- [x] Docs on the default branch (Markdown, reStructuredText, CODEOWNERS) as `document` items
 
 **Gate:** a valid manifest-complete run from the sandbox's GitHub repos, ingested by the graph side, with zero secret hits and 100% ACL coverage.
 
-**Gate status: waiting on the sandbox.** Until the sandbox is connected, `tests/swarm_tests/test_github_gate_rehearsal.py` runs the whole pipeline on hand-made GitHub API responses (`tests/fixtures/github/`) and checks the gate's criteria. The first real run is `GITHUB_TOKEN=... GITHUB_REPOS=org/repo docker compose -f swarm/compose.yaml run --rm github`.
+**Gate status: waiting on the graph side's ingest.** The first sandbox run (2026-10-23) was manifest-complete over the four repos the App is installed on: 62 items, 100% ACL coverage, zero secret hits, all five planted fake secrets redacted, and nothing from the repo left out of the install. A second run read the seven docs; a rerun wrote nothing. `tests/swarm_tests/test_github_gate_rehearsal.py` keeps checking the same criteria on hand-made responses (`tests/fixtures/github/`).
 
 ### Phase 2: Slack and Google Drive
 
-- [x] `SlackExportConnector`: thread and burst grouping, mention resolution, ACLs from channel membership (built and tested on fixtures; not yet run on the sandbox's export)
+- [x] `SlackExportConnector`: thread and burst grouping, mention resolution, ACLs from channel membership (tested on fixtures; the sandbox has no export)
 - [x] `SlackApiConnector` with checkpoints, lookback and backoff; threads active in the last 30 days are reread so late replies are not missed
-- [x] `DriveConnector` for Docs, Slides and text PDFs, over shared drives or folders shared with the service account. With Google Workspace, add the service account to a shared drive; with personal Google accounts, share the relevant folders with the service account's email instead, since shared drives require Workspace
-- [ ] Nightly runs for all three sources on the sandbox (`swarm/nightly.sh` is ready; needs the access in the table above)
+- [x] `DriveConnector` for Docs, Slides, text PDFs and uploaded Word and PowerPoint files, over shared drives or folders shared with the service account. With Google Workspace, add the service account to a shared drive; with personal Google accounts, share the relevant folders with the service account's email instead, since shared drives require Workspace
+- [ ] Nightly runs for all three sources on the sandbox (each passes by hand; `swarm/nightly.sh` is ready; scheduling not set up)
 
 **Gate:** three sources run nightly; rerunning a window produces zero new records.
 
-**Gate status: waiting on the sandbox.** Until it is connected, `test_slack_gate_rehearsal.py` and `test_gdrive_gate_rehearsal.py` run each pipeline on fixtures (`tests/fixtures/slack/`, `tests/fixtures/gdrive/`) into a bucket the GitHub fixture run already wrote, and check that reruns write zero records. They also check that a Slack cold start from the export followed by an API run writes nothing new. The real images were also run in the compose stack on the fixture export: the first run wrote 11 items and the rerun wrote zero.
+**Gate status: waiting on nightly runs.** On the sandbox (2026-10-24), Slack read 320 messages from the 13 channels its bot is in (the uninvited channel and its canaries stayed out) into 105 items, and Drive read all 36 files in the five shared folders; both had full ACL coverage, zero secret hits, and wrote nothing on a rerun. `test_slack_gate_rehearsal.py` and `test_gdrive_gate_rehearsal.py` run each pipeline on fixtures (`tests/fixtures/slack/`, `tests/fixtures/gdrive/`) into a bucket the GitHub fixture run already wrote, and check that reruns write zero records. They also check that a Slack cold start from the export followed by an API run writes nothing new. The real images were also run in the compose stack on the fixture export: the first run wrote 11 items and the rerun wrote zero.
 
 ### Phase 3: LLM extraction and evaluation
 
@@ -531,11 +537,11 @@ Each diamond is the phase's exit gate. The plan was to start each phase only aft
 
 **Gate:** a spot-check review signs off on extractions from each source, and token cost per item is logged in every manifest.
 
-**Gate status: waiting on real runs.** `test_extract.py` runs the stage on the GitHub and Slack fixtures with a scripted model. The gate needs real model calls on the sandbox's data, then a review of the sheet.
+**Gate status: waiting on real runs.** The GitHub pipeline wrote 30 extractions from the sandbox (2026-10-24); Slack and Drive still need theirs. `test_extract.py` runs the stage on the GitHub and Slack fixtures with a scripted model. The gate then needs a review of the sheet.
 
 ### Phase 4: Jira, identity and change handling
 
-- [ ] The sandbox's Jira site seeded with tickets, epics and links, and `JiraConnector`
+- [ ] The sandbox's Jira site seeded with tickets, epics and links, and `JiraConnector` (site seeded; connector built and tested on fixtures; not yet run on the sandbox)
 - [ ] Identity pass: email clustering, LLM matching for leftovers, `identity` records
 - [ ] Roster of the sandbox's people and their handles in each source, used to review identity clusters
 - [ ] Weekly reconciliation writing tombstones and ACL updates

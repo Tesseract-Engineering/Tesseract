@@ -40,7 +40,7 @@ from ... import ids
 from ...interfaces import RawItem
 from ...records import Acl, ItemRecord, Person, content_hash
 from ...stages.redact import redactions_in
-from ..links import GitHubLinks, scan
+from ..links import GitHubLinks, JiraLinks, scan
 from .directory import Directory
 
 BURST_GAP = timedelta(minutes=20)
@@ -159,9 +159,10 @@ class _Seen:
 
 
 class SlackNormalizer:
-    def __init__(self, directory: Directory, github: GitHubLinks | None = None):
+    def __init__(self, directory: Directory, github: GitHubLinks | None = None, jira: JiraLinks | None = None):
         self.directory = directory
         self.github = github or GitHubLinks()
+        self.jira = jira
         self.run_id = ""
 
     def to_item(self, raw: RawItem, acl: Acl) -> ItemRecord:
@@ -263,7 +264,7 @@ class SlackNormalizer:
 
     def _finish(self, f: dict[str, Any], seen: _Seen, p: dict[str, Any], acl: Acl, fetched_at: str) -> ItemRecord:
         team, ws, own_channel = p["team_id"], p["workspace_url"], p["channel"]["id"]
-        links = scan(f["text"], self.github)
+        links = scan(f["text"], self.github, jira=self.jira)
         for channel_id in seen.channels:
             if channel_id != own_channel:
                 links.add(ids.slack_channel(team, channel_id), "mention")

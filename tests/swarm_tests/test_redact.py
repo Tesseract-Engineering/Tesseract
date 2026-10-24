@@ -39,3 +39,12 @@ def test_redact_fields_records_which_field():
     clean, found = redact_fields({"title": "ok", "text": "t " + PLANTED["GitHub Token"]})
     assert clean["title"] == "ok"
     assert [(r.field, r.type) for r in found] == [("text", "GitHub Token")]
+
+
+def test_an_unquoted_aws_secret_keeps_its_label():
+    secret = "wJalrXUtnFEMI/K7MDENG" + "/bPxRfiCYEXAMPLEKEY"
+    # Quoted, detect-secrets' own AWS pattern already catches it; bare, as in .env files, it did not.
+    clean, found = redact(f"Staging creds:\nAWS_SECRET_ACCESS_KEY={secret}\naws.secret-key : {secret} (rotate)")
+    assert clean == ("Staging creds:\nAWS_SECRET_ACCESS_KEY=[REDACTED:AWS Secret Access Key]\n"
+                     "aws.secret-key : [REDACTED:AWS Secret Access Key] (rotate)")
+    assert [(r.type, r.count) for r in found] == [("AWS Secret Access Key", 2)]
