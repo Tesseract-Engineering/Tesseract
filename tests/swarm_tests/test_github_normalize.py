@@ -117,3 +117,22 @@ def test_doc_items(items):
     # A team (@acme-sbx/platform) is not a person.
     assert [p.handle for p in owners.people] == ["sam-lee", "priya-r"]
     assert items["github:repo:9002:file:README.md"].acl.visibility == "public"
+
+
+def test_a_jira_key_or_link_named_only_in_the_title_is_found():
+    from swarm.interfaces import RawContainer, RawItem
+    from swarm.records import Acl
+    from swarm.sources.github.refs import RepoIndex
+
+    norm = GitHubNormalizer(RepoIndex(full_names={"acme-sbx/api": 9001}, kinds={(9001, 1): "issue"}))
+    norm.run_id = "r1"
+    pull = {"number": 9, "title": "ML-12: promotion through the registry (acme-sbx/api#1)", "user": {"login": "sam-lee"},
+            "state": "closed", "merged_at": "2026-10-02T00:00:00Z", "body": "",
+            "html_url": "https://github.com/acme-sbx/api/pull/9", "created_at": "2026-10-01T00:00:00Z",
+            "updated_at": "2026-10-02T00:00:00Z"}
+    raw = RawItem("github", RawContainer("github", "github:repo:9001"), "pr-9001-9",
+                  {"type": "pull_request", "repo": {"id": 9001, "full_name": "acme-sbx/api"}, "issue": {},
+                   "pull": pull, "reviews": [], "review_comments": [], "comments": []}, "2026-10-21T12:00:00Z")
+    item = norm.to_item(raw, Acl(visibility="public"))
+    assert item.meta["jira_keys"] == ["ML-12"]
+    assert [(r.type, r.target) for r in item.refs] == [("references", "github:repo:9001:issue:1")]

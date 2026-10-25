@@ -75,3 +75,19 @@ def test_inherited_acls_are_marked(items):
     pdf = items["gdrive:file:1PDFrunbook01"]
     assert pdf.meta["acl_inherited_from"] == "gdrive:file:1SPECSfolder00"
     assert pdf.meta["text_status"] == "extracted"
+
+
+def test_a_key_named_only_in_the_file_name_is_found():
+    from swarm.interfaces import RawContainer, RawItem
+    from swarm.records import Acl
+    from swarm.sources.gdrive import DriveNormalizer
+
+    norm = DriveNormalizer()
+    norm.run_id = "r1"
+    f = {"id": "1NAMEDdoc0001", "name": "SBX-1 OIDC notes", "mimeType": "application/vnd.google-apps.document",
+         "parents": ["0AENGdrive"], "createdTime": "2026-10-01T00:00:00Z", "modifiedTime": "2026-10-01T00:00:00Z",
+         "version": "1"}
+    raw = RawItem("gdrive", RawContainer("gdrive", "gdrive:file:0AENGdrive"), "file-1NAMEDdoc0001",
+                  {"type": "doc", "file": f, "root": "0AENGdrive", "text": "No keys in here.",
+                   "text_status": "exported", "permissions": [], "acl_inherited_from": None}, "2026-10-21T12:00:00Z")
+    assert norm.to_item(raw, Acl(visibility="public")).meta["jira_keys"] == ["SBX-1"]

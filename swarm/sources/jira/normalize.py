@@ -124,7 +124,8 @@ class JiraNormalizer:
             elif "inwardIssue" in link:
                 links.append({"type": kind.get("inward") or name, "key": link["inwardIssue"].get("key")})
 
-        found = scan(text, self.github, own_id=item_id, jira=self.index)
+        # The summary too: "Follow-up to SBX-4" often names its ticket only there.
+        found = scan(f"{f.get('summary') or ''}\n\n{text}", self.github, own_id=item_id, jira=self.index)
         refs += [r for r in found.refs if all(r.target != x.target for x in refs)]
 
         meta: dict[str, Any] = {

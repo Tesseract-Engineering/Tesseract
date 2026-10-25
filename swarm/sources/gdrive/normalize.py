@@ -55,7 +55,7 @@ class DriveNormalizer:
             meta["drive_id"] = f["driveId"]
         if p.get("acl_inherited_from"):
             meta["acl_inherited_from"] = ids.gdrive_file(p["acl_inherited_from"])
-        links = scan(text, self.github, own_id=item_id, jira=self.jira)
+        links = scan(f"{f['name']}\n\n{text}", self.github, own_id=item_id, jira=self.jira)
         meta.update(links.meta())
         if len(text) > MAX_TEXT:
             text, meta["truncated"] = text[:MAX_TEXT], True

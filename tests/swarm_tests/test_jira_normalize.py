@@ -91,3 +91,7 @@ def test_secrets_are_gone_and_recorded(items):
     epic = items["AUTH-12"]
     assert planted()["slack_bot"] not in epic.text
     assert [(r.field, r.count) for r in epic.redactions] == [("text", 1)]
+
+
+def test_a_key_named_only_in_the_summary_links(items):
+    assert ("references", issue_id("10013"), "key") in [(r.type, r.target, r.via) for r in items["OPS-3"].refs]

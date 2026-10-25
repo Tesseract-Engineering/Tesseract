@@ -138,7 +138,7 @@ class GitHubNormalizer:
                   "state_reason": issue.get("state_reason"),
                   "labels": sorted(lb["name"] for lb in issue.get("labels") or []),
                   "milestone": (issue.get("milestone") or {}).get("title"), "closed_at": issue.get("closed_at")},
-            repo_id=repo["id"], number=issue["number"], scan=text)
+            repo_id=repo["id"], number=issue["number"], scan=f"{issue['title']}\n\n{text}")
 
     def _pull(self, p: dict[str, Any]) -> dict[str, Any]:
         repo, issue, pull = p["repo"], p["issue"], p["pull"]
@@ -173,7 +173,7 @@ class GitHubNormalizer:
                   "additions": pull.get("additions"), "deletions": pull.get("deletions"),
                   "changed_files": pull.get("changed_files"),
                   "labels": sorted(lb["name"] for lb in issue.get("labels") or [])},
-            repo_id=repo["id"], number=pull["number"], scan=text)
+            repo_id=repo["id"], number=pull["number"], scan=f"{pull['title']}\n\n{text}")
 
     def _commit(self, p: dict[str, Any]) -> dict[str, Any]:
         repo, c = p["repo"], p["commit"]

@@ -446,10 +446,14 @@ pipelines/sample/      the Phase 0 job: replays samples/run-0 through the real s
 samples/run-0/         the sample run for the graph engineer (rebuilt by samples/make_run0.py)
 tests/fixtures/        hand-made source API responses and the planted-token corpus
 tests/swarm_tests/     unit, contract, gate-rehearsal and s3-marked tests
+eval/bucket.py         the bucket as the graph side reads it (complete runs, newest record per id), read-only
+eval/check_sandbox.py  the sandbox's answer key, deterministic half: coverage, scope, redaction, ACLs, links
 data/                  local only, git-ignored: the Slack export and the GitHub and Drive key files
 ```
 
 Not here yet: `pipelines/identity/` (Phase 4), and `eval/reviews/` (with the first spot-check review).
+
+`python -m eval.check_sandbox` (with `S3_BUCKET`, `S3_ENDPOINT` and the bucket's credentials) runs the sandbox's answer key against a bucket the pipelines wrote; a full pass from an empty bucket is GitHub, Jira, Slack, Drive, then GitHub again.
 
 ```bash
 pip install -e '.[dev,swarm]'                             # into .venv; tests need detect-secrets from [swarm]

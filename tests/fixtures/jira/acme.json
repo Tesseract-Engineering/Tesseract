@@ -522,7 +522,7 @@
     "histories": []
    },
    "fields": {
-    "summary": "Proxy budget",
+    "summary": "Proxy budget (AUTH-13)",
     "description": {
      "type": "doc",
      "version": 1,
