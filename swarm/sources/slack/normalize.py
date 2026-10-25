@@ -40,7 +40,7 @@ from ... import ids
 from ...interfaces import RawItem
 from ...records import Acl, ItemRecord, Person, content_hash
 from ...stages.redact import redactions_in
-from ..links import GitHubLinks, JiraLinks, scan
+from ..links import GitHubLinks, JiraLinks, relink, scan
 from .directory import Directory
 
 BURST_GAP = timedelta(minutes=20)
@@ -164,6 +164,9 @@ class SlackNormalizer:
         self.github = github or GitHubLinks()
         self.jira = jira
         self.run_id = ""
+
+    def relink(self, item: ItemRecord, **when: str) -> ItemRecord | None:
+        return relink(item, github=self.github, jira=self.jira, **when)
 
     def to_item(self, raw: RawItem, acl: Acl) -> ItemRecord:
         p = raw.payload

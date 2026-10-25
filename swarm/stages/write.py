@@ -98,6 +98,10 @@ class RunWriter:
         # {custom_id: [item id, prompt version, item version]}. Their items
         # stay in the backlog until the answers are read.
         self.batches: dict[str, dict[str, list[str]]] = self._load_state("batches", {})
+        # Items that name a GitHub link or Jira key no ref stands for yet:
+        # item id -> the item record as JSON. Each run resolves them again
+        # (swarm/sources/links.py, relink).
+        self.unresolved: dict[str, str] = self._load_state("unresolved", {})
 
     # -- state ------------------------------------------------------------ #
 
@@ -130,6 +134,10 @@ class RunWriter:
 
     def add_item(self, item: ItemRecord) -> str:
         """Write an item, an acl_update, or nothing. Returns which."""
+        if item.meta.get("jira_keys") or item.meta.get("github_links"):
+            self.unresolved[item.id] = item.model_dump_json()
+        else:
+            self.unresolved.pop(item.id, None)
         acl = _acl_digest(item)
         seen = self.seen_items.get(item.id)
         if seen and seen[0] == item.content_hash:

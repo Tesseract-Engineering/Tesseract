@@ -232,6 +232,7 @@ raw/{source}/{run_id}/...                            # redacted payloads, expire
 state/{source}/checkpoints.json
 state/{source}/backlog.json                          # items still due an LLM extraction
 state/{source}/batches.json                          # Message Batches sent but not yet read
+state/{source}/unresolved.json                       # items naming GitHub links or Jira keys no ref stands for yet
 state/github/repos.json                              # repo names -> ids, read by Slack and Drive
 state/github/docs.json                               # per repo: visibility and each doc's blob sha, read by the next GitHub run
 state/jira/keys.json                                 # every Jira key seen, old keys included -> issue id, read by every source
@@ -319,8 +320,8 @@ Every source runs the same eleven stages; only the first two are source-specific
 4. **Write raw** redacted payloads to `raw/`, expiring after 14 days.
 5. **Normalize** to item records. Slack groups messages into threads and bursts; GitHub and Jira fold comments into their parent; Drive exports Docs and Slides to text and reads PDFs, Word and PowerPoint files.
 6. **Attach ACLs** from the source: channel members, repo visibility, Jira project permissions, Drive sharing. An item with no ACL fails validation and is not written.
-7. **Deterministic extraction:** people with roles, container, and typed refs from fields, URLs and keys in text (Jira keys, `#123`, Drive links).
-8. **LLM extraction** on items that pass the cost filter, against the closed ontology, writing extraction records with evidence spans and `item_version`. The model answers in a fixed JSON shape and quotes its evidence; code finds each quote in the item text to make the span. Anything it cannot check is dropped, not written: a quote not in the text, a type outside the ontology, a relation to an ID the model was not given, or a relation the ontology does not allow. One prompt per kind: Slack conversations, PRs, issues and documents. Repos, channels and folders are containers, and a commit's message is short and repeated on its PR, so those kinds are never sent.
+7. **Deterministic extraction:** people with roles, container, and typed refs from fields, URLs and keys in text (Jira keys, `#123`, Drive links). GitHub links and Jira keys resolve through what those pipelines published, so whichever source runs first cannot link to the others yet: an item left with unresolved links is kept in `state/{source}/unresolved.json`, and every later run of that source resolves it again, writing a new record only when a link appears. A full pass from an empty bucket is therefore GitHub, Jira, Slack, Drive, then GitHub again.
+8. **LLM extraction** on items that pass the cost filter (with no model configured, they wait in the backlog for a run with one), against the closed ontology, writing extraction records with evidence spans and `item_version`. The model answers in a fixed JSON shape and quotes its evidence; code finds each quote in the item text to make the span. Anything it cannot check is dropped, not written: a quote not in the text, a type outside the ontology, a relation to an ID the model was not given, or a relation the ontology does not allow. One prompt per kind: Slack conversations, PRs, issues and documents. Repos, channels and folders are containers, and a commit's message is short and repeated on its PR, so those kinds are never sent.
 9. **Write records** to `items/` and `extractions/`, deduplicated by `id` and `version`. An unchanged `content_hash` skips re-extraction.
 10. **Write the manifest** with counts, files and extractor versions.
 11. **Advance checkpoints** in `state/`.

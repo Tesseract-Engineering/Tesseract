@@ -33,7 +33,7 @@ from ... import ids
 from ...interfaces import RawItem
 from ...records import Acl, ItemRecord, Person, Ref, content_hash
 from ...stages.redact import redactions_in
-from ..links import GitHubLinks, JiraLinks, scan
+from ..links import GitHubLinks, JiraLinks, relink, scan
 
 MAX_TEXT = 200_000
 
@@ -79,6 +79,9 @@ class JiraNormalizer:
         self.index = index
         self.github = github or GitHubLinks()
         self.run_id = ""
+
+    def relink(self, item: ItemRecord, **when: str) -> ItemRecord | None:
+        return relink(item, github=self.github, jira=self.index, **when)
 
     def to_item(self, raw: RawItem, acl: Acl) -> ItemRecord:
         p = raw.payload

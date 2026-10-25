@@ -27,7 +27,7 @@ from ... import ids
 from ...interfaces import RawItem
 from ...records import Acl, ItemRecord, Person, content_hash
 from ...stages.redact import redactions_in
-from ..links import JiraLinks
+from ..links import JiraLinks, relink
 from .connector import repo_visibility
 from .refs import RepoIndex, extract
 
@@ -90,6 +90,10 @@ class GitHubNormalizer:
         self.index = index
         self.jira = jira or JiraLinks()
         self.run_id = ""
+
+    def relink(self, item: ItemRecord, **when: str) -> ItemRecord | None:
+        """GitHub links its own repos as it fetches; only Jira keys can be left."""
+        return relink(item, jira=self.jira, **when)
 
     def to_item(self, raw: RawItem, acl: Acl) -> ItemRecord:
         payload = raw.payload

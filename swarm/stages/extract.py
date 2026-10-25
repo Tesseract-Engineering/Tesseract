@@ -17,7 +17,8 @@ For each item a run writes or sees again, in order:
                   the span, and drops what it cannot place
 
 The backlog is items that were due an extraction but did not get one: over
-budget, the model was unavailable, or their batch is still running. It lives
+budget, the model was unavailable or turned off (defer), or their batch is
+still running. It lives
 in state/{source}/ with the checkpoints and is worked first on the next run,
 so nothing waits for its item to change again. An item that changed since it
 was queued is dropped from the backlog; its new version is extracted when
@@ -73,6 +74,17 @@ def worth_extracting(item: ItemRecord) -> bool:
     if item.source == "jira" and not item.people and item.meta.get("bots"):
         return False                                          # a ticket only automation has touched
     return True
+
+
+def defer(writer: RunWriter, item: ItemRecord) -> None:
+    """A run with no model: queue what a model would have been asked, so the
+    next run with one extracts it. Turning the model off defers extraction;
+    it never skips it."""
+    prompt = prompts.for_kind(item.kind)
+    if prompt is None or not worth_extracting(item) or writer.has_extraction(item.id, item.version, prompt.version):
+        writer.backlog.pop(item.id, None)
+        return
+    writer.backlog[item.id] = item.model_dump_json()
 
 
 def output_schema() -> dict[str, Any]:
