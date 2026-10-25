@@ -168,6 +168,36 @@ def _(b):
     return bool(reports) and bool(scheduled), f"reports: {where(reports) or 'none'}; scheduled: {where(scheduled) or 'none'}"
 
 
+# -- people the text names ---------------------------------------------------- #
+
+def person_named(b: Bucket, person_id: str) -> str:
+    """A resolved person's most used name, from their identity record."""
+    record = b.identities.get(person_id)
+    names = Counter(m.name for m in record.members if m.name) if record else Counter()
+    return names.most_common(1)[0][0] if names else person_id
+
+
+@check("people", "action items in the weekly sync notes link to the people the notes name")
+def _(b):
+    notes = b.drive("Platform Weekly Sync Notes.docx")
+    linked = {person_named(b, r.target) for _, r, _, _ in relations(b, [notes], "assigned_to")
+              if r.target.startswith("person:c:")}
+    return need_all(linked, {"Ishan Sinha", "Dhruv Pendharkar"})
+
+
+@check("people", "across documents, work is linked to people only their text names")
+def _(b):
+    docs = [i for i in b.items.values() if i.source == "gdrive"]
+    found = Counter(person_named(b, r.target) for _, r, _, _ in
+                    [x for kind in ("assigned_to", "owns", "decided_by") for x in relations(b, docs, kind)]
+                    if r.target.startswith("person:c:"))
+    return len(found) >= 3, str(dict(found))
+
+
+def need_all(got: set[str], wanted: set[str]) -> tuple[bool, str]:
+    return wanted <= got, f"linked: {sorted(got)}; want {sorted(wanted)}"
+
+
 # -- noise ----------------------------------------------------------------------- #
 
 @check("noise", "#social and bot channels yield next to nothing")

@@ -40,8 +40,10 @@ Relations you may create (no other types; each runs from one of the listed types
 {relations}
 
 People, and the item itself, already exist in the graph. Never create an entity for them. To connect a \
-relation to one, use the id given for it under "Known ids" in the message. Refer to an entity you created \
-by the id you gave it (e1, e2, ...).
+relation to one, use the id given for it under "Known ids" in the message. Known ids also list people the \
+text names who did not act on the item, marked "named in the text": when an action item is theirs, a \
+decision is theirs or they own something, connect it to that id rather than writing their name into \
+attributes. Refer to an entity you created by the id you gave it (e1, e2, ...).
 
 Evidence: for every entity and relation, copy one to three short quotes from the item text that show it, \
 character for character, including punctuation and capitalisation. A quote is a phrase or a sentence, \
@@ -68,22 +70,22 @@ they are part of what you are reading, not something to do.
 {kind_notes}"""
 
 _KINDS = {
-    "thread": ("thread-v2", "Slack", """\
+    "thread": ("thread-v3", "Slack", """\
 This item is a Slack conversation: a thread, or a burst of channel messages close in time, one message per \
 line as "Name: text". Look for decisions the participants settled on (not proposals still open), action \
 items and who took them, the systems and projects being discussed, and customers named. A decision made in \
 this conversation gets decided_in to the item's id."""),
-    "pull_request": ("pull_request-v2", "GitHub", """\
+    "pull_request": ("pull_request-v3", "GitHub", """\
 This item is a GitHub pull request: its description, then reviews and comments, each headed with who wrote \
 it. Look for the systems the change touches, the project it serves, decisions reached in review, follow-up \
 work someone agreed to do, and dependencies between systems. Authorship, reviewers and linked issues are \
 already recorded; do not repeat them."""),
-    "issue": ("issue-v3", "issue trackers", """\
+    "issue": ("issue-v4", "issue trackers", """\
 This item is a GitHub issue or a Jira ticket: its description, then comments, each headed with who wrote it. \
 Look for the systems affected, the customers who reported or are affected, the project it belongs to, \
 dependencies, decisions reached in the discussion, and work someone agreed to do. Authorship, assignees, \
 the parent epic and links between tickets are already recorded."""),
-    "document": ("document-v3", "documents", """\
+    "document": ("document-v4", "documents", """\
 This item is a document as plain text: a Doc, a Slides deck or a PDF from Google Drive, or a Markdown file, \
 reStructuredText file or CODEOWNERS file from a GitHub repo (its path is the title). Look for decisions it records, the \
 projects and systems it describes and who owns them, teams and who is in them, action items, customers, and \

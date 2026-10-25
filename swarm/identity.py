@@ -17,8 +17,11 @@ runs/identity/.
               state/identity/decisions.json, so a pair is asked once. With no
               model, or the model down, those clusters stay apart until a run
               with one
-  4. write    one identity record per cluster. person_ids are stable across
-              runs (state/identity/clusters.json): a cluster keeps the id its
+  4. write    one identity record per cluster, and state/identity/people.json:
+              each person with every name seen for them, which the
+              extraction stage uses to find the people a text names
+              (swarm/people.py). Person ids are stable across runs
+              (state/identity/clusters.json): a cluster keeps the id its
               members had; when clusters merge, the id of the larger survives
               and the others get a record with merged_into
 
@@ -241,6 +244,7 @@ def run_identity(store: ObjectStore, *, model: Model | None = None, now: datetim
     tokens = Tokens(input=usage["input"], output=usage["output"])
 
     assigned: dict[str, str] = dict(known)
+    people: dict[str, dict[str, Any]] = {}
     for root, members in sorted(clusters.groups().items(), key=lambda kv: kv[1]):
         previous = Counter(known[m] for m in members if m in known)
         if previous:
@@ -261,10 +265,12 @@ def run_identity(store: ObjectStore, *, model: Model | None = None, now: datetim
                                   members=[identities[m].member() for m in members]))
         for m in members:
             assigned[m] = person_id
+        people[person_id] = {"names": sorted({n for m in members for n in identities[m].names}), "members": members}
 
     writer.flush()
     checks = check_run(store, "identity", writer.run_id)
     manifest = finish_run(writer, started_at=started, tokens=tokens,
                           extractor_versions=[PROMPT_VERSION] if tokens.input else [],
-                          published={"clusters": dict(sorted(assigned.items())), "decisions": decisions})
+                          published={"clusters": dict(sorted(assigned.items())), "decisions": decisions,
+                                     "people": dict(sorted(people.items()))})
     return manifest, checks

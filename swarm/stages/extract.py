@@ -51,6 +51,7 @@ from typing import Any
 
 from .. import ids, ontology
 from ..model import BatchRequest, Completion, Model, ModelUnavailable
+from ..people import Directory
 from ..records import Entity, ExtractionRecord, Extractor, ItemRecord, Relation, Span, Tokens
 from . import prompts
 from .write import RunWriter
@@ -116,17 +117,26 @@ def output_schema() -> dict[str, Any]:
                 "relations": {"type": "array", "items": relation}})
 
 
-def known_ids(item: ItemRecord) -> dict[str, str]:
-    """The ids the model may point a relation at, with what each one is."""
+def known_ids(item: ItemRecord, people: Directory | None = None) -> dict[str, str]:
+    """The ids the model may point a relation at, with what each one is: the
+    item, its people, and the people its text names who are not already on
+    it (swarm/people.py), by their resolved id."""
     known = {item.id: f"this {item.kind}: {item.title}"}
+    present = set()
     for p in item.people:
         known[p.id] = f"person: {p.name or p.handle} ({', '.join(p.roles)})"
+        if people is not None and (resolved := people.person_of(p.id)):
+            present.add(resolved)
+    if people is not None:
+        for person_id, written in people.named_in(f"{item.title}\n{item.text}"):
+            if person_id not in present:
+                known[person_id] = f"person: {written} (named in the text)"
     return known
 
 
-def message(item: ItemRecord) -> str:
+def message(item: ItemRecord, people: Directory | None = None) -> str:
     lines = [f"Item: {item.kind}, {item.title}", "", "Known ids:"]
-    lines += [f"- {k}  {v}" for k, v in known_ids(item).items()]
+    lines += [f"- {k}  {v}" for k, v in known_ids(item, people).items()]
     lines += ["", "<item_text>", item.text, "</item_text>"]
     return "\n".join(lines)
 
@@ -148,7 +158,7 @@ def _spans(text: str, quotes: Any) -> list[Span]:
 
 
 def build_record(item: ItemRecord, answer: dict[str, Any], *, model: str, prompt_version: str,
-                 run_id: str, now: datetime) -> tuple[ExtractionRecord, Counter]:
+                 run_id: str, now: datetime, people: Directory | None = None) -> tuple[ExtractionRecord, Counter]:
     """The extraction record from the model's answer, keeping only what
     checks out. Returns the record and a count of what was dropped, by why."""
     onto = ontology.load()
@@ -174,7 +184,7 @@ def build_record(item: ItemRecord, answer: dict[str, Any], *, model: str, prompt
                                attributes=attributes, evidence=evidence))
 
     types = {e.local_id: frozenset({e.type}) for e in entities}
-    known = known_ids(item)
+    known = known_ids(item, people)
     relations: list[Relation] = []
     seen: set[tuple[str, str, str]] = set()
     for raw in answer.get("relations") or []:
@@ -226,6 +236,8 @@ class ExtractStage:
                  sleep: Callable[[float], None] | None = None, clock: Callable[[], float] | None = None):
         self.model = model
         self.writer = writer
+        # The people a text names come from the last identity pass; none before the first.
+        self.people = Directory.from_store(writer.store)
         self.budget = budget
         self.now = now or datetime.now(timezone.utc)
         self.batch = bool(getattr(model, "batch", False))
@@ -288,7 +300,7 @@ class ExtractStage:
             self._queue(item, prompt)
             return
         try:
-            done = self.model.extract(prompt.system, message(item), output_schema())
+            done = self.model.extract(prompt.system, message(item, self.people), output_schema())
         except ModelUnavailable as e:
             log.warning("model unavailable (%s); the rest of this run's extractions wait in the backlog", e)
             self.unavailable = True
@@ -309,6 +321,7 @@ class ExtractStage:
             self.writer.settle_extraction(item.id, item.version, prompt_version)
             return
         record, dropped = build_record(item, done.data, model=done.model, prompt_version=prompt_version,
+                                       people=self.people,
                                        run_id=self.writer.run_id, now=self.now)
         self.dropped.update(dropped)
         if self.writer.add_extraction(record):
@@ -328,7 +341,7 @@ class ExtractStage:
     # -- batches ------------------------------------------------------------ #
 
     def _queue(self, item: ItemRecord, prompt: prompts.Prompt) -> None:
-        estimate = (len(prompt.system) + len(message(item))) // 3 + OUTPUT_ESTIMATE
+        estimate = (len(prompt.system) + len(message(item, self.people))) // 3 + OUTPUT_ESTIMATE
         spent = self.tokens.input + self.tokens.output
         if self.budget is not None and spent + self.estimated + estimate > self.budget:
             log.warning("token budget %d would be passed; the rest of this run's extractions wait in the backlog",
@@ -348,7 +361,7 @@ class ExtractStage:
             return
         mapping = {f"r{i:05d}": [item.id, prompt_version, item.version]
                    for i, (item, prompt_version) in enumerate(self.queued)}
-        requests = [BatchRequest(custom_id=cid, system=prompts.for_kind(item.kind).system, text=message(item),
+        requests = [BatchRequest(custom_id=cid, system=prompts.for_kind(item.kind).system, text=message(item, self.people),
                                  schema=output_schema())
                     for cid, (item, _) in zip(mapping, self.queued, strict=True)]
         self.queued = []

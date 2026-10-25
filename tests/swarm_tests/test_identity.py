@@ -206,3 +206,13 @@ def test_the_model_sees_how_often_and_how_lately_each_name_was_used():
     i.last_seen.update({"Raj Patel": "2026-08-01", "Dhruv Pendharkar": "2026-10-22"})
     assert _describe([i]) == ("- github account dhruv@x.dev: names Dhruv Pendharkar (5 records, last 2026-10-22), "
                               "Raj Patel (1 record, last 2026-08-01); dhruv@x.dev")
+
+
+def test_the_pass_publishes_who_is_who_for_the_extractor(store):
+    from swarm.people import Directory
+    run_identity(store, now=NOW)
+    people = json.loads(store.get("state/identity/people.json"))
+    assert people and all(set(entry) == {"names", "members"} for entry in people.values())
+    directory = Directory.from_store(store)
+    [(person_id, written)] = directory.named_in("Approved by Priya Raman.")
+    assert written == "Priya Raman" and directory.person_of("person:jira:712020%3Aaaaa-priya") == person_id
