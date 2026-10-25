@@ -582,3 +582,17 @@ def test_a_ticket_only_automation_touched_is_not_sent():
     touched = ItemRecord.model_construct(**base, meta={"bots": ["Automation for Jira"]}, people=[
         Person(id="person:jira:a", source="jira", handle="a", roles=["commenter"])])
     assert not worth_extracting(bot_only) and worth_extracting(touched)
+
+
+def test_replay_follows_the_environment(monkeypatch, tmp_path):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-used")
+    monkeypatch.setenv("SWARM_MODEL_BACKEND", "anthropic")
+    monkeypatch.setenv("SWARM_MODEL_REPLAY", str(tmp_path))
+    recording = model_mod.from_env()
+    assert isinstance(recording, Replay) and recording.record.batch is False    # recording calls directly
+    monkeypatch.setenv("SWARM_MODEL_BACKEND", "replay")
+    replaying = model_mod.from_env()
+    assert isinstance(replaying, Replay) and replaying.record is None
+    monkeypatch.delenv("SWARM_MODEL_REPLAY")
+    with pytest.raises(SystemExit):
+        model_mod.from_env()

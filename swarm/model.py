@@ -5,11 +5,17 @@ Every LLM step goes through Model.extract(system, text, schema): a system
 prompt, the user text, and a JSON Schema the answer must match. Moving from
 the direct API to Bedrock is a config change (docs/SWARM.md, "Architecture"):
 
-  SWARM_MODEL_BACKEND  anthropic (local dev, the default) | bedrock | off
+  SWARM_MODEL_BACKEND  anthropic (local dev, the default) | bedrock | replay | off
   SWARM_MODEL          claude-opus-5-5; Bedrock adds its anthropic. prefix
   SWARM_MODEL_EFFORT   low | medium | high | xhigh | max (default medium)
   SWARM_MODEL_BATCH    on (the default) | off: anthropic only, see below
   AWS_REGION           Bedrock only
+  SWARM_MODEL_REPLAY   a directory of recorded answers (Replay): with anthropic
+                       or bedrock, a request already recorded there is answered
+                       from it and a new one goes to the model and is recorded,
+                       always as a direct call; with replay, only recordings
+                       answer and a missing one is an error. For iterating on
+                       everything around a prompt without paying for it again
 
   ClaudeApi   the Anthropic API, through the egress proxy in local dev
   Bedrock     the customer's Bedrock endpoint, over a private link
@@ -225,10 +231,18 @@ def from_env() -> Model | None:
     batch = os.environ.get("SWARM_MODEL_BATCH", "on").strip().lower()
     if batch not in ("on", "off"):
         raise SystemExit(f"SWARM_MODEL_BATCH={batch!r}: expected on or off")
+    replay = os.environ.get("SWARM_MODEL_REPLAY", "").strip()
     if backend == "off":
         return None
+    if backend == "replay":
+        if not replay:
+            raise SystemExit("SWARM_MODEL_BACKEND=replay needs SWARM_MODEL_REPLAY, the recordings' directory")
+        return Replay(replay)
     if backend == "anthropic":
-        return ClaudeApi(model, effort=effort, batch=batch == "on")
-    if backend == "bedrock":
-        return Bedrock(model, effort=effort)
-    raise SystemExit(f"SWARM_MODEL_BACKEND={backend!r}: expected anthropic, bedrock or off")
+        # Recording needs each answer back in the run that asked, so no batches.
+        live: Model = ClaudeApi(model, effort=effort, batch=batch == "on" and not replay)
+    elif backend == "bedrock":
+        live = Bedrock(model, effort=effort)
+    else:
+        raise SystemExit(f"SWARM_MODEL_BACKEND={backend!r}: expected anthropic, bedrock, replay or off")
+    return Replay(replay, record=live) if replay else live

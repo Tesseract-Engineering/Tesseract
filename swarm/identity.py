@@ -53,16 +53,18 @@ SOURCES = ("github", "jira", "slack", "gdrive")
 IGNORED_EMAILS = {"noreply@github.com"}
 MIN_CONFIDENCE = 0.8
 MAX_CANDIDATES = 3
-PROMPT_VERSION = "identity-v1"
+PROMPT_VERSION = "identity-v2"
 
 SYSTEM = """\
 You decide whether two groups of accounts, from one company's tools (GitHub, Jira, Slack, Google Drive), belong \
-to the same person. Each group lists its accounts with every display name and email seen for them.
+to the same person. Each group lists its accounts with every display name seen for them (how many records carry \
+it, and when it was last seen, newest first) and their emails.
 
 Say same_person true only when the evidence points to one person: the same full name, a name and its initial \
 ("D. Lee" and "Dana Lee") with nothing contradicting it, or an email or handle that plainly carries the other's \
 name. A shared first name alone is not enough, nor a shared surname alone when the first names differ. Names a \
-person no longer uses can appear on old records; weigh them less than current ones.
+person no longer uses can linger on a few old records: a name on one old record, next to another name on many \
+recent ones under the same email or account, is a former or mistaken name, not a second person.
 
 Confidence is how sure you are, 0 to 1. Evidence is one sentence naming what decided it.
 
@@ -76,6 +78,7 @@ class SourceIdentity:
     handle: str
     names: Counter = field(default_factory=Counter)
     emails: set[str] = field(default_factory=set)
+    last_seen: dict[str, str] = field(default_factory=dict)      # name -> newest updated_at it appears on
 
     def member(self) -> IdentityMember:
         name = self.names.most_common(1)[0][0] if self.names else None
@@ -101,6 +104,8 @@ def collect(store: ObjectStore) -> dict[str, SourceIdentity]:
                         identity = found.setdefault(p.id, SourceIdentity(p.id, p.source, p.handle))
                         if p.name:
                             identity.names[p.name] += 1
+                            seen = record.updated_at.date().isoformat()
+                            identity.last_seen[p.name] = max(identity.last_seen.get(p.name, seen), seen)
                         if p.email and p.email.lower() not in IGNORED_EMAILS:
                             identity.emails.add(p.email.lower())
     return found
@@ -148,7 +153,9 @@ def _tokens(identity: SourceIdentity) -> set[str]:
 def _describe(members: list[SourceIdentity]) -> str:
     lines = []
     for m in members:
-        names = ", ".join(n for n, _ in m.names.most_common()) or "no name shown"
+        order = sorted(m.names, key=lambda n: (m.last_seen.get(n, ""), m.names[n]), reverse=True)
+        names = ", ".join(f"{n} ({m.names[n]} record{'s' if m.names[n] > 1 else ''}, last {m.last_seen.get(n, '?')})"
+                          for n in order) or "no name shown"
         emails = ", ".join(sorted(m.emails)) or "email hidden"
         lines.append(f"- {m.source} account {m.handle}: names {names}; {emails}")
     return "\n".join(lines)
@@ -197,6 +204,8 @@ def resolve(identities: dict[str, SourceIdentity], *, model: Model | None, decis
         for _, _other_root, others in sorted(scored)[:MAX_CANDIDATES]:
             key = _pair_key(members, others)
             decision = decisions.get(key)
+            if decision is not None and decision.get("prompt_version") != PROMPT_VERSION:
+                decision = None                            # asked under an older prompt: ask again
             if decision is None and not unavailable:
                 text = (f"Group A:\n{_describe([identities[m] for m in members])}\n\n"
                         f"Group B:\n{_describe([identities[m] for m in others])}")

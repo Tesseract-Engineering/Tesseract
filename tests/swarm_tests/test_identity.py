@@ -186,4 +186,23 @@ def test_a_later_model_merge_retires_the_smaller_cluster(store):
     sam = cluster_with(recs, SAM_JIRA)
     assert sam.method == "llm" and len(sam.members) > 1 and sam.person_id != alone.person_id
     assert any(r.person_id == alone.person_id and r.merged_into == sam.person_id for r in recs)
-    assert later.tokens.input > 0 and later.extractor_versions == ["identity-v1"]
+    assert later.tokens.input > 0 and later.extractor_versions == ["identity-v2"]
+
+
+def test_an_answer_under_an_older_prompt_is_asked_again():
+    decisions = {}
+    clusters_of(DHRUV, model=Judge(), decisions=decisions)
+    for decision in decisions.values():
+        decision["prompt_version"] = "identity-v0"
+    judge = Judge()
+    clusters_of(DHRUV, model=judge, decisions=decisions)
+    assert len(judge.calls) == 1
+
+
+def test_the_model_sees_how_often_and_how_lately_each_name_was_used():
+    from swarm.identity import _describe
+    i = ident("github", "dhruv@x.dev", email="dhruv@x.dev")
+    i.names.update({"Raj Patel": 1, "Dhruv Pendharkar": 5})
+    i.last_seen.update({"Raj Patel": "2026-08-01", "Dhruv Pendharkar": "2026-10-22"})
+    assert _describe([i]) == ("- github account dhruv@x.dev: names Dhruv Pendharkar (5 records, last 2026-10-22), "
+                              "Raj Patel (1 record, last 2026-08-01); dhruv@x.dev")

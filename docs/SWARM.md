@@ -449,13 +449,13 @@ samples/run-0/         the sample run for the graph engineer (rebuilt by samples
 tests/fixtures/        hand-made source API responses and the planted-token corpus
 tests/swarm_tests/     unit, contract, gate-rehearsal and s3-marked tests
 eval/bucket.py         the bucket as the graph side reads it (complete runs, newest record per id), read-only
-eval/check_sandbox.py  the sandbox's answer key, deterministic half: coverage, scope, redaction, ACLs, links
+eval/check_sandbox.py  the sandbox's answer key, deterministic half: coverage, scope, redaction, ACLs, links, identity
+eval/check_extraction.py the sandbox's answer key, model half: the decisions, owners, systems and customers the stories need
+eval/reviews/          spot-check review notes, without quoted source text
 data/                  local only, git-ignored: the Slack export and the GitHub and Drive key files
 ```
 
-Not here yet: `eval/reviews/` (with the first spot-check review).
-
-`python -m eval.check_sandbox` (with `S3_BUCKET`, `S3_ENDPOINT` and the bucket's credentials) runs the sandbox's answer key against a bucket the pipelines wrote; a full pass from an empty bucket is GitHub, Jira, Slack, Drive, then GitHub again.
+`python -m eval.check_sandbox` and `python -m eval.check_extraction` (with `S3_BUCKET`, `S3_ENDPOINT` and the bucket's credentials) run the sandbox's answer key against a bucket the pipelines wrote. A full pass from an empty bucket is GitHub, Jira, Slack, Drive, GitHub again, then identity. With `SWARM_MODEL_REPLAY` set to a directory, model answers are recorded there and replayed on later runs, so iterating on anything but a prompt costs nothing.
 
 ```bash
 pip install -e '.[dev,swarm]'                             # into .venv; tests need detect-secrets from [swarm]
@@ -486,8 +486,8 @@ Each diamond is the phase's exit gate. The plan was to start each phase only aft
 | 0 | Yes | Open: waiting on the graph engineer's ontology sign-off and sample-run ingest |
 | 1 | Yes, run on the sandbox | Open: the run meets the swarm's criteria; waiting on the graph side's ingest |
 | 2 | Yes, run on the sandbox | Open: all three sources pass by hand, reruns write nothing; nightly scheduling not set up |
-| 3 | Yes, first real runs | Open: GitHub extracted on the sandbox; Slack and Drive still to run; no spot-check review yet |
-| 4 | Jira and identity built, run on the sandbox | Open: identity's LLM step not yet run; reconciliation not started |
+| 3 | Yes, run on the sandbox | Open: all four sources extracted and reviewed; waiting on the swarm owner's sign-off |
+| 4 | Jira and identity built, run on the sandbox | Open: reconciliation not started; graph engineer's sign-off on the new record shapes |
 | 5 | Not started | — |
 
 **Owners.** Each phase has one owner who drives it to its gate. No owners are assigned yet; fill in the column before the Phase 0 gate review.
@@ -539,17 +539,17 @@ Each diamond is the phase's exit gate. The plan was to start each phase only aft
 
 - [x] Model interface with a direct-API backend and a Bedrock backend (`swarm/model.py`; Bedrock not yet run against a real endpoint)
 - [x] Extraction prompts per kind, versioned, writing extraction records with evidence (thread, pull_request, issue, document)
-- [ ] Spot-check review of sampled extractions after each prompt change (`python -m swarm.review` writes the sheet; no review done yet)
+- [ ] Spot-check review of sampled extractions after each prompt change (first review: `eval/reviews/2026-10-25-sandbox.md`; awaiting the swarm owner's sign-off)
 - [x] Cost filter, content-hash skip and per-run token budget, with a backlog for what the budget or an outage defers
 
 **Gate:** a spot-check review signs off on extractions from each source, and token cost per item is logged in every manifest.
 
-**Gate status: waiting on real runs.** The GitHub pipeline wrote 30 extractions from the sandbox (2026-10-24); Slack and Drive still need theirs. `test_extract.py` runs the stage on the GitHub and Slack fixtures with a scripted model. The gate then needs a review of the sheet.
+**Gate status: waiting on sign-off.** All four sources were extracted on the sandbox (2026-10-25): 170 records, 426k input and 92k output tokens, every manifest logging its tokens. `eval/check_extraction.py` passes 11/11, and the first review (`eval/reviews/2026-10-25-sandbox.md`) lists what held up and five open problems.
 
 ### Phase 4: Jira, identity and change handling
 
 - [x] The sandbox's Jira site seeded with tickets, epics and links, and `JiraConnector`, run on the sandbox
-- [ ] Identity pass: email clustering, LLM matching for leftovers, `identity` records (built; email matching run on the sandbox with no false merges; the LLM step still to run)
+- [x] Identity pass: email clustering, LLM matching for leftovers, `identity` records (on the sandbox: one cluster per person, no false merges)
 - [ ] Roster of the sandbox's people and their handles in each source, used to review identity clusters
 - [ ] Weekly reconciliation writing tombstones and ACL updates
 - [ ] Graph engineer signs off on the three new record shapes
