@@ -103,7 +103,11 @@ services:
     build: {context: .., dockerfile: pipelines/jira/Dockerfile}
     image: swarm-jira:dev
 
-  # identity follows the same pattern, built from pipelines/identity.
+  # After the source runs: reads what they wrote, writes identity records.
+  identity:
+    <<: *pipeline
+    build: {context: .., dockerfile: pipelines/identity/Dockerfile}
+    image: swarm-identity:dev
 
 networks:
   internal:

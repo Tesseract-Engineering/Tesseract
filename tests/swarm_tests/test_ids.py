@@ -43,3 +43,10 @@ def test_commit_sha_is_lowercased():
 def test_file_paths_stay_one_segment():
     assert ids.github_file(1, "docs/a b:c.md") == "github:repo:1:file:docs/a%20b%3Ac.md"
     assert ids.entity_types(ids.github_file(1, "README.md")) == {"document"}
+
+
+def test_a_jira_identity_member_validates_with_its_encoded_id():
+    from swarm.records import IdentityMember
+    member = IdentityMember(id=ids.source_person("jira", "712020:abc"), source="jira", handle="712020:abc")
+    assert member.id == "person:jira:712020%3Aabc" == ids.jira_person("712020:abc")
+    assert ids.source_person("github", "kar722") == "person:github:kar722"

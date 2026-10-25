@@ -366,8 +366,8 @@ class IdentityMember(_Model):
 
     @model_validator(mode="after")
     def _id_matches(self) -> IdentityMember:
-        if self.id != ids.person(self.source, self.handle):
-            raise ValueError(f"member id {self.id!r} must be {ids.person(self.source, self.handle)!r}")
+        if self.id != ids.source_person(self.source, self.handle):
+            raise ValueError(f"member id {self.id!r} must be {ids.source_person(self.source, self.handle)!r}")
         return self
 
 

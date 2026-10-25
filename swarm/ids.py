@@ -122,5 +122,11 @@ def jira_person(account_id: str) -> str:
     return person("jira", quote(account_id, safe=""))
 
 
+def source_person(source: str, handle: str) -> str:
+    """The ID of a source identity, as item records and identity records
+    write it: person:{source}:{handle}, with Jira's colons encoded."""
+    return jira_person(handle) if source == "jira" else person(source, handle)
+
+
 def person_cluster(cluster_hash: str) -> str:
     return f"person:c:{cluster_hash}"

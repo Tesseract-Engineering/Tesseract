@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import re
 import sys
+from collections import Counter
 from collections.abc import Callable
 
 from swarm.records import ItemRecord
@@ -31,6 +32,19 @@ PLANTED = ["AKIAIOSFODNN" + "7EXAMPLE", "wJalrXUtnFEMI" + "/K7MDENG", "hunter2" 
 HIDDEN_FILES = ("Token Leak Postmortem", "Acme Corp - Contract Addendum.pdf", "Northwind - MSA (signed).pdf",
                 "Hiring Plan 2027.xlsx", "1-1 notes with Hamilton.docx", "scratch notes.docx",
                 "Infrastructure Engineer - JD (draft).docx")
+
+# sandbox/roster.yaml: each person's id in every tool. Hamilton and Dhruv have no GitHub account;
+# Dhruv's commits carry his email, so his GitHub identity is that email.
+ROSTER = {
+    "Ishan Sinha": {"slack": "U0CC07LPSSU", "jira": "712020:0ec78558-16b2-4e6e-bc2b-7d5782baaf00",
+                    "github": "ishan-sinha-ucb", "gdrive": "ishan.tesseract@gmail.com"},
+    "Karthik Valluri": {"slack": "U0CB2DPLNSH", "jira": "712020:d4aa3945-2d8c-4288-a377-6e8a36d4977c",
+                        "github": "kar722", "gdrive": "karthik.tesseract@gmail.com"},
+    "Hamilton Park": {"slack": "U0CB7H3PNNN", "jira": "712020:e59b6a4d-a938-4cd6-8a3b-b44313a139a7",
+                      "gdrive": "hamilton.tesseract@gmail.com"},
+    "Dhruv Pendharkar": {"slack": "U0CB5Q14Q3Y", "jira": "712020:91dc33d6-2cc7-42b9-aa55-37cf262223d2",
+                         "github": "dhruv.tesseract1@gmail.com", "gdrive": "dhruv.tesseract1@gmail.com"},
+}
 
 CHECKS: list[tuple[str, str, Callable[[Bucket], tuple[bool, str]]]] = []
 
@@ -351,6 +365,45 @@ def _(b):
     slack_names = {p.name for i in b.of("slack") for p in i.people}
     return need(("Jira: D. Pendharkar", "D. Pendharkar" in jira_names),
                 ("Slack: Dhruv Pendharkar", "Dhruv Pendharkar" in slack_names))
+
+
+# -- identity -------------------------------------------------------------------- #
+
+def clusters(b: Bucket) -> dict[str, set[tuple[str, str]]]:
+    return {r.person_id: {(m.source, m.handle) for m in r.members}
+            for r in b.identities.values() if r.merged_into is None}
+
+
+@check("identity", "each person is one cluster holding their account in every tool")
+def _(b):
+    found = clusters(b)
+    out = []
+    for person, accounts in ROSTER.items():
+        wanted = set(accounts.items())
+        holding = [pid for pid, members in found.items() if members & wanted]
+        if len(holding) != 1 or not wanted <= found[holding[0]]:
+            split = [sorted(src for src, _ in found[pid] & wanted) for pid in holding]
+            out.append((f"{person} (split across {split})", False))
+    return need(*out) if out else (bool(found), "" if found else "no identity records")
+
+
+@check("identity", "no cluster holds two people (no false merges)")
+def _(b):
+    merged = []
+    for members in clusters(b).values():
+        people = [p for p, accounts in ROSTER.items() if members & set(accounts.items())]
+        if len(people) > 1:
+            merged.append(" + ".join(people))
+    return not merged, ", ".join(merged)
+
+
+@check("identity", "every person named on an item is in exactly one cluster")
+def _(b):
+    named = {p.id for i in b.items.values() for p in i.people}
+    placed = Counter(m.id for r in b.identities.values() if r.merged_into is None for m in r.members)
+    missing = sorted(named - set(placed))
+    twice = sorted(k for k, n in placed.items() if n > 1)
+    return need((f"not in any cluster: {missing[:3]}", not missing), (f"in two: {twice[:3]}", not twice))
 
 
 # -- link hygiene ---------------------------------------------------------------- #

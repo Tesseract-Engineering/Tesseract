@@ -88,7 +88,7 @@ The arrows from the bottom row are mounts: `.env` supplies tokens; `data/` holds
 | `sample` | Built from `pipelines/sample` | internal | On demand | Replays `samples/run-0` through the real stages; `sample probe URL...` checks the allowlist |
 | `github`, `slack`, `drive` | Built from `pipelines/{source}` | internal | On demand | One batch run of that source's pipeline, then exit |
 | `jira` | Built from `pipelines/jira` | internal | On demand | One batch run of the Jira pipeline, then exit; runs after `github` and before `slack` and `drive` |
-| `identity` | Built from `pipelines/identity` | internal | Not built yet (Phase 4) | Reads the night's items from the bucket and writes identity records |
+| `identity` | Built from `pipelines/identity` | internal | On demand | After the source runs: reads every complete run's people, writes identity records |
 
 The `host` network exists only so Docker publishes the bucket's ports to the laptop: it publishes nothing for a container that is on internal networks alone. No pipeline is on it.
 
@@ -330,10 +330,10 @@ Every source runs the same eleven stages; only the first two are source-specific
 
 **Identity pass (nightly, after all sources).**
 
-1. Collect every raw identity from the run's `people` fields.
+1. Collect every source identity from the `people` fields of every complete source run, with every name and email seen for it.
 2. Cluster exact email matches deterministically.
-3. Send leftovers with candidate matches (similar names, GitHub profile name, commit emails) to the LLM, which accepts or rejects each pairing with a confidence.
-4. Write `identity` records. Clusters keep stable `person_id`s across runs; a merge or split writes a new record that the graph side applies.
+3. Send each cluster no email joins, with the clusters whose names come closest (a shared word of three letters or more; GitHub logins count as names), to the LLM, which accepts or rejects each pairing with a confidence and its evidence. Pairs accepted at 0.8 or above merge. Answers are kept in `state/identity/decisions.json`, so a pair is asked once; with no model, those clusters stay apart until a run with one. The pass never splits a cluster; a disputed merge is undone by hand (`method: manual`).
+4. Write `identity` records. Clusters keep stable `person_id`s across runs (`state/identity/clusters.json`): when clusters merge, the id most members already had survives, and each other id gets a record with `merged_into`.
 
 ## Security and privacy controls
 
@@ -430,6 +430,7 @@ swarm/sources/github/  GitHub: App auth, connector, normalizer, deterministic re
 swarm/sources/slack/   Slack: Web API and export connectors, thread and burst grouping, normalizer
 swarm/sources/gdrive/  Drive: service-account auth, connector (text export, PDFs, Office files, permissions), normalizer
 swarm/sources/jira/    Jira: basic auth, connector (search, comments, browsers), ADF to text, normalizer
+swarm/identity.py      the identity pass: email union-find, the model for the rest, stable person ids
 swarm/sources/links.py links between sources: Drive URLs, GitHub links via state/github/, Jira keys via state/jira/
 swarm/model.py         the model interface: direct API, Bedrock, and replay of recorded answers
 swarm/stages/extract.py stage 8: cost filter, the call or the batch, quotes to spans, budget and backlog
@@ -442,6 +443,7 @@ pipelines/github/      the GitHub pipeline image and its read-only App manifest
 pipelines/slack/       the Slack pipeline image and its read-only internal app manifest
 pipelines/drive/       the Drive pipeline image
 pipelines/jira/        the Jira pipeline image
+pipelines/identity/    the identity pass image
 pipelines/sample/      the Phase 0 job: replays samples/run-0 through the real stages
 samples/run-0/         the sample run for the graph engineer (rebuilt by samples/make_run0.py)
 tests/fixtures/        hand-made source API responses and the planted-token corpus
@@ -451,7 +453,7 @@ eval/check_sandbox.py  the sandbox's answer key, deterministic half: coverage, s
 data/                  local only, git-ignored: the Slack export and the GitHub and Drive key files
 ```
 
-Not here yet: `pipelines/identity/` (Phase 4), and `eval/reviews/` (with the first spot-check review).
+Not here yet: `eval/reviews/` (with the first spot-check review).
 
 `python -m eval.check_sandbox` (with `S3_BUCKET`, `S3_ENDPOINT` and the bucket's credentials) runs the sandbox's answer key against a bucket the pipelines wrote; a full pass from an empty bucket is GitHub, Jira, Slack, Drive, then GitHub again.
 
@@ -485,7 +487,7 @@ Each diamond is the phase's exit gate. The plan was to start each phase only aft
 | 1 | Yes, run on the sandbox | Open: the run meets the swarm's criteria; waiting on the graph side's ingest |
 | 2 | Yes, run on the sandbox | Open: all three sources pass by hand, reruns write nothing; nightly scheduling not set up |
 | 3 | Yes, first real runs | Open: GitHub extracted on the sandbox; Slack and Drive still to run; no spot-check review yet |
-| 4 | Jira built, on fixtures | Open: Jira not yet run on the sandbox; identity and reconciliation not started |
+| 4 | Jira and identity built, run on the sandbox | Open: identity's LLM step not yet run; reconciliation not started |
 | 5 | Not started | — |
 
 **Owners.** Each phase has one owner who drives it to its gate. No owners are assigned yet; fill in the column before the Phase 0 gate review.
@@ -546,8 +548,8 @@ Each diamond is the phase's exit gate. The plan was to start each phase only aft
 
 ### Phase 4: Jira, identity and change handling
 
-- [ ] The sandbox's Jira site seeded with tickets, epics and links, and `JiraConnector` (site seeded; connector built and tested on fixtures; not yet run on the sandbox)
-- [ ] Identity pass: email clustering, LLM matching for leftovers, `identity` records
+- [x] The sandbox's Jira site seeded with tickets, epics and links, and `JiraConnector`, run on the sandbox
+- [ ] Identity pass: email clustering, LLM matching for leftovers, `identity` records (built; email matching run on the sandbox with no false merges; the LLM step still to run)
 - [ ] Roster of the sandbox's people and their handles in each source, used to review identity clusters
 - [ ] Weekly reconciliation writing tombstones and ACL updates
 - [ ] Graph engineer signs off on the three new record shapes
