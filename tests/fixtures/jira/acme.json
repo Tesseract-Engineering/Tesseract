@@ -38,7 +38,12 @@
   {
    "id": "10000",
    "key": "AUTH",
-   "name": "Staff Auth"
+   "name": "Staff Auth",
+   "description": "Staff sign-in: OIDC, keys and sessions.",
+   "lead": {
+    "$user": "priya"
+   },
+   "projectTypeKey": "software"
   },
   {
    "id": "10001",
@@ -562,7 +567,19 @@
     "resolutiondate": null,
     "duedate": null,
     "parent": null,
-    "issuelinks": [],
+    "issuelinks": [
+     {
+      "type": {
+       "name": "Duplicate",
+       "inward": "is duplicated by",
+       "outward": "duplicates"
+      },
+      "outwardIssue": {
+       "id": "10014",
+       "key": "AUTH-14"
+      }
+     }
+    ],
     "security": null,
     "project": {
      "id": "10001",

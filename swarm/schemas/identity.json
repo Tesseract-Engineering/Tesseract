@@ -130,5 +130,5 @@
   ],
   "title": "IdentityRecord",
   "type": "object",
-  "x-ontology-version": 1
+  "x-ontology-version": 2
 }

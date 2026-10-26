@@ -1,0 +1,27 @@
+{
+  "schema_version": "2",
+  "source": "identity",
+  "run_id": "2026-10-20T04-00-00Z-identity",
+  "status": "complete",
+  "started_at": "2026-10-20T04:00:00Z",
+  "finished_at": "2026-10-20T04:00:09Z",
+  "counts": {
+    "items": 0,
+    "extractions": 0,
+    "changes": 0,
+    "groups": 0,
+    "identities": 2,
+    "rejected": 0
+  },
+  "rejections": {},
+  "acl_coverage": 1.0,
+  "files": [
+    "identities/part-00001.jsonl"
+  ],
+  "extractor_versions": [],
+  "llm_budget_hit": false,
+  "tokens": {
+    "input": 0,
+    "output": 0
+  }
+}

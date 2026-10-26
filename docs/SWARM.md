@@ -148,7 +148,7 @@ Each source is a thin fetcher behind one interface; redaction, ACLs, extraction 
 | Source | Category | Auth | Scope granted by | Item kinds | Notes |
 | --- | --- | --- | --- | --- | --- |
 | GitHub | Code | Customer-created GitHub App, read-only | Repos selected at install | `repo`, `commit`, `pull_request`, `issue`, `document` | Review comments fold into the PR's text; `document` is a doc file on the default branch (see "GitHub files" under Decisions) |
-| Jira | Tickets | Service account, API token | Projects the account can browse | `issue` (`issue_type` in meta) | ID uses the site's cloud id and the internal issue id; the key and any key from before a move are aliases. Descriptions and comments arrive as ADF and are turned into text before redaction |
+| Jira | Tickets | Service account, API token | Projects the account can browse | `project`, `issue` (`issue_type` in meta) | A project is an item too, with its description and its lead as owner, so every issue's container exists. ID uses the site's cloud id and the internal issue id; the key and any key from before a move are aliases. Descriptions and comments arrive as ADF and are turned into text before redaction |
 | Slack | Chat | Customer-created internal app, bot token | Channels the bot is invited to | `thread`, `channel` | Internal apps keep Tier 3 rate limits; confirm on first install. No DMs. |
 | Google Drive | Docs | Service account | Shared drives it is added to, or folders shared with its email (domain-wide delegation optional) | `document`, `folder` | Docs and Slides exported to text; PDFs, Word and PowerPoint files read; Sheets, Excel and other types metadata only in v1 |
 
@@ -222,7 +222,7 @@ The swarm emits six record types. `item` and `extraction` are approved; `tombsto
 **Bucket layout.** Each source writes only under its own prefix; nothing can delete.
 
 ```
-runs/{source}/{run_id}/items/part-00001.jsonl
+runs/{source}/{run_id}/items/part-00001.jsonl        # run_id: 2026-10-20T03-00-00Z-github, no colons
 runs/{source}/{run_id}/extractions/part-00001.jsonl
 runs/{source}/{run_id}/changes/part-00001.jsonl      # tombstones and acl_updates
 runs/{source}/{run_id}/groups/part-00001.jsonl       # group memberships
@@ -262,7 +262,7 @@ Group names use immutable IDs only, never a repo or org slug. Group members are 
 **Run manifest.** The graph side reads a run only once its manifest exists and `status` is `complete`.
 
 ```json
-{"schema_version": "2", "source": "slack", "run_id": "2026-10-20T03:00:00Z-slack", "status": "complete", "started_at": "...", "finished_at": "...", "counts": {"items": 1840, "extractions": 912, "changes": 14, "rejected": 3}, "rejections": {"MissingAcl": 3}, "acl_coverage": 0.998, "files": ["items/part-00001.jsonl"], "extractor_versions": ["decisions-v3"], "llm_budget_hit": false}
+{"schema_version": "2", "source": "slack", "run_id": "2026-10-20T03-00-00Z-slack", "status": "complete", "started_at": "...", "finished_at": "...", "counts": {"items": 1840, "extractions": 912, "changes": 14, "rejected": 3}, "rejections": {"MissingAcl": 3}, "acl_coverage": 0.998, "files": ["items/part-00001.jsonl"], "extractor_versions": ["decisions-v3"], "llm_budget_hit": false}
 ```
 
 The counts above are illustrative. `rejections` counts items not written, by reason; `acl_coverage` is the share of fetched items that had a readable ACL, the rest being the `MissingAcl` rejections. A run that fails writes no manifest; its partial files are ignored and overwritten on retry.
@@ -278,7 +278,7 @@ The vocabulary is closed: extractors may only emit the types below, and anything
 | `person` | Deterministic: authors, assignees, reviewers, mentions | Sam Lee |
 | `repo`, `commit`, `pull_request`, `issue`, `thread`, `channel`, `document`, `folder` | Deterministic: one per item and container | `acme/api#412` |
 | `team` | LLM, plus Slack user groups and Google groups when present | Platform team |
-| `project` | LLM, plus Jira epics | Auth migration |
+| `project` | LLM, plus Jira projects (items) and epics | Auth migration |
 | `decision` | LLM | Use OIDC instead of SAML |
 | `system` | LLM: a service, component or tool being discussed | Billing service |
 | `action_item` | LLM | Sam to draft the rollout plan |
@@ -305,6 +305,7 @@ The vocabulary is closed: extractors may only emit the types below, and anything
 | `supersedes` | A decision or document replaces an earlier one | LLM |
 | `depends_on` | Project, system or issue depends on another | Deterministic (Jira links), LLM |
 | `blocks` | Issue blocks another | Deterministic (Jira links) |
+| `duplicates` | Issue duplicates another | Deterministic (Jira "Duplicate" links) |
 
 Deterministic relations are written on the `item` record as `refs` or `people`; LLM relations go in `extraction` records. Item-backed entity types are never produced by the LLM, which keeps the graph's skeleton exact. Each relation lists the entity types it may join (`from`, `to` in `ontology.yaml`, copied into the schemas as `x-relations`), and the validator refuses anything outside them.
 
@@ -321,7 +322,7 @@ Every source runs the same eleven stages; only the first two are source-specific
 5. **Normalize** to item records. Slack groups messages into threads and bursts; GitHub and Jira fold comments into their parent; Drive exports Docs and Slides to text and reads PDFs, Word and PowerPoint files.
 6. **Attach ACLs** from the source: channel members, repo visibility, Jira project permissions, Drive sharing. An item with no ACL fails validation and is not written.
 7. **Deterministic extraction:** people with roles, container, and typed refs from fields, URLs and keys in text (Jira keys, `#123`, Drive links). GitHub links and Jira keys resolve through what those pipelines published, so whichever source runs first cannot link to the others yet: an item left with unresolved links is kept in `state/{source}/unresolved.json`, and every later run of that source resolves it again, writing a new record only when a link appears. A full pass from an empty bucket is therefore GitHub, Jira, Slack, Drive, then GitHub again, with the model off; then the identity pass; then the four sources again with the model on, which extract what the first runs queued.
-8. **LLM extraction** on items that pass the cost filter (with no model configured, they wait in the backlog for a run with one). Besides the item's own people, the model is offered the people its text names, from the identity pass's directory (`swarm/people.py`: full names, an initial with a surname, or a first name only one person has), by their resolved id, so an action item in meeting notes links to the person it names and through them to their work elsewhere, against the closed ontology, writing extraction records with evidence spans and `item_version`. The model answers in a fixed JSON shape and quotes its evidence; code finds each quote in the item text to make the span. Anything it cannot check is dropped, not written: a quote not in the text, a type outside the ontology, a relation to an ID the model was not given, or a relation the ontology does not allow. One prompt per kind: Slack conversations, PRs, issues and documents. Repos, channels and folders are containers, and a commit's message is short and repeated on its PR, so those kinds are never sent.
+8. **LLM extraction** on items that pass the cost filter (with no model configured, they wait in the backlog for a run with one). Besides the item's own people, the model is offered the people its text names, from the identity pass's directory (`swarm/people.py`: full names, an initial with a surname, or a first name only one person has), by their resolved id, so an action item in meeting notes links to the person it names and through them to their work elsewhere, against the closed ontology, writing extraction records with evidence spans and `item_version`. The model answers in a fixed JSON shape and quotes its evidence; code finds each quote in the item text to make the span. Anything it cannot check is dropped, not written: a quote not in the text, a type outside the ontology, a relation to an ID the model was not given, or a relation the ontology does not allow. One prompt per kind: Slack conversations, PRs, issues and documents. Repos, channels, folders and Jira projects are containers, and a commit's message is short and repeated on its PR, so those kinds are never sent.
 9. **Write records** to `items/` and `extractions/`, deduplicated by `id` and `version`. An unchanged `content_hash` skips re-extraction.
 10. **Write the manifest** with counts, files and extractor versions.
 11. **Advance checkpoints** in `state/`.
@@ -417,7 +418,7 @@ This branch holds the swarm alone. The earlier graph, API and UI code lives on t
 | Ontology, record contract | `ontology.yaml`, `swarm/records.py` | `tesseract/contract.py`, the graph's own node and edge types |
 
 ```
-ontology.yaml          the closed vocabulary, v1
+ontology.yaml          the closed vocabulary, v2
 swarm/records.py       Pydantic models for every record type and the manifest
 swarm/schema.py        generates swarm/schemas/*.json from those models
 swarm/ids.py           the ID builders, in the formats above
@@ -504,7 +505,7 @@ Each diamond is the phase's exit gate. The plan was to start each phase only aft
 
 ### Phase 0: Contracts and skeleton
 
-- [ ] `ontology.yaml` v1 with the entity and relation lists, signed off by the graph engineer (written; awaiting sign-off)
+- [ ] `ontology.yaml` v2 (v1 plus Jira projects as items and `duplicates`) with the entity and relation lists, signed off by the graph engineer (written; awaiting sign-off)
 - [x] Pydantic models and JSON Schema for all six record types and the manifest
 - [x] Repo skeleton: `Connector` and `Normalizer` interfaces, shared redact, ACL, write and manifest stages
 - [x] Docker Compose with an S3-compatible bucket (RustFS), an internal network and an egress allowlist

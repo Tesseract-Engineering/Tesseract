@@ -81,7 +81,7 @@ priya_gh = Person(id=ids.person("github", "priya-r"), source="github", handle="p
 
 
 def github_run(store: LocalStore) -> None:
-    run_id = "2026-10-20T03:00:00Z-github"
+    run_id = "2026-10-20T03-00-00Z-github"
     fetched = at("2026-10-20T03:02:11Z")
     w = RunWriter(store, "github", run_id)
 
@@ -156,7 +156,7 @@ MEMBERS = Acl(visibility="restricted", principals=[MEMBERS_GROUP])
 
 
 def slack_run(store: LocalStore) -> None:
-    run_id = "2026-10-20T03:00:00Z-slack"
+    run_id = "2026-10-20T03-00-00Z-slack"
     fetched = at("2026-10-20T03:01:40Z")
     w = RunWriter(store, "slack", run_id)
 
@@ -229,11 +229,64 @@ def slack_run(store: LocalStore) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Jira: a project (the container its issues sit in), an epic, and two
+# tickets, one a duplicate of the other
+# --------------------------------------------------------------------------- #
+
+SITE = "c0ffee00-1111-2222-3333-444455556666"
+PROJECT = ids.jira_project(SITE, 10000)
+BROWSERS = f"group:jira:{SITE}:project:10000:browsers"
+BROWSE = Acl(visibility="restricted", principals=[BROWSERS])
+priya_jira = Person(id=ids.jira_person("712020:aaaa-priya"), source="jira", handle="712020:aaaa-priya",
+                    name="Priya Rao", roles=["owner"])
+
+
+def jira_run(store: LocalStore) -> None:
+    run_id = "2026-10-20T03-00-00Z-jira"
+    fetched = at("2026-10-20T03:01:05Z")
+    w = RunWriter(store, "jira", run_id)
+
+    # Jira gives a project no timestamps or revision: it is dated when this
+    # content was first seen, and its version is its content hash.
+    project = item(
+        run_id, id=PROJECT, aliases=["AUTH"], kind="project", source="jira", container=None, title="Staff Auth",
+        text="Staff sign-in: OIDC, keys and sessions.", url="https://acme.atlassian.net/browse/AUTH",
+        created_at=fetched, updated_at=fetched, version="pending", people=[priya_jira],
+        meta={"key": "AUTH", "project_type": "software"}, acl=BROWSE, fetched_at=fetched)
+    w.add_item(project.model_copy(update={"version": project.content_hash}))
+
+    def issue(n: int, key: str, title: str, text: str, issue_type: str, refs: list[Ref], links: list[dict]) -> None:
+        w.add_item(item(
+            run_id, id=ids.jira_issue(SITE, n), aliases=[key], kind="issue", source="jira", container=PROJECT,
+            title=title, text=text, url=f"https://acme.atlassian.net/browse/{key}",
+            created_at=at("2026-10-01T09:00:00Z"), updated_at=at("2026-10-15T10:00:00Z"),
+            version="2026-10-15T10:00:00.000+0000",
+            people=[Person(id=ids.jira_person("712020:aaaa-priya"), source="jira", handle="712020:aaaa-priya",
+                           name="Priya Rao", roles=["reporter"])],
+            refs=refs, meta={"key": key, "project_key": "AUTH", "issue_type": issue_type, "links": links},
+            acl=BROWSE, fetched_at=fetched))
+
+    issue(10012, "AUTH-12", "Switch staff login to OIDC", "Replace SAML with OIDC for staff login.", "Epic",
+          [Ref(type="references", target=ids.github_pr(REPO_ID, 412), via="url")], [])
+    issue(10013, "AUTH-13", "Rotate the OIDC test client", "Rotate the test client before rollout.", "Task",
+          [Ref(type="part_of", target=ids.jira_issue(SITE, 10012), via="field")], [])
+    issue(10014, "AUTH-14", "Rotate test client secret", "Same as AUTH-13.", "Task",
+          [Ref(type="part_of", target=ids.jira_issue(SITE, 10012), via="field"),
+           Ref(type="duplicates", target=ids.jira_issue(SITE, 10013), via="field")],
+          [{"type": "duplicates", "key": "AUTH-13"}])
+
+    w.add(GroupRecord(run_id=run_id, id=BROWSERS, source="jira", name="AUTH browsers",
+                      members=["user:priya@acme.com", ids.jira_person("712020:bbbb-sam")],
+                      observed_at=at("2026-10-20T03:01:30Z")))
+    finish_run(w, started_at=at("2026-10-20T03:00:00Z"), finished_at=at("2026-10-20T03:01:44Z"))
+
+
+# --------------------------------------------------------------------------- #
 # Identity: one email match and one LLM match
 # --------------------------------------------------------------------------- #
 
 def identity_run(store: LocalStore) -> None:
-    run_id = "2026-10-20T04:00:00Z-identity"
+    run_id = "2026-10-20T04-00-00Z-identity"
     w = RunWriter(store, "identity", run_id)
     w.add(IdentityRecord(
         run_id=run_id, person_id=ids.person_cluster("7f3a91"),
@@ -254,6 +307,7 @@ def build(out: Path = OUT) -> None:
         store = LocalStore(tmp)
         github_run(store)
         slack_run(store)
+        jira_run(store)
         identity_run(store)
         target = out / "runs"
         if target.exists():

@@ -147,6 +147,7 @@
             "blocks",
             "closes",
             "depends_on",
+            "duplicates",
             "implements",
             "member_of",
             "mentions",
@@ -236,7 +237,8 @@
         "thread",
         "channel",
         "document",
-        "folder"
+        "folder",
+        "project"
       ],
       "title": "Kind",
       "type": "string"
@@ -337,7 +339,7 @@
   ],
   "title": "ItemRecord",
   "type": "object",
-  "x-ontology-version": 1,
+  "x-ontology-version": 2,
   "x-person-roles": {
     "assignee": "assigned_to",
     "author": "authored",
@@ -424,6 +426,14 @@
         "issue",
         "project",
         "system"
+      ]
+    },
+    "duplicates": {
+      "from": [
+        "issue"
+      ],
+      "to": [
+        "issue"
       ]
     },
     "implements": {

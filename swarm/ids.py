@@ -32,8 +32,7 @@ PATTERNS: dict[str, re.Pattern[str]] = {
 
 
 # ID kind -> the ontology entity types an object with that ID can be. A Drive
-# id names a document or a folder; the ID alone does not say which. A Jira
-# project is a container only, never a relation endpoint.
+# id names a document or a folder; the ID alone does not say which.
 ENTITY_TYPES: dict[str, frozenset[str]] = {
     "github_repo":    frozenset({"repo"}),
     "github_pr":      frozenset({"pull_request"}),
@@ -41,7 +40,7 @@ ENTITY_TYPES: dict[str, frozenset[str]] = {
     "github_commit":  frozenset({"commit"}),
     "github_file":    frozenset({"document"}),
     "jira_issue":     frozenset({"issue"}),
-    "jira_project":   frozenset(),
+    "jira_project":   frozenset({"project"}),
     "slack_channel":  frozenset({"channel"}),
     "slack_thread":   frozenset({"thread"}),
     "gdrive_file":    frozenset({"document", "folder"}),

@@ -10,12 +10,15 @@
 #         both           - either
 #
 # `item_backed` entity types exist one per item or container. The LLM never
-# produces them, which keeps the graph's skeleton exact.
+# produces them, which keeps the graph's skeleton exact. `project` is both: a
+# Jira project is an item (kind project), and the LLM names projects too.
+#
+# v2: Jira projects are items; `duplicates` added.
 #
 # Every relation names the entity types it may start and end at (`from`, `to`).
 # The validator refuses a ref or an extracted relation outside them.
 
-version: 1
+version: 2
 
 entities:
   person:        {origin: deterministic, description: "Authors, assignees, reviewers, mentions"}
@@ -125,6 +128,11 @@ relations:
   blocks:
     origin: deterministic
     description: "Issue blocks another"
+    from: [issue]
+    to: [issue]
+  duplicates:
+    origin: deterministic
+    description: "Issue duplicates another"
     from: [issue]
     to: [issue]
 

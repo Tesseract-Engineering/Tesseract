@@ -45,8 +45,8 @@ def make_item(**overrides) -> ItemRecord:
 
 def test_ontology_matches_the_design_doc():
     onto = ontology.load()
-    assert onto.version == 1
-    assert len(onto.entities) == 15 and len(onto.relations) == 17
+    assert onto.version == 2
+    assert len(onto.entities) == 15 and len(onto.relations) == 18
     assert onto.item_backed == {"repo", "commit", "pull_request", "issue", "thread", "channel", "document", "folder"}
     assert onto.llm_entities == {"team", "project", "decision", "system", "action_item", "customer"}
     assert onto.relations - onto.deterministic_relations == {"works_on", "decided_by", "decided_in", "supersedes"}

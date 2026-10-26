@@ -1,0 +1,1 @@
+{"schema_version":"2","run_id":"2026-10-20T03-00-00Z-github","record_type":"group","id":"group:github:repo:7001:readers","source":"github","name":"acme/api readers","members":["user:sam@acme.com","user:priya@acme.com"],"unresolved":1,"observed_at":"2026-10-20T03:00:40Z"}

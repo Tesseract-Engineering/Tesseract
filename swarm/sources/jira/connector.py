@@ -7,17 +7,18 @@ retired).
 
   enumerate   the site's cloud id first (/_edge/tenant_info): IDs use it, not
               the site's name, which can be renamed. Then one container per
-              project, jira:{site}:project:{id}; a project is a container
-              only, with no item of its own
-  fetch       issues updated since the checkpoint minus a 7-day lookback,
+              project, jira:{site}:project:{id}
+  fetch       the project itself (its description and lead), then issues
+              updated since the checkpoint minus a 7-day lookback,
               oldest first, through /search/jql. JQL dates are read in the
               account's own time zone, and the lookback absorbs the
               difference. Descriptions and comments are turned from ADF into
               text here (adf.py), so redaction sees the text a person reads;
               comments past what search returns are paged in
-  list_ids    every issue id in the project, for weekly reconciliation
-  acl         the project's browsers group; an issue with a security level is
-              readable by that level's group instead
+  list_ids    the project and every issue id in it, for weekly reconciliation
+  acl         the project's browsers group, for the project and its issues;
+              an issue with a security level is readable by that level's
+              group instead
   groups      the browsers group: every active person with Browse Projects on
               the project, as user:{email} when Atlassian shows the email and
               person:jira:{account id} when it hides it, as it does by default.
@@ -99,7 +100,8 @@ class JiraConnector:
             log.warning("the Jira site changed since the last run; keys from that site are dropped")
             self.index.keys.clear()
         self.index.site = site
-        projects = list(self._start_at("/rest/api/3/project/search", {"orderBy": "key"}, key="values"))
+        projects = list(self._start_at("/rest/api/3/project/search", {"orderBy": "key", "expand": "description,lead"},
+                                       key="values"))
         if self.allow is not None:
             projects = [p for p in projects if p["key"].upper() in self.allow]
         for project in projects:
@@ -127,6 +129,8 @@ class JiraConnector:
         newest = min(since.cursor, fetched) if since else iso(start)
         jql = (f'project = {project["id"]} AND updated >= "{start:%Y-%m-%d %H:%M}" '
                f"ORDER BY updated ASC, id ASC")
+        yield RawItem(source="jira", container=container, native_id=f"project-{project['id']}",
+                      payload=self._project_payload(project), fetched_at=fetched)
         issues = list(self._search(jql, fields=",".join(FIELDS), expand="changelog"))
         # Index every key first, so text in one issue links to a later one.
         for issue in issues:
@@ -141,6 +145,13 @@ class JiraConnector:
             yield RawItem(source="jira", container=container, native_id=f"issue-{issue['id']}",
                           payload=self._payload(issue, project), fetched_at=fetched)
         self._cursors[container.id] = newest
+
+    def _project_payload(self, project: dict[str, Any]) -> dict[str, Any]:
+        full = self._projects.get(project["id"], {})
+        return {"type": "project", "site": self.site, "project": project,
+                "url": f"{self.browse_url}/browse/{project['key']}", "description": full.get("description"),
+                "lead": full.get("lead"), "project_type": full.get("projectTypeKey"),
+                "category": (full.get("projectCategory") or {}).get("name")}
 
     def _payload(self, issue: dict[str, Any], project: dict[str, Any]) -> dict[str, Any]:
         fields = dict(issue["fields"])
@@ -210,11 +221,12 @@ class JiraConnector:
     # -- reconciliation, permissions -------------------------------------------- #
 
     def list_ids(self, container: RawContainer) -> Iterator[str]:
+        yield container.id
         for issue in self._search(f'project = {container.meta["project"]["id"]} ORDER BY id ASC', fields="summary"):
             yield ids.jira_issue(self.site, issue["id"])
 
     def acl(self, item: RawItem) -> Acl:
-        level = item.payload["fields"].get("security")
+        level = (item.payload.get("fields") or {}).get("security")
         if level:
             return Acl(visibility="restricted", principals=[security_group(self.site, level["id"])])
         return Acl(visibility="restricted",

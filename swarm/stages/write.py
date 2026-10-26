@@ -34,13 +34,14 @@ from ..records import (
     dump_line,
 )
 from ..store import ObjectStore
-from ..timeutil import iso
 
 PART_SIZE = 5000
 
 
 def new_run_id(source: str, now: datetime | None = None) -> str:
-    stamp = iso(now or datetime.now(timezone.utc))
+    """2026-10-20T03-00-00Z-github: UTC, sortable, and with no colons, which
+    Windows refuses in a folder name."""
+    stamp = (now or datetime.now(timezone.utc)).astimezone(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
     return f"{stamp}-{source}"
 
 

@@ -126,7 +126,7 @@ def test_acl_stage():
 
 
 def test_run_id_format():
-    assert new_run_id("slack", NOW) == "2026-10-20T03:00:00Z-slack"
+    assert new_run_id("slack", NOW) == "2026-10-20T03-00-00Z-slack"           # no colons: Windows paths
 
 
 def test_local_store_refuses_escaping_keys(tmp_path):

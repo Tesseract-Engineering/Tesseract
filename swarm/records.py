@@ -63,7 +63,7 @@ from pydantic import (
 from . import SCHEMA_VERSION, ids, ontology
 
 Source = Literal["github", "jira", "slack", "gdrive"]
-ItemKind = Literal["repo", "commit", "pull_request", "issue", "thread", "channel", "document", "folder"]
+ItemKind = Literal["repo", "commit", "pull_request", "issue", "thread", "channel", "document", "folder", "project"]
 Visibility = Literal["public", "internal", "restricted"]
 
 # A principal names who may read:

@@ -33,7 +33,7 @@ def items():
 
 
 def test_every_issue_round_trips_through_the_contract(items):
-    assert sorted(items) == ["AUTH-12", "AUTH-13", "AUTH-14", "OPS-3"]
+    assert sorted(items) == ["AUTH", "AUTH-12", "AUTH-13", "AUTH-14", "OPS", "OPS-3"]
     for item in items.values():
         assert parse_line(item.model_dump_json()) == item
 
@@ -75,6 +75,23 @@ def test_parent_and_outward_links_become_typed_refs(items):
         ("references", issue_id("10030"), "field")]         # AUTH-12 and OPS-3 in the text are already linked
     assert task.meta["parent_key"] == "AUTH-12"
     assert task.meta["links"] == [{"type": "blocks", "key": "AUTH-14"}, {"type": "relates to", "key": "OPS-3"}]
+
+
+def test_a_duplicate_link_is_a_duplicates_ref(items):
+    dup = items["OPS-3"]
+    assert ("duplicates", issue_id("10014"), "field") in [(r.type, r.target, r.via) for r in dup.refs]
+    assert dup.meta["links"] == [{"type": "duplicates", "key": "AUTH-14"}]
+
+
+def test_each_project_is_an_item_its_issues_sit_in(items):
+    auth = items["AUTH"]
+    assert (auth.kind, auth.id, auth.container, auth.title) == ("project", f"jira:{SITE}:project:10000", None,
+                                                                "Staff Auth")
+    assert auth.text == "Staff sign-in: OIDC, keys and sessions." and auth.aliases == ["AUTH"]
+    assert [(p.name, p.roles) for p in auth.people] == [("Priya Raman", ["owner"])]
+    assert auth.url.endswith("/browse/AUTH") and auth.version == auth.content_hash
+    assert items["AUTH-12"].container == auth.id and items["OPS-3"].container == items["OPS"].id
+    assert items["OPS"].people == [] and items["OPS"].text == ""
 
 
 def test_inward_links_are_left_to_the_other_end_and_old_keys_are_aliases(items):

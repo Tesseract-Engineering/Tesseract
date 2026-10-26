@@ -1,0 +1,1 @@
+{"schema_version":"2","run_id":"2026-10-20T03-00-00Z-jira","record_type":"group","id":"group:jira:c0ffee00-1111-2222-3333-444455556666:project:10000:browsers","source":"jira","name":"AUTH browsers","members":["user:priya@acme.com","person:jira:712020%3Abbbb-sam"],"unresolved":0,"observed_at":"2026-10-20T03:01:30Z"}

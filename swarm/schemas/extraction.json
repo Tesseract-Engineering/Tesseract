@@ -228,7 +228,7 @@
   ],
   "title": "ExtractionRecord",
   "type": "object",
-  "x-ontology-version": 1,
+  "x-ontology-version": 2,
   "x-relations": {
     "assigned_to": {
       "from": [
@@ -305,6 +305,14 @@
         "issue",
         "project",
         "system"
+      ]
+    },
+    "duplicates": {
+      "from": [
+        "issue"
+      ],
+      "to": [
+        "issue"
       ]
     },
     "implements": {

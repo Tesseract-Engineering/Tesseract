@@ -56,8 +56,8 @@ def test_run_is_manifest_complete_with_full_acl_coverage_and_no_secrets(first):
     store, manifest, checks = first
     assert read_manifest(store, "jira", manifest.run_id) == manifest
     # Two browsers groups (AUTH, OPS) and AUTH's security level.
-    assert manifest.counts == {**ZERO, "items": 4, "groups": 3}
-    assert checks == {"items": 4, "written_with_acl": 1.0, "secret_hits": 0}
+    assert manifest.counts == {**ZERO, "items": 6, "groups": 3}          # two projects, four issues
+    assert checks == {"items": 6, "written_with_acl": 1.0, "secret_hits": 0}
     everything = b"".join(store.get(k) for k in store.list("runs/jira/") + store.list("raw/jira/"))
     assert planted()["slack_bot"].encode() not in everything
 

@@ -35,7 +35,7 @@ def test_sample_has_every_record_type_and_complete_manifests():
     kinds = {parse_line(line.values[0]).record_type for line in sample_lines()}
     assert kinds == {"item", "extraction", "tombstone", "acl_update", "group", "identity"}
     runs = [p for p in SAMPLE.glob("*/*") if p.is_dir()]
-    assert len(runs) == 3
+    assert len(runs) == 4
     for run in runs:
         manifest = Manifest.model_validate_json((run / "_manifest.json").read_text(encoding="utf-8"))
         assert manifest.status == "complete" and manifest.run_id == run.name
@@ -54,3 +54,9 @@ def test_sample_is_what_the_builder_writes(tmp_path):
     built = {p.relative_to(tmp_path / "runs"): p.read_bytes() for p in (tmp_path / "runs").rglob("*") if p.is_file()}
     committed = {p.relative_to(SAMPLE): p.read_bytes() for p in SAMPLE.rglob("*") if p.is_file()}
     assert built == committed, "run python samples/make_run0.py"
+
+
+def test_sample_paths_check_out_on_windows():
+    """Windows refuses these characters in a file or folder name; a run id
+    with colons once kept the sample from checking out there."""
+    assert [p for p in SAMPLE.rglob("*") if set(p.name) & set('<>:"|?*\\')] == []

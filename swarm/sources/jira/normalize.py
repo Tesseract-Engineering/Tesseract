@@ -1,9 +1,14 @@
 """
 normalize.py - Jira issues to item records.
 
-One kind, issue: the description, then every comment headed with who wrote
-it, as one text. The key is an alias, never the id: keys change when an
-issue moves between projects, so old keys are aliases too.
+Two kinds:
+  project   one per project: its name, description and lead (as owner).
+            Jira gives a project no timestamps, so created_at and updated_at
+            are when this content was first seen, and the version is its
+            content hash
+  issue     the description, then every comment headed with who wrote it, as
+            one text. The key is an alias, never the id: keys change when an
+            issue moves between projects, so old keys are aliases too
 
 People are the reporter, the assignee, commenters and anyone @-mentioned
 (named as the mention shows them), as person:jira:{account id}
@@ -14,6 +19,7 @@ integrations) are not people; they go in meta.bots.
 Refs from fields:
   parent (an epic or parent issue)      part_of
   an outward "Blocks" link              blocks
+  an outward "Duplicate" link           duplicates
   an outward link whose name says
   "depend"                              depends_on
   any other outward link                references
@@ -84,6 +90,8 @@ class JiraNormalizer:
         return relink(item, github=self.github, jira=self.index, **when)
 
     def to_item(self, raw: RawItem, acl: Acl) -> ItemRecord:
+        if raw.payload["type"] == "project":
+            return self._project(raw, acl)
         p = raw.payload
         site, issue, f = p["site"], p["issue"], p["fields"]
         item_id = ids.jira_issue(site, issue["id"])
@@ -118,8 +126,8 @@ class JiraNormalizer:
             name = (kind.get("name") or "").lower()
             if "outwardIssue" in link:
                 other = link["outwardIssue"]
-                add("blocks" if name == "blocks" else "depends_on" if "depend" in name else "references",
-                    ids.jira_issue(site, other["id"]))
+                add("blocks" if name == "blocks" else "duplicates" if name == "duplicate"
+                    else "depends_on" if "depend" in name else "references", ids.jira_issue(site, other["id"]))
                 links.append({"type": kind.get("outward") or name, "key": other.get("key")})
             elif "inwardIssue" in link:
                 links.append({"type": kind.get("inward") or name, "key": link["inwardIssue"].get("key")})
@@ -154,3 +162,20 @@ class JiraNormalizer:
             redactions=redactions_in({"title": title, "text": text}),
             content_hash=content_hash(title=title, text=text, container=ids.jira_project(site, p["project"]["id"]),
                                       people=built, refs=refs, meta=meta))
+
+    def _project(self, raw: RawItem, acl: Acl) -> ItemRecord:
+        p = raw.payload
+        project = p["project"]
+        item_id = ids.jira_project(p["site"], project["id"])
+        people = _People()
+        people.add(p.get("lead"), "owner")
+        built = people.build()
+        title, text = project.get("name") or project["key"], p.get("description") or ""
+        meta = {k: v for k, v in {"key": project["key"], "project_type": p.get("project_type"),
+                                  "category": p.get("category")}.items() if v}
+        digest = content_hash(title=title, text=text, container=None, people=built, refs=[], meta=meta)
+        return ItemRecord(
+            id=item_id, aliases=[project["key"]], kind="project", source="jira", container=None, title=title,
+            text=text, url=p["url"], created_at=raw.fetched_at, updated_at=raw.fetched_at, version=digest,
+            people=built, meta=meta, acl=acl, fetched_at=raw.fetched_at, run_id=self.run_id,
+            redactions=redactions_in({"title": title, "text": text}), content_hash=digest)

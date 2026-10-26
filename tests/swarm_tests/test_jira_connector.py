@@ -14,7 +14,8 @@ def fetch_all(conn, since=None):
     out = {}
     for container in conn.enumerate():
         for raw in conn.fetch(container, (since or {}).get(container.id)):
-            out[raw.payload["issue"]["key"]] = raw
+            if raw.payload["type"] == "issue":
+                out[raw.payload["issue"]["key"]] = raw
     return out
 
 
@@ -50,9 +51,19 @@ def test_checkpoint_is_the_newest_update_and_the_next_run_looks_back_a_week():
     assert cp.cursor == "2026-10-15T10:00:00Z"
     later, fake = connector(now=NOW + timedelta(days=1))
     auth = next(iter(later.enumerate()))
-    keys = [raw.payload["issue"]["key"] for raw in later.fetch(auth, cp)]
+    keys = [raw.payload["issue"]["key"] for raw in later.fetch(auth, cp) if raw.payload["type"] == "issue"]
     jql = next(r for r in fake.requests if r.url.path == "/rest/api/3/search/jql").url.params["jql"]
     assert 'updated >= "2026-10-08 10:00"' in jql and keys == ["AUTH-14", "AUTH-13", "AUTH-12"]
+
+
+def test_each_project_comes_first_with_its_description_and_lead():
+    conn, _ = connector()
+    auth = next(iter(conn.enumerate()))
+    first = next(iter(conn.fetch(auth, None)))
+    assert first.native_id == "project-10000" and first.payload["type"] == "project"
+    assert first.payload["description"] == "Staff sign-in: OIDC, keys and sessions."
+    assert first.payload["lead"]["displayName"] == "Priya Raman"
+    assert conn.acl(first).principals == [browsers_group(SITE, "10000")]
 
 
 def test_text_is_rendered_before_redaction_and_comments_past_the_first_page_are_read():
@@ -124,7 +135,7 @@ def test_unlistable_browsers_write_an_empty_group():
 def test_list_ids_covers_every_issue_in_the_project():
     conn, _ = connector()
     auth = next(iter(conn.enumerate()))
-    assert list(conn.list_ids(auth)) == [f"jira:{SITE}:issue:{n}" for n in ("10009", "10012", "10013", "10014")]
+    assert list(conn.list_ids(auth)) == [auth.id] + [f"jira:{SITE}:issue:{n}" for n in ("10009", "10012", "10013", "10014")]
 
 
 def test_a_checkpoint_in_the_future_heals():
