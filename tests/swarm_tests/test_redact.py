@@ -42,9 +42,14 @@ def test_redact_fields_records_which_field():
 
 
 def test_an_unquoted_aws_secret_keeps_its_label():
-    secret = "wJalrXUtnFEMI/K7MDENG" + "/bPxRfiCYEXAMPLEKEY"
+    # The value comes from the corpus, joined at runtime, so this file holds no scanner-shaped literal.
+    import yaml
+
+    from .github_fixture import CORPUS
+    parts = yaml.safe_load(CORPUS.read_text(encoding="utf-8"))["positives"]["aws_secret_unquoted"]["parts"]
+    value = "".join(parts[2:])
     # Quoted, detect-secrets' own AWS pattern already catches it; bare, as in .env files, it did not.
-    clean, found = redact(f"Staging creds:\nAWS_SECRET_ACCESS_KEY={secret}\naws.secret-key : {secret} (rotate)")
+    clean, found = redact(f"Staging creds:\nAWS_SECRET_ACCESS_KEY={value}\naws.secret-key : {value} (rotate)")
     assert clean == ("Staging creds:\nAWS_SECRET_ACCESS_KEY=[REDACTED:AWS Secret Access Key]\n"
                      "aws.secret-key : [REDACTED:AWS Secret Access Key] (rotate)")
     assert [(r.type, r.count) for r in found] == [("AWS Secret Access Key", 2)]
