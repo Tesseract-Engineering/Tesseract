@@ -22,7 +22,7 @@ from collections.abc import Callable
 from swarm.records import Entity, ExtractionRecord, ItemRecord
 
 from .bucket import Bucket
-from .check_sandbox import channel, doc
+from .check_sandbox import ROSTER, channel, doc
 
 CHECKS: list[tuple[str, str, Callable[[Bucket], tuple[bool, str]]]] = []
 
@@ -116,12 +116,14 @@ def _(b):
 
 # -- story 2: retraining ------------------------------------------------------ #
 
-@check("retraining", "ADR-014 records the decision to retrain on drift, and the pipeline as a system")
+@check("retraining", "ADR-014 records the decision to retrain on drift, and the pipeline as a system or project")
 def _(b):
     adrs = [b.drive("ADR-014 Continuous Retraining.docx"), doc(b, "ml-platform", "docs/adr/014-continuous-retraining.md")]
     decisions = entities(b, adrs, "decision", r"drift|continuous")
-    systems = entities(b, adrs, "system", r"retrain|pipeline")
-    return bool(decisions) and bool(systems), f"decisions: {where(decisions) or 'none'}; systems: {where(systems) or 'none'}"
+    # Either reading is right: the pipeline as one system, or as a project whose parts are systems.
+    pipeline = (entities(b, adrs, "system", r"retrain|pipeline")
+                + entities(b, adrs, "project", r"retrain|pipeline"))
+    return bool(decisions) and bool(pipeline), f"decisions: {where(decisions) or 'none'}; pipeline: {where(pipeline) or 'none'}"
 
 
 @check("retraining", "Karthik owns the retraining pipeline")
@@ -171,10 +173,14 @@ def _(b):
 # -- people the text names ---------------------------------------------------- #
 
 def person_named(b: Bucket, person_id: str) -> str:
-    """A resolved person's most used name, from their identity record."""
+    """Who a resolved person is, by the roster: their accounts are the cluster's
+    members. Names alone would not do: Dhruv's four accounts carry four names."""
     record = b.identities.get(person_id)
-    names = Counter(m.name for m in record.members if m.name) if record else Counter()
-    return names.most_common(1)[0][0] if names else person_id
+    members = {(m.source, m.handle) for m in record.members} if record else set()
+    for person, accounts in ROSTER.items():
+        if members & set(accounts.items()):
+            return person
+    return person_id
 
 
 @check("people", "action items in the weekly sync notes link to the people the notes name")
