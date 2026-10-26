@@ -10,7 +10,8 @@ the direct API to Bedrock is a config change (docs/SWARM.md, "Architecture"):
   SWARM_MODEL_EFFORT   low | medium | high | xhigh | max (default medium)
   SWARM_MODEL_BATCH    on (the default) | off: anthropic only, see below
   AWS_REGION           Bedrock only
-  SWARM_MODEL_REPLAY   a directory of recorded answers (Replay): with anthropic
+  SWARM_MODEL_REPLAY   a directory of recorded answers (Replay), one folder per
+                       model so one model's answers never stand in for another's: with anthropic
                        or bedrock, a request already recorded there is answered
                        from it and a new one goes to the model and is recorded,
                        always as a direct call; with replay, only recordings
@@ -237,7 +238,7 @@ def from_env() -> Model | None:
     if backend == "replay":
         if not replay:
             raise SystemExit("SWARM_MODEL_BACKEND=replay needs SWARM_MODEL_REPLAY, the recordings' directory")
-        return Replay(replay)
+        return Replay(Path(replay) / model)
     if backend == "anthropic":
         # Recording needs each answer back in the run that asked, so no batches.
         live: Model = ClaudeApi(model, effort=effort, batch=batch == "on" and not replay)
@@ -245,4 +246,4 @@ def from_env() -> Model | None:
         live = Bedrock(model, effort=effort)
     else:
         raise SystemExit(f"SWARM_MODEL_BACKEND={backend!r}: expected anthropic, bedrock, replay or off")
-    return Replay(replay, record=live) if replay else live
+    return Replay(Path(replay) / model, record=live) if replay else live

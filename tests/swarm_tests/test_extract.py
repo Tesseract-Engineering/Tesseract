@@ -590,6 +590,9 @@ def test_replay_follows_the_environment(monkeypatch, tmp_path):
     monkeypatch.setenv("SWARM_MODEL_REPLAY", str(tmp_path))
     recording = model_mod.from_env()
     assert isinstance(recording, Replay) and recording.record.batch is False    # recording calls directly
+    assert recording.dir == tmp_path / "claude-opus-5-5"
+    monkeypatch.setenv("SWARM_MODEL", "claude-sonnet-5-5")
+    assert model_mod.from_env().dir == tmp_path / "claude-sonnet-5-5"   # never another model's answers
     monkeypatch.setenv("SWARM_MODEL_BACKEND", "replay")
     replaying = model_mod.from_env()
     assert isinstance(replaying, Replay) and replaying.record is None
