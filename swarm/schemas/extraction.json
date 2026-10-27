@@ -1,0 +1,463 @@
+{
+  "$defs": {
+    "Entity": {
+      "additionalProperties": false,
+      "properties": {
+        "attributes": {
+          "additionalProperties": true,
+          "description": "Open extensions live only here",
+          "title": "Attributes",
+          "type": "object"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/Span"
+          },
+          "minItems": 1,
+          "title": "Evidence",
+          "type": "array"
+        },
+        "local_id": {
+          "description": "Unique within this record: e1, e2, ...",
+          "pattern": "^e\\d+$",
+          "title": "Local Id",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "description": "An LLM entity type from ontology.yaml",
+          "enum": [
+            "action_item",
+            "customer",
+            "decision",
+            "project",
+            "system",
+            "team"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "local_id",
+        "type",
+        "name",
+        "evidence"
+      ],
+      "title": "Entity",
+      "type": "object"
+    },
+    "Extractor": {
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "description": "Model id, e.g. claude-sonnet-5-5",
+          "title": "Model",
+          "type": "string"
+        },
+        "prompt_version": {
+          "description": "Versioned prompt name, e.g. decisions-v3",
+          "title": "Prompt Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "model",
+        "prompt_version"
+      ],
+      "title": "Extractor",
+      "type": "object"
+    },
+    "Relation": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/Span"
+          },
+          "minItems": 1,
+          "title": "Evidence",
+          "type": "array"
+        },
+        "source": {
+          "description": "An entity local_id in this record, or an ID from swarm/ids.py",
+          "title": "Source",
+          "type": "string"
+        },
+        "target": {
+          "description": "An entity local_id in this record, or an ID from swarm/ids.py",
+          "title": "Target",
+          "type": "string"
+        },
+        "type": {
+          "description": "An LLM relation type from ontology.yaml",
+          "enum": [
+            "assigned_to",
+            "decided_by",
+            "decided_in",
+            "depends_on",
+            "member_of",
+            "mentions",
+            "owns",
+            "part_of",
+            "supersedes",
+            "works_on"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "source",
+        "target",
+        "confidence",
+        "evidence"
+      ],
+      "title": "Relation",
+      "type": "object"
+    },
+    "Span": {
+      "additionalProperties": false,
+      "description": "A quoted span of an item's text: text[start:end] == quote.\n\nOffsets count Unicode code points (Python str indexing), not UTF-16 code\nunits or bytes. A JavaScript reader converts with Array.from(text).",
+      "properties": {
+        "end": {
+          "minimum": 0,
+          "title": "End",
+          "type": "integer"
+        },
+        "quote": {
+          "minLength": 1,
+          "title": "Quote",
+          "type": "string"
+        },
+        "start": {
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "quote"
+      ],
+      "title": "Span",
+      "type": "object"
+    }
+  },
+  "$id": "extraction.json",
+  "additionalProperties": false,
+  "properties": {
+    "entities": {
+      "items": {
+        "$ref": "#/$defs/Entity"
+      },
+      "title": "Entities",
+      "type": "array"
+    },
+    "extracted_at": {
+      "format": "date-time",
+      "title": "Extracted At",
+      "type": "string"
+    },
+    "extractor": {
+      "$ref": "#/$defs/Extractor"
+    },
+    "item_id": {
+      "title": "Item Id",
+      "type": "string"
+    },
+    "item_version": {
+      "minLength": 1,
+      "title": "Item Version",
+      "type": "string"
+    },
+    "record_type": {
+      "const": "extraction",
+      "default": "extraction",
+      "title": "Record Type",
+      "type": "string"
+    },
+    "relations": {
+      "items": {
+        "$ref": "#/$defs/Relation"
+      },
+      "title": "Relations",
+      "type": "array"
+    },
+    "run_id": {
+      "minLength": 1,
+      "title": "Run Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "2",
+      "default": "2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source": {
+      "enum": [
+        "github",
+        "jira",
+        "slack",
+        "gdrive"
+      ],
+      "title": "Source",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "item_id",
+    "item_version",
+    "source",
+    "extractor",
+    "extracted_at"
+  ],
+  "title": "ExtractionRecord",
+  "type": "object",
+  "x-ontology-version": 2,
+  "x-relations": {
+    "assigned_to": {
+      "from": [
+        "action_item",
+        "issue",
+        "pull_request"
+      ],
+      "to": [
+        "person"
+      ]
+    },
+    "authored": {
+      "from": [
+        "person"
+      ],
+      "to": [
+        "channel",
+        "commit",
+        "document",
+        "folder",
+        "issue",
+        "pull_request",
+        "repo",
+        "thread"
+      ]
+    },
+    "blocks": {
+      "from": [
+        "issue"
+      ],
+      "to": [
+        "issue"
+      ]
+    },
+    "closes": {
+      "from": [
+        "pull_request"
+      ],
+      "to": [
+        "issue"
+      ]
+    },
+    "decided_by": {
+      "from": [
+        "decision"
+      ],
+      "to": [
+        "person",
+        "team"
+      ]
+    },
+    "decided_in": {
+      "from": [
+        "decision"
+      ],
+      "to": [
+        "channel",
+        "commit",
+        "document",
+        "folder",
+        "issue",
+        "pull_request",
+        "repo",
+        "thread"
+      ]
+    },
+    "depends_on": {
+      "from": [
+        "issue",
+        "project",
+        "system"
+      ],
+      "to": [
+        "issue",
+        "project",
+        "system"
+      ]
+    },
+    "duplicates": {
+      "from": [
+        "issue"
+      ],
+      "to": [
+        "issue"
+      ]
+    },
+    "implements": {
+      "from": [
+        "commit",
+        "pull_request"
+      ],
+      "to": [
+        "issue"
+      ]
+    },
+    "member_of": {
+      "from": [
+        "person"
+      ],
+      "to": [
+        "team"
+      ]
+    },
+    "mentions": {
+      "from": [
+        "channel",
+        "commit",
+        "document",
+        "folder",
+        "issue",
+        "pull_request",
+        "repo",
+        "thread"
+      ],
+      "to": [
+        "action_item",
+        "channel",
+        "commit",
+        "customer",
+        "decision",
+        "document",
+        "folder",
+        "issue",
+        "person",
+        "project",
+        "pull_request",
+        "repo",
+        "system",
+        "team",
+        "thread"
+      ]
+    },
+    "owns": {
+      "from": [
+        "person",
+        "team"
+      ],
+      "to": [
+        "channel",
+        "document",
+        "folder",
+        "project",
+        "repo",
+        "system"
+      ]
+    },
+    "part_of": {
+      "from": [
+        "action_item",
+        "commit",
+        "decision",
+        "document",
+        "folder",
+        "issue",
+        "pull_request",
+        "system",
+        "thread"
+      ],
+      "to": [
+        "issue",
+        "project",
+        "system"
+      ]
+    },
+    "participated_in": {
+      "from": [
+        "person"
+      ],
+      "to": [
+        "channel",
+        "commit",
+        "document",
+        "folder",
+        "issue",
+        "pull_request",
+        "repo",
+        "thread"
+      ]
+    },
+    "references": {
+      "from": [
+        "channel",
+        "commit",
+        "document",
+        "folder",
+        "issue",
+        "pull_request",
+        "repo",
+        "thread"
+      ],
+      "to": [
+        "channel",
+        "commit",
+        "document",
+        "folder",
+        "issue",
+        "pull_request",
+        "repo",
+        "thread"
+      ]
+    },
+    "reviewed": {
+      "from": [
+        "person"
+      ],
+      "to": [
+        "document",
+        "pull_request"
+      ]
+    },
+    "supersedes": {
+      "from": [
+        "decision",
+        "document"
+      ],
+      "to": [
+        "decision",
+        "document"
+      ]
+    },
+    "works_on": {
+      "from": [
+        "person",
+        "team"
+      ],
+      "to": [
+        "project",
+        "system"
+      ]
+    }
+  }
+}

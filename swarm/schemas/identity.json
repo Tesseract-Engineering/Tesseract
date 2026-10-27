@@ -1,0 +1,134 @@
+{
+  "$defs": {
+    "IdentityMember": {
+      "additionalProperties": false,
+      "properties": {
+        "email": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Email"
+        },
+        "handle": {
+          "title": "Handle",
+          "type": "string"
+        },
+        "id": {
+          "description": "person:{source}:{handle}, as on item records",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "source": {
+          "enum": [
+            "github",
+            "jira",
+            "slack",
+            "gdrive"
+          ],
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "source",
+        "handle"
+      ],
+      "title": "IdentityMember",
+      "type": "object"
+    }
+  },
+  "$id": "identity.json",
+  "additionalProperties": false,
+  "properties": {
+    "confidence": {
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Confidence",
+      "type": "number"
+    },
+    "evidence": {
+      "default": "",
+      "title": "Evidence",
+      "type": "string"
+    },
+    "members": {
+      "items": {
+        "$ref": "#/$defs/IdentityMember"
+      },
+      "title": "Members",
+      "type": "array"
+    },
+    "merged_into": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Set when this cluster was merged into another; the cluster is retired and lists no members",
+      "title": "Merged Into"
+    },
+    "method": {
+      "enum": [
+        "email",
+        "llm",
+        "manual"
+      ],
+      "title": "Method",
+      "type": "string"
+    },
+    "person_id": {
+      "description": "person:c:{cluster_hash}, stable across runs",
+      "title": "Person Id",
+      "type": "string"
+    },
+    "record_type": {
+      "const": "identity",
+      "default": "identity",
+      "title": "Record Type",
+      "type": "string"
+    },
+    "run_id": {
+      "minLength": 1,
+      "title": "Run Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "2",
+      "default": "2",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "person_id",
+    "method",
+    "confidence"
+  ],
+  "title": "IdentityRecord",
+  "type": "object",
+  "x-ontology-version": 2
+}

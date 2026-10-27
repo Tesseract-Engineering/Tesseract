@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    services:
+      # The swarm's dev bucket, for the s3-marked tests.
+      storage:
+        image: rustfs/rustfs:1.0.1
+        env:
+          RUSTFS_ACCESS_KEY: ci-access
+          RUSTFS_SECRET_KEY: ci-secret-key
+        ports: ["9000:9000"]
+        options: >-
+          --health-cmd "curl -sf http://127.0.0.1:9000/health"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+    env:
+      S3_ENDPOINT: http://localhost:9000
+      AWS_ACCESS_KEY_ID: ci-access
+      AWS_SECRET_ACCESS_KEY: ci-secret-key
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e '.[dev,swarm]'
+      - run: ruff check tests swarm pipelines samples
+      - run: pytest
+

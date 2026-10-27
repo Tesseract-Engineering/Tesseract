@@ -1,0 +1,86 @@
+{
+  "_about": "A fictional Slack workspace, acme, in the shapes the Web API and workspace exports use (trimmed to the fields the connectors read, plus a few they ignore). tests/swarm_tests/slack_fixture.py serves it as a fake Web API and writes it out as an export folder, so both connectors read the same messages. Replies sit next to their parents, as in an export. {{PLANTED:name}} is replaced with a fake token from tests/fixtures/redaction/corpus.yaml. No club data.",
+
+  "team": {"id": "T01ACME", "url": "https://acme.slack.com/"},
+
+  "users": [
+    {"id": "U123SAM", "team_id": "T01ACME", "name": "sam", "real_name": "Sam Lee", "deleted": false, "is_bot": false,
+     "profile": {"real_name": "Sam Lee", "display_name": "sam", "email": "Sam@Acme.com"}},
+    {"id": "U456PRI", "team_id": "T01ACME", "name": "priya", "real_name": "Priya Rao", "deleted": false, "is_bot": false,
+     "profile": {"real_name": "Priya Rao", "display_name": "priya", "email": "priya@acme.com"}},
+    {"id": "U789JO", "team_id": "T01ACME", "name": "jo", "real_name": "Jo Kim", "deleted": false, "is_bot": false,
+     "profile": {"real_name": "Jo Kim", "display_name": "jo"}},
+    {"id": "UB0TDEPLOY", "team_id": "T01ACME", "name": "deploybot", "real_name": "deploybot", "deleted": false, "is_bot": true,
+     "profile": {"real_name": "deploybot", "bot_id": "B01DEPLOY"}},
+    {"id": "U000OLD", "team_id": "T01ACME", "name": "old", "real_name": "Old Member", "deleted": true, "is_bot": false,
+     "profile": {"real_name": "Old Member", "email": "old@acme.com"}}
+  ],
+
+  "channels": [
+    {"id": "C42AUTH", "name": "eng-auth", "created": 1736348400, "creator": "U123SAM",
+     "is_private": true, "is_archived": false, "is_member": true,
+     "topic": {"value": "OIDC rollout. Spec: <https://docs.google.com/document/d/1AbCdEfGhIjK/edit|OIDC spec>", "creator": "U123SAM", "last_set": 1788256800},
+     "purpose": {"value": "Auth migration and the IdP proxy", "creator": "U123SAM", "last_set": 1736348400},
+     "members": ["U123SAM", "U456PRI", "U789JO", "UB0TDEPLOY", "U000OLD", "U999GONE"]},
+    {"id": "C10GEN", "name": "general", "created": 1738422000, "creator": "U456PRI",
+     "is_private": false, "is_archived": false, "is_member": true,
+     "topic": {"value": "", "creator": "", "last_set": 0},
+     "purpose": {"value": "Company-wide announcements", "creator": "U456PRI", "last_set": 1738422000},
+     "members": ["U123SAM", "U456PRI", "U789JO"]},
+    {"id": "C77OPS", "name": "ops", "created": 1738422000, "creator": "U123SAM",
+     "is_private": false, "is_archived": false, "is_member": false,
+     "topic": {"value": "", "creator": "", "last_set": 0},
+     "purpose": {"value": "On-call", "creator": "U123SAM", "last_set": 1738422000},
+     "members": ["U123SAM"]}
+  ],
+
+  "messages": {
+    "C42AUTH": [
+      {"type": "message", "subtype": "channel_join", "user": "U789JO", "ts": "1790845200.000100",
+       "text": "<@U789JO> has joined the channel"},
+
+      {"type": "message", "user": "U123SAM", "ts": "1791986400.000100", "thread_ts": "1791986400.000100",
+       "reply_count": 3, "reply_users": ["U456PRI", "U789JO", "U123SAM"], "latest_reply": "1791986970.000400",
+       "text": "SAML keeps breaking behind the IdP proxy. Proposal: we use OIDC instead of SAML for staff login.",
+       "blocks": [{"type": "rich_text"}], "team": "T01ACME"},
+      {"type": "message", "user": "U456PRI", "ts": "1791986700.000200", "thread_ts": "1791986400.000100",
+       "parent_user_id": "U123SAM",
+       "text": "Agreed. acme-sbx/api#2 already has the change. Spec: <https://docs.google.com/document/d/1AbCdEfGhIjK/edit|OIDC spec>"},
+      {"type": "message", "subtype": "thread_broadcast", "user": "U789JO", "ts": "1791986820.000300",
+       "thread_ts": "1791986400.000100", "parent_user_id": "U123SAM",
+       "text": "Heads up <!here>: the old staging config had a live token, now rotated: {{PLANTED:slack_bot}}"},
+      {"type": "message", "user": "U123SAM", "ts": "1791986970.000400", "thread_ts": "1791986400.000100",
+       "parent_user_id": "U123SAM", "edited": {"user": "U123SAM", "ts": "1791987600.000000"},
+       "text": "Decided then. I'll draft the rollout plan by Friday &amp; share it here."},
+
+      {"type": "message", "user": "U456PRI", "ts": "1792054800.000100",
+       "text": "Standup: <@U123SAM> is on the rollout, I'm on the proxy."},
+      {"type": "message", "user": "U123SAM", "ts": "1792055400.000200",
+       "text": "See <#C10GEN|general> for the announcement."},
+      {"type": "message", "user": "U789JO", "ts": "1792056300.000300", "text": "ok",
+       "files": [{"id": "F01", "name": "proxy.log", "title": "proxy log", "url_private": "https://files.slack.com/x"}]},
+      {"type": "message", "user": "U456PRI", "ts": "1792057800.000400", "text": "Unrelated: lunch at noon?"},
+
+      {"type": "message", "user": "U123SAM", "ts": "1792194900.000100",
+       "text": "late night deploy of <https://github.com/acme-sbx/api/pull/2>"},
+      {"type": "message", "user": "U123SAM", "ts": "1792195500.000200", "text": "done, all green"},
+      {"type": "message", "subtype": "bot_message", "bot_id": "B01DEPLOY", "username": "deploybot",
+       "ts": "1792195560.000300", "text": "Deployed api@3f9c2e1 to production"},
+
+      {"type": "message", "user": "U456PRI", "ts": "1785578400.000100", "thread_ts": "1785578400.000100",
+       "reply_count": 2, "text": "Old proxy notes: the IdP proxy strips the SAML assertion header."},
+      {"type": "message", "user": "U123SAM", "ts": "1785580200.000200", "thread_ts": "1785578400.000100",
+       "text": "Noted, AUTH-12 tracks it."},
+      {"type": "message", "user": "U789JO", "ts": "1792310400.000300", "thread_ts": "1785578400.000100",
+       "text": "Still relevant? The decision is in <https://acme.slack.com/archives/C42AUTH/p1791986970000400?thread_ts=1791986400.000100&amp;cid=C42AUTH>, and see <https://acme.slack.com/archives/C42AUTH/p1792055400000200>"}
+    ],
+    "C10GEN": [
+      {"type": "message", "user": "U123SAM", "ts": "1792144800.000100",
+       "text": "Announcement: staff login moves to OIDC on Monday. Tracking: <https://github.com/acme-sbx/api/issues/1> and NEXP-318. Unrelated repo: <https://github.com/other-org/thing/pull/9>"},
+      {"type": "message", "user": "U456PRI", "ts": "1792144920.000200", "text": ":tada:"}
+    ],
+    "C77OPS": [
+      {"type": "message", "user": "U123SAM", "ts": "1791633600.000100", "text": "Pager rotation starts Monday."}
+    ]
+  }
+}

@@ -1,0 +1,14 @@
+# The pipeline images build from the repo root (swarm/compose.yaml) and copy
+# only what they name; this keeps secrets and local data out of the context.
+.env
+**/.env
+.git
+.venv
+var
+data
+storage-data
+tests
+docs
+**/__pycache__
+*.pyc
+.DS_Store

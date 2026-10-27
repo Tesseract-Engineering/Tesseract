@@ -1,0 +1,591 @@
+{
+ "_about": "A fictional Jira Cloud site, acme-sbx.atlassian.net, in the v3 REST API's shapes (trimmed to the fields the connector asks for). tests/swarm_tests/jira_fixture.py serves it as a fake API. {\"$user\": name} is replaced with that user from _users; an issue's _comments are all its comments (search returns the first two, the rest are paged in); {{PLANTED:name}} is a fake token from tests/fixtures/redaction/corpus.yaml. No club data.",
+ "cloud_id": "c0ffee00-1111-2222-3333-444455556666",
+ "_users": {
+  "priya": {
+   "accountId": "712020:aaaa-priya",
+   "accountType": "atlassian",
+   "displayName": "Priya Raman",
+   "emailAddress": "Priya@acme-sbx.dev",
+   "active": true
+  },
+  "sam": {
+   "accountId": "712020:bbbb-sam",
+   "accountType": "atlassian",
+   "displayName": "Sam Lee",
+   "active": true
+  },
+  "dana": {
+   "accountId": "712020:cccc-dana",
+   "accountType": "atlassian",
+   "displayName": "D. Okafor",
+   "active": true
+  },
+  "gone": {
+   "accountId": "712020:dddd-gone",
+   "accountType": "atlassian",
+   "displayName": "Former Staff",
+   "active": false
+  },
+  "bot": {
+   "accountId": "557058:automation",
+   "accountType": "app",
+   "displayName": "Automation for Jira",
+   "active": true
+  }
+ },
+ "projects": [
+  {
+   "id": "10000",
+   "key": "AUTH",
+   "name": "Staff Auth",
+   "description": "Staff sign-in: OIDC, keys and sessions.",
+   "lead": {
+    "$user": "priya"
+   },
+   "projectTypeKey": "software"
+  },
+  {
+   "id": "10001",
+   "key": "OPS",
+   "name": "Operations"
+  }
+ ],
+ "browsers": {
+  "AUTH": [
+   "priya",
+   "sam",
+   "dana",
+   "gone",
+   "bot"
+  ],
+  "OPS": [
+   "dana"
+  ]
+ },
+ "issues": [
+  {
+   "id": "10012",
+   "key": "AUTH-12",
+   "_project": "10000",
+   "_comments": [
+    {
+     "id": "20001",
+     "author": {
+      "$user": "sam"
+     },
+     "created": "2026-10-02T09:00:00.000+0000",
+     "body": {
+      "type": "doc",
+      "version": 1,
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "text": "Taking this. Proxy token for staging: {{PLANTED:slack_bot}}"
+         }
+        ]
+       }
+      ]
+     }
+    },
+    {
+     "id": "20002",
+     "author": {
+      "$user": "bot"
+     },
+     "created": "2026-10-03T09:00:00.000+0000",
+     "body": {
+      "type": "doc",
+      "version": 1,
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "text": "Automation: moved to In Progress"
+         }
+        ]
+       }
+      ]
+     }
+    },
+    {
+     "id": "20003",
+     "author": {
+      "$user": "priya"
+     },
+     "created": "2026-10-15T10:00:00.000+0000",
+     "body": {
+      "type": "doc",
+      "version": 1,
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "text": "Decided: OIDC, not SAML. "
+         },
+         {
+          "type": "mention",
+          "attrs": {
+           "id": "712020:cccc-dana",
+           "text": "@D. Okafor"
+          }
+         },
+         {
+          "type": "text",
+          "text": " please review."
+         }
+        ]
+       }
+      ]
+     }
+    }
+   ],
+   "changelog": {
+    "histories": []
+   },
+   "fields": {
+    "summary": "Switch staff login to OIDC",
+    "description": {
+     "type": "doc",
+     "version": 1,
+     "content": [
+      {
+       "type": "paragraph",
+       "content": [
+        {
+         "type": "text",
+         "text": "Replace SAML with OIDC for staff login. Owner: "
+        },
+        {
+         "type": "mention",
+         "attrs": {
+          "id": "712020:bbbb-sam",
+          "text": "@Sam Lee"
+         }
+        },
+        {
+         "type": "text",
+         "text": "."
+        }
+       ]
+      },
+      {
+       "type": "paragraph",
+       "content": [
+        {
+         "type": "text",
+         "text": "Implementation: "
+        },
+        {
+         "type": "text",
+         "text": "the PR",
+         "marks": [
+          {
+           "type": "link",
+           "attrs": {
+            "href": "https://github.com/acme-sbx/api/pull/2"
+           }
+          }
+         ]
+        },
+        {
+         "type": "text",
+         "text": ", design in "
+        },
+        {
+         "type": "inlineCard",
+         "attrs": {
+          "url": "https://docs.google.com/document/d/1AbCdEfGhIjK/edit"
+         }
+        }
+       ]
+      },
+      {
+       "type": "bulletList",
+       "content": [
+        {
+         "type": "listItem",
+         "content": [
+          {
+           "type": "paragraph",
+           "content": [
+            {
+             "type": "text",
+             "text": "Rotate keys first (AUTH-13)"
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "type": "listItem",
+         "content": [
+          {
+           "type": "paragraph",
+           "content": [
+            {
+             "type": "text",
+             "text": "Then retire SAML: PLAT-7"
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "type": "codeBlock",
+       "attrs": {
+        "language": "text"
+       },
+       "content": [
+        {
+         "type": "text",
+         "text": "curl -H 'X-Ticket: AUTH-99' https://idp.internal"
+        }
+       ]
+      }
+     ]
+    },
+    "issuetype": {
+     "name": "Epic"
+    },
+    "status": {
+     "name": "In Progress",
+     "statusCategory": {
+      "key": "indeterminate"
+     }
+    },
+    "priority": {
+     "name": "High"
+    },
+    "labels": [
+     "oidc",
+     "auth"
+    ],
+    "components": [
+     {
+      "name": "login"
+     }
+    ],
+    "assignee": {
+     "$user": "sam"
+    },
+    "reporter": {
+     "$user": "priya"
+    },
+    "created": "2026-09-01T09:00:00.000+0000",
+    "updated": "2026-10-15T10:00:00.000+0000",
+    "resolution": null,
+    "resolutiondate": null,
+    "duedate": null,
+    "parent": null,
+    "issuelinks": [],
+    "security": null,
+    "project": {
+     "id": "10000",
+     "key": "AUTH"
+    }
+   }
+  },
+  {
+   "id": "10013",
+   "key": "AUTH-13",
+   "_project": "10000",
+   "_comments": [],
+   "changelog": {
+    "histories": []
+   },
+   "fields": {
+    "summary": "Rotate IdP signing keys",
+    "description": {
+     "type": "doc",
+     "version": 1,
+     "content": [
+      {
+       "type": "paragraph",
+       "content": [
+        {
+         "type": "text",
+         "text": "Needed before AUTH-12 can ship. Budget is tracked in OPS-3."
+        }
+       ]
+      }
+     ]
+    },
+    "issuetype": {
+     "name": "Task"
+    },
+    "status": {
+     "name": "To Do",
+     "statusCategory": {
+      "key": "new"
+     }
+    },
+    "priority": {
+     "name": "High"
+    },
+    "labels": [],
+    "components": [],
+    "assignee": {
+     "$user": "dana"
+    },
+    "reporter": {
+     "$user": "sam"
+    },
+    "created": "2026-10-05T09:00:00.000+0000",
+    "updated": "2026-10-12T09:00:00.000+0000",
+    "resolution": null,
+    "resolutiondate": null,
+    "duedate": null,
+    "parent": {
+     "id": "10012",
+     "key": "AUTH-12"
+    },
+    "issuelinks": [
+     {
+      "id": "30001",
+      "type": {
+       "name": "Blocks",
+       "inward": "is blocked by",
+       "outward": "blocks"
+      },
+      "outwardIssue": {
+       "id": "10014",
+       "key": "AUTH-14"
+      }
+     },
+     {
+      "id": "30002",
+      "type": {
+       "name": "Relates",
+       "inward": "relates to",
+       "outward": "relates to"
+      },
+      "outwardIssue": {
+       "id": "10030",
+       "key": "OPS-3"
+      }
+     }
+    ],
+    "security": null,
+    "project": {
+     "id": "10000",
+     "key": "AUTH"
+    }
+   }
+  },
+  {
+   "id": "10014",
+   "key": "AUTH-14",
+   "_project": "10000",
+   "_comments": [],
+   "changelog": {
+    "histories": [
+     {
+      "id": "40001",
+      "created": "2026-09-01T09:00:00.000+0000",
+      "items": [
+       {
+        "field": "Key",
+        "fromString": "PLAT-7",
+        "toString": "AUTH-14"
+       },
+       {
+        "field": "project",
+        "fromString": "Platform",
+        "toString": "Staff Auth"
+       }
+      ]
+     }
+    ]
+   },
+   "fields": {
+    "summary": "Retire SAML",
+    "description": null,
+    "issuetype": {
+     "name": "Story"
+    },
+    "status": {
+     "name": "To Do",
+     "statusCategory": {
+      "key": "new"
+     }
+    },
+    "priority": {
+     "name": "High"
+    },
+    "labels": [],
+    "components": [],
+    "assignee": null,
+    "reporter": {
+     "$user": "bot"
+    },
+    "created": "2026-08-20T09:00:00.000+0000",
+    "updated": "2026-10-10T09:00:00.000+0000",
+    "resolution": null,
+    "resolutiondate": null,
+    "duedate": null,
+    "parent": {
+     "id": "10012",
+     "key": "AUTH-12"
+    },
+    "issuelinks": [
+     {
+      "id": "30001",
+      "type": {
+       "name": "Blocks",
+       "inward": "is blocked by",
+       "outward": "blocks"
+      },
+      "inwardIssue": {
+       "id": "10013",
+       "key": "AUTH-13"
+      }
+     }
+    ],
+    "security": {
+     "id": "10100",
+     "name": "Staff only"
+    },
+    "project": {
+     "id": "10000",
+     "key": "AUTH"
+    }
+   }
+  },
+  {
+   "id": "10009",
+   "key": "AUTH-9",
+   "_project": "10000",
+   "_comments": [],
+   "changelog": {
+    "histories": []
+   },
+   "fields": {
+    "summary": "Old SSO cleanup",
+    "description": {
+     "type": "doc",
+     "version": 1,
+     "content": [
+      {
+       "type": "paragraph",
+       "content": [
+        {
+         "type": "text",
+         "text": "Long done."
+        }
+       ]
+      }
+     ]
+    },
+    "issuetype": {
+     "name": "Task"
+    },
+    "status": {
+     "name": "Done",
+     "statusCategory": {
+      "key": "done"
+     }
+    },
+    "priority": {
+     "name": "High"
+    },
+    "labels": [],
+    "components": [],
+    "assignee": null,
+    "reporter": {
+     "$user": "priya"
+    },
+    "created": "2024-01-02T09:00:00.000+0000",
+    "updated": "2024-01-05T09:00:00.000+0000",
+    "resolution": null,
+    "resolutiondate": null,
+    "duedate": null,
+    "parent": null,
+    "issuelinks": [],
+    "security": null,
+    "project": {
+     "id": "10000",
+     "key": "AUTH"
+    }
+   }
+  },
+  {
+   "id": "10030",
+   "key": "OPS-3",
+   "_project": "10001",
+   "_comments": [],
+   "changelog": {
+    "histories": []
+   },
+   "fields": {
+    "summary": "Proxy budget (AUTH-13)",
+    "description": {
+     "type": "doc",
+     "version": 1,
+     "content": [
+      {
+       "type": "paragraph",
+       "content": [
+        {
+         "type": "text",
+         "text": "Budget for the IdP proxy, see AUTH-12."
+        }
+       ]
+      }
+     ]
+    },
+    "issuetype": {
+     "name": "Task"
+    },
+    "status": {
+     "name": "To Do",
+     "statusCategory": {
+      "key": "new"
+     }
+    },
+    "priority": {
+     "name": "High"
+    },
+    "labels": [],
+    "components": [],
+    "assignee": null,
+    "reporter": {
+     "$user": "dana"
+    },
+    "created": "2026-10-01T09:00:00.000+0000",
+    "updated": "2026-10-11T09:00:00.000+0000",
+    "resolution": null,
+    "resolutiondate": null,
+    "duedate": null,
+    "parent": null,
+    "issuelinks": [
+     {
+      "type": {
+       "name": "Duplicate",
+       "inward": "is duplicated by",
+       "outward": "duplicates"
+      },
+      "outwardIssue": {
+       "id": "10014",
+       "key": "AUTH-14"
+      }
+     }
+    ],
+    "security": null,
+    "project": {
+     "id": "10001",
+     "key": "OPS"
+    }
+   }
+  }
+ ]
+}

@@ -1,0 +1,181 @@
+{
+  "_about": "Hand-made GitHub REST responses for a fictional org, acme-sbx, in the shapes the real API returns (trimmed to the fields the connector reads, plus a few it ignores). Keys are 'METHOD /path'; a value is a body, {\"pages\": [...]} for a Link-paginated list, or {\"status\": N}. {{PLANTED:name}} is replaced with a fake token from tests/fixtures/redaction/corpus.yaml. A blob's \"$text\" is base64-encoded into its \"content\" when loaded. No club data.",
+
+  "_users": {
+    "sam": {"login": "sam-lee", "id": 101, "type": "User", "html_url": "https://github.com/sam-lee"},
+    "priya": {"login": "priya-r", "id": 102, "type": "User", "html_url": "https://github.com/priya-r"},
+    "dana": {"login": "ext-dana", "id": 103, "type": "User", "html_url": "https://github.com/ext-dana"}
+  },
+
+  "POST /app/installations/4242/access_tokens": {
+    "token": "fixture-installation-token", "expires_at": "2026-10-21T13:00:00Z",
+    "permissions": {"metadata": "read", "contents": "read", "issues": "read", "pull_requests": "read"}
+  },
+
+  "GET /installation/repositories": {
+    "total_count": 2,
+    "repositories": [{"$ref": "repo:api"}, {"$ref": "repo:web"}]
+  },
+
+  "_repos": {
+    "api": {
+      "id": 9001, "node_id": "R_kgDOAAAjKQ", "name": "api", "full_name": "acme-sbx/api",
+      "owner": {"login": "acme-sbx", "id": 900, "type": "Organization"},
+      "private": true, "visibility": "private", "html_url": "https://github.com/acme-sbx/api",
+      "description": "Staff auth and the public API", "fork": false, "archived": false,
+      "default_branch": "main", "language": "Python", "topics": ["auth", "api"],
+      "created_at": "2025-03-01T10:00:00Z", "updated_at": "2026-10-15T09:00:00Z", "pushed_at": "2026-10-14T16:05:00Z"
+    },
+    "web": {
+      "id": 9002, "node_id": "R_kgDOAAAjKg", "name": "web", "full_name": "acme-sbx/web",
+      "owner": {"login": "acme-sbx", "id": 900, "type": "Organization"},
+      "private": false, "visibility": "public", "html_url": "https://github.com/acme-sbx/web",
+      "description": "Marketing site and login page", "fork": false, "archived": false,
+      "default_branch": "main", "language": "TypeScript", "topics": [],
+      "created_at": "2025-04-10T08:00:00Z", "updated_at": "2026-10-16T11:00:00Z", "pushed_at": "2026-10-16T10:59:00Z"
+    }
+  },
+
+  "GET /repos/acme-sbx/api": {"$ref": "repo:api"},
+  "GET /repos/acme-sbx/web": {"$ref": "repo:web"},
+
+  "GET /repos/acme-sbx/api/issues": {"pages": [
+    [
+      {"number": 1, "title": "Login fails behind the IdP proxy", "user": {"$ref": "user:priya"},
+       "assignees": [{"$ref": "user:sam"}], "labels": [{"name": "bug"}, {"name": "auth"}],
+       "state": "closed", "state_reason": "completed", "comments": 2, "milestone": null,
+       "html_url": "https://github.com/acme-sbx/api/issues/1",
+       "created_at": "2026-09-30T09:12:00Z", "updated_at": "2026-10-14T16:06:00Z", "closed_at": "2026-10-14T16:06:00Z",
+       "body": "SAML login breaks for staff behind the new proxy. Tracked in AUTH-12."},
+      {"number": 2, "title": "Switch staff login to OIDC", "user": {"$ref": "user:sam"},
+       "assignees": [], "labels": [{"name": "auth"}], "state": "closed", "comments": 2, "milestone": null,
+       "pull_request": {"url": "https://api.github.com/repos/acme-sbx/api/pulls/2",
+                        "html_url": "https://github.com/acme-sbx/api/pull/2", "merged_at": "2026-10-14T16:05:00Z"},
+       "html_url": "https://github.com/acme-sbx/api/pull/2",
+       "created_at": "2026-10-12T11:30:00Z", "updated_at": "2026-10-14T16:05:00Z", "closed_at": "2026-10-14T16:05:00Z",
+       "body": "Replaces SAML with OIDC for staff login."}
+    ],
+    [
+      {"number": 3, "title": "Rotate the test credentials", "user": {"$ref": "user:sam"},
+       "assignees": [], "labels": [], "state": "open", "comments": 0, "milestone": null,
+       "html_url": "https://github.com/acme-sbx/api/issues/3",
+       "created_at": "2026-10-15T09:00:00Z", "updated_at": "2026-10-15T09:00:00Z", "closed_at": null,
+       "body": "Follow-up to #2. The old flow from #4 also needs cleanup.\n\n> earlier note: fixes #1"}
+    ]
+  ]},
+
+  "GET /repos/acme-sbx/api/issues/1/comments": [
+    {"id": 5001, "user": {"$ref": "user:sam"}, "created_at": "2026-10-01T10:00:00Z",
+     "body": "Reproduced. Thread: https://acme-sbx.slack.com/archives/C42AUTH/p1760450400000100 @priya-r can you check the proxy logs?"},
+    {"id": 5002, "user": {"$ref": "user:priya"}, "created_at": "2026-10-02T08:30:00Z",
+     "body": "The proxy strips the SAML assertion. Fix is in #2."}
+  ],
+
+  "GET /repos/acme-sbx/api/pulls/2": {
+    "number": 2, "title": "Switch staff login to OIDC", "user": {"$ref": "user:sam"}, "state": "closed",
+    "draft": false, "merged_at": "2026-10-14T16:05:00Z", "base": {"ref": "main"}, "head": {"ref": "sam/oidc"},
+    "additions": 412, "deletions": 188, "changed_files": 9, "requested_reviewers": [], "assignees": [],
+    "html_url": "https://github.com/acme-sbx/api/pull/2",
+    "created_at": "2026-10-12T11:30:00Z", "updated_at": "2026-10-14T16:05:00Z",
+    "body": "Replaces SAML with OIDC for staff login.\n\nFixes #1. Web follow-up: acme-sbx/web#1. Upstream bug: other-org/saml-lib#5.\n\nDesign: https://docs.google.com/document/d/1DesignDocId0123/edit\n\n```\n# in a code sample: fixes #99\n```"
+  },
+  "GET /repos/acme-sbx/api/pulls/2/reviews": [
+    {"id": 7001, "user": {"$ref": "user:priya"}, "state": "APPROVED", "body": "Looks good.", "submitted_at": "2026-10-14T15:00:00Z"},
+    {"id": 7002, "user": {"$ref": "user:dana"}, "state": "COMMENTED", "body": "", "submitted_at": "2026-10-14T15:10:00Z"}
+  ],
+  "GET /repos/acme-sbx/api/pulls/2/comments": [
+    {"id": 8001, "user": {"$ref": "user:priya"}, "path": "api/auth/oidc.py", "line": 41,
+     "body": "Don't hardcode the client token here: {{PLANTED:github_classic}}"}
+  ],
+  "GET /repos/acme-sbx/api/issues/2/comments": [
+    {"id": 5003, "user": {"$ref": "user:dana"}, "created_at": "2026-10-14T16:10:00Z",
+     "body": "Nice one @sam-lee, this unblocks the web login."},
+    {"id": 5004, "user": {"login": "github-actions[bot]", "id": 41898282, "type": "Bot"},
+     "created_at": "2026-10-14T16:11:00Z", "body": "All checks passed."}
+  ],
+
+  "GET /repos/acme-sbx/api/issues/4": {
+    "number": 4, "title": "Old SAML flow", "user": {"$ref": "user:sam"}, "state": "closed",
+    "pull_request": {"url": "https://api.github.com/repos/acme-sbx/api/pulls/4"},
+    "created_at": "2025-06-01T10:00:00Z", "updated_at": "2025-06-02T10:00:00Z"
+  },
+
+  "GET /repos/acme-sbx/api/commits": [
+    {"sha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"},
+    {"sha": "b2c3d4e5f60718293a4b5c6d7e8f901234567890"}
+  ],
+  "GET /repos/acme-sbx/api/commits/a1b2c3d4e5f60718293a4b5c6d7e8f9012345678": {
+    "sha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+    "html_url": "https://github.com/acme-sbx/api/commit/a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+    "author": {"$ref": "user:sam"}, "parents": [{"sha": "0f0e0d0c0b0a09080706050403020100ffeeddcc"}],
+    "commit": {"message": "Switch staff login to OIDC (#2)\n\nFixes #1.",
+               "author": {"name": "Sam Lee", "email": "sam@acme-sbx.dev", "date": "2026-10-14T16:05:00Z"},
+               "committer": {"name": "GitHub", "email": "noreply@github.com", "date": "2026-10-14T16:05:00Z"}},
+    "files": [{"filename": "api/auth/oidc.py"}, {"filename": "api/auth/saml.py"}]
+  },
+  "GET /repos/acme-sbx/api/commits/b2c3d4e5f60718293a4b5c6d7e8f901234567890": {
+    "sha": "b2c3d4e5f60718293a4b5c6d7e8f901234567890",
+    "html_url": "https://github.com/acme-sbx/api/commit/b2c3d4e5f60718293a4b5c6d7e8f901234567890",
+    "author": null, "parents": [{"sha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"}],
+    "commit": {"message": "Add staging config\n\nTemporary key {{PLANTED:aws_access_key}} until the vault lands.",
+               "author": {"name": "Priya Rao", "email": "Priya@acme-sbx.dev", "date": "2026-10-15T08:00:00Z"},
+               "committer": {"name": "Priya Rao", "email": "Priya@acme-sbx.dev", "date": "2026-10-15T08:00:00Z"}},
+    "files": [{"filename": "config/staging.env"}]
+  },
+
+  "GET /repos/acme-sbx/api/collaborators": [
+    {"$ref": "user:sam", "role_name": "admin"},
+    {"$ref": "user:priya", "role_name": "write"},
+    {"$ref": "user:dana", "role_name": "read"}
+  ],
+
+  "GET /repos/acme-sbx/web/issues": [
+    {"number": 1, "title": "Login button misaligned on Safari", "user": {"$ref": "user:priya"},
+     "assignees": [], "labels": [{"name": "ui"}], "state": "open", "comments": 0, "milestone": null,
+     "html_url": "https://github.com/acme-sbx/web/issues/1",
+     "created_at": "2026-10-16T10:00:00Z", "updated_at": "2026-10-16T11:00:00Z", "closed_at": null,
+     "body": "Needs the OIDC redirect from acme-sbx/api#2 first."}
+  ],
+  "GET /repos/acme-sbx/web/issues/1": {
+    "number": 1, "title": "Login button misaligned on Safari", "user": {"$ref": "user:priya"}, "state": "open",
+    "created_at": "2026-10-16T10:00:00Z", "updated_at": "2026-10-16T11:00:00Z"
+  },
+  "GET /repos/acme-sbx/web/commits": [
+    {"sha": "c3d4e5f60718293a4b5c6d7e8f90123456789012"}
+  ],
+  "GET /repos/acme-sbx/web/commits/c3d4e5f60718293a4b5c6d7e8f90123456789012": {
+    "sha": "c3d4e5f60718293a4b5c6d7e8f90123456789012",
+    "html_url": "https://github.com/acme-sbx/web/commit/c3d4e5f60718293a4b5c6d7e8f90123456789012",
+    "author": {"$ref": "user:sam"}, "parents": [],
+    "commit": {"message": "Initial commit",
+               "author": {"name": "Sam Lee", "email": "sam@acme-sbx.dev", "date": "2026-10-16T10:59:00Z"},
+               "committer": {"name": "Sam Lee", "email": "sam@acme-sbx.dev", "date": "2026-10-16T10:59:00Z"}},
+    "files": [{"filename": "README.md"}]
+  },
+  "GET /repos/acme-sbx/api/git/trees/main": {
+    "sha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678", "truncated": false,
+    "tree": [
+      {"path": "docs", "mode": "040000", "type": "tree", "sha": "e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0"},
+      {"path": ".github/CODEOWNERS", "mode": "100644", "type": "blob", "sha": "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1", "size": 50},
+      {"path": "README.md", "mode": "100644", "type": "blob", "sha": "d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2", "size": 118},
+      {"path": "docs/adr/0002 use oidc.md", "mode": "100644", "type": "blob", "sha": "d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3", "size": 203},
+      {"path": "api/auth/oidc.py", "mode": "100644", "type": "blob", "sha": "f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1", "size": 2048},
+      {"path": "node_modules/left-pad/README.md", "mode": "100644", "type": "blob", "sha": "f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2", "size": 300},
+      {"path": "docs/api-reference.md", "mode": "100644", "type": "blob", "sha": "f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3", "size": 900000}
+    ]
+  },
+  "GET /repos/acme-sbx/api/git/blobs/d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1": {"sha": "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1", "encoding": "base64", "size": 50, "$text": "/api/auth/ @sam-lee @priya-r\n* @acme-sbx/platform\n"},
+  "GET /repos/acme-sbx/api/commits?path=.github/CODEOWNERS": {"pages": [[{"sha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678", "author": {"$ref": "user:sam"}, "commit": {"author": {"name": "Sam Lee", "email": "sam@acme-sbx.dev", "date": "2026-09-02T10:00:00Z"}, "committer": {"name": "GitHub", "email": "noreply@github.com", "date": "2026-09-02T10:00:00Z"}}}]]},
+  "GET /repos/acme-sbx/api/git/blobs/d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2": {"sha": "d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2", "encoding": "base64", "size": 118, "$text": "# api\n\nStaff auth and the public API. Design doc: https://docs.google.com/document/d/1AbCdEfGhIjKlMnOpQrStUvWxYz/edit\n"},
+  "GET /repos/acme-sbx/api/commits?path=README.md": {"pages": [[{"sha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678", "author": {"$ref": "user:sam"}, "commit": {"author": {"name": "Sam Lee", "email": "sam@acme-sbx.dev", "date": "2026-08-20T09:30:00Z"}, "committer": {"name": "GitHub", "email": "noreply@github.com", "date": "2026-08-20T09:30:00Z"}}}]]},
+  "GET /repos/acme-sbx/api/git/blobs/d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3": {"sha": "d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3", "encoding": "base64", "size": 203, "$text": "# ADR 0002: Use OIDC for staff login\n\nStatus: Accepted\n\nWe replace SAML with OIDC (see #2, tracked in AUTH-12). Owner: @sam-lee.\n\nStaging token, rotate after the cutover: {{PLANTED:github_fine_grained}}\n"},
+  "GET /repos/acme-sbx/api/commits?path=docs/adr/0002 use oidc.md": {"pages": [[{"sha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678", "author": {"$ref": "user:sam"}, "commit": {"author": {"name": "Sam Lee", "email": "sam@acme-sbx.dev", "date": "2026-10-14T16:05:00Z"}, "committer": {"name": "GitHub", "email": "noreply@github.com", "date": "2026-10-14T16:05:00Z"}}}]]},
+  "GET /repos/acme-sbx/web/git/trees/main": {
+    "sha": "c3d4e5f60718293a4b5c6d7e8f90123456789012", "truncated": false,
+    "tree": [
+      {"path": "README.md", "mode": "100644", "type": "blob", "sha": "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4", "size": 32}
+    ]
+  },
+  "GET /repos/acme-sbx/web/git/blobs/d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4": {"sha": "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4", "encoding": "base64", "size": 32, "$text": "# web\n\nMarketing site and docs.\n"},
+  "GET /repos/acme-sbx/web/commits?path=README.md": {"pages": [[{"sha": "c3d4e5f60718293a4b5c6d7e8f90123456789012", "author": {"$ref": "user:sam"}, "commit": {"author": {"name": "Sam Lee", "email": "sam@acme-sbx.dev", "date": "2026-07-01T12:00:00Z"}, "committer": {"name": "GitHub", "email": "noreply@github.com", "date": "2026-07-01T12:00:00Z"}}}]]}
+}
