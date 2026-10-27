@@ -89,8 +89,10 @@ The arrows from the bottom row are mounts: `.env` supplies tokens; `data/` holds
 | `github`, `slack`, `drive` | Built from `pipelines/{source}` | internal | On demand | One batch run of that source's pipeline, then exit |
 | `jira` | Built from `pipelines/jira` | internal | On demand | One batch run of the Jira pipeline, then exit; runs after `github` and before `slack` and `drive` |
 | `identity` | Built from `pipelines/identity` | internal | On demand | After the source runs: reads every complete run's people, writes identity records |
+| `neo4j` | `neo4j` | internal, host | Always on, when building the graph | The graph database; browser on 7474 and bolt on 7687, published on localhost only. It has no row-level security: access rules are enforced by `graph/swarm_queries.py`, so nothing but the graph job and that layer should connect |
+| `graph` | Built from `swarm/graph.Dockerfile` | internal | On demand | After the identity pass: reads every complete run from the bucket (read-only) and writes the graph. Reaches the bucket as `storage:9000` and the database as `neo4j:7687`, so it needs no host port |
 
-The `host` network exists only so Docker publishes the bucket's ports to the laptop: it publishes nothing for a container that is on internal networks alone. No pipeline is on it.
+The `host` network exists only so Docker publishes the bucket's and Neo4j's ports to the laptop: it publishes nothing for a container that is on internal networks alone. No pipeline is on it.
 
 **Everyday commands**
 
@@ -98,6 +100,8 @@ The `host` network exists only so Docker publishes the bucket's ports to the lap
 docker compose -f swarm/compose.yaml up -d storage proxy     # start the always-on services
 docker compose -f swarm/compose.yaml run --rm init           # create the bucket, once
 docker compose -f swarm/compose.yaml run --rm github         # one GitHub run
+docker compose -f swarm/compose.yaml up -d neo4j             # the graph database
+docker compose -f swarm/compose.yaml run --rm graph          # build the graph from the bucket (--dry-run to check first)
 swarm/nightly.sh                                             # github, jira, slack, then drive
 ```
 

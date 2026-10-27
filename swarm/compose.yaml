@@ -3,10 +3,14 @@
 #   docker compose -f swarm/compose.yaml up -d storage proxy   always-on services
 #   docker compose -f swarm/compose.yaml run --rm init         create the bucket, once
 #   docker compose -f swarm/compose.yaml run --rm sample       one sample run
+#   docker compose -f swarm/compose.yaml up -d neo4j           the graph database
+#   docker compose -f swarm/compose.yaml run --rm graph        build the graph from the bucket
 #
 # Two networks enforce the VPC rule: pipelines sit only on `internal`, which
 # has no route out, so the proxy's allowlist is their only way to the
-# internet.
+# internet. The graph job and Neo4j sit on `internal` too: the job reaches the
+# bucket as http://storage:9000 and the database as neo4j:7687, so neither
+# needs a host port to work; the ones published on localhost are for looking.
 #
 # The staging bucket is RustFS, an S3-compatible server: the MinIO image is
 # no longer published on Docker Hub. Pipelines speak plain S3, so swapping it
@@ -51,6 +55,23 @@ services:
       interval: 3s
       timeout: 3s
       retries: 20
+
+  # The graph database. Neo4j has no row-level security: who may see what is
+  # enforced only by graph/swarm_queries.py, so this container must stay inside
+  # the boundary and every reader must go through that layer. The browser and
+  # bolt ports are published on localhost for inspection only.
+  neo4j:
+    image: neo4j:5.26-community
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-neo4j-local-dev}
+    ports: ["127.0.0.1:7474:7474", "127.0.0.1:7687:7687"]
+    volumes: ["../neo4j-data:/data"]
+    networks: [internal, host]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO /dev/null http://127.0.0.1:7474 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
 
   proxy:
     image: ubuntu/squid:6.6-24.04_edge
@@ -108,6 +129,23 @@ services:
     <<: *pipeline
     build: {context: .., dockerfile: pipelines/identity/Dockerfile}
     image: swarm-identity:dev
+
+  # After the identity pass: reads every complete run from the bucket and writes
+  # the graph. Read-only on the bucket by design; it never writes to it.
+  graph:
+    <<: *pipeline
+    build: {context: .., dockerfile: swarm/graph.Dockerfile}
+    image: swarm-graph:dev
+    environment:
+      S3_ENDPOINT: http://storage:9000
+      S3_BUCKET: ${S3_BUCKET:-staging}
+      STORAGE_ACCESS_KEY: ${STORAGE_ACCESS_KEY:-swarm-dev}
+      STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY:-swarm-dev-secret}
+      NEO4J_URI: neo4j://neo4j:7687
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-neo4j-local-dev}
+    depends_on:
+      storage: {condition: service_healthy}
+      neo4j: {condition: service_healthy}
 
 networks:
   internal:
