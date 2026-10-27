@@ -205,10 +205,14 @@ class GitHubNormalizer:
             raise ValueError("a doc with no commit to date it")
         branch = repo.get("default_branch") or "main"
         text = p["content"]
+        # A permalink: the text and every evidence offset refer to this blob, and a
+        # branch link opens whatever is there today. The last commit touching the
+        # path holds the same blob as the branch head it was read from.
+        at_ref = last.get("sha") or branch
         return dict(
             id=ids.github_file(repo["id"], path), kind="document", container=ids.github_repo(repo["id"]),
             aliases=[f"{repo['full_name']}/{path}"], title=path, text=text,
-            url=f"https://github.com/{repo['full_name']}/blob/{quote(branch)}/{quote(path)}",
+            url=f"https://github.com/{repo['full_name']}/blob/{quote(at_ref)}/{quote(path)}",
             created_at=date, updated_at=date, version=p["sha"], people=_People(),
             meta={"path": path, "branch": branch, "last_commit": last.get("sha")},
             repo_id=repo["id"], number=None, scan=text)
