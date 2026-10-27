@@ -112,9 +112,14 @@ def test_a_broken_pdf_is_unreadable_not_fatal():
     assert raws["1PDFrunbook01"].payload["text_status"] in ("unreadable", "no_text")
 
 
-def test_sheets_and_folders_keep_metadata_only():
-    raws = fetch_all(connector()[0])
-    assert raws["1SHEETbudget1"].payload["text_status"] == "metadata_only"
+def test_sheets_are_exported_as_xlsx_with_every_sheet_and_folders_keep_metadata_only():
+    conn, fake = connector()
+    raws = fetch_all(conn)
+    sheet = raws["1SHEETbudget1"].payload
+    assert sheet["text_status"] == "extracted"
+    assert sheet["text"] == "Budget\nItem\tMonthly\nIdP proxy\t1200\n\nNotes\nOwner\tsam@acme.com"   # both sheets
+    export = next(r for r in fake.requests if r.url.path == "/drive/v3/files/1SHEETbudget1/export")
+    assert export.url.params["mimeType"] == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     assert raws["1SPECSfolder00"].payload["text_status"] == "metadata_only"
 
 
@@ -271,7 +276,7 @@ def test_throttled_permissions_are_not_taken_as_unlistable():
 
 # -- Word and PowerPoint uploads ------------------------------------------------- #
 
-def test_word_and_powerpoint_uploads_are_read_and_excel_keeps_metadata():
+def test_word_powerpoint_and_excel_uploads_are_read():
     conn, fake = connector()
     raws = fetch_all(conn)
     docx = raws["1DOCXadr00001"].payload
@@ -280,9 +285,41 @@ def test_word_and_powerpoint_uploads_are_read_and_excel_keeps_metadata():
     pptx = raws["1PPTXreview01"].payload
     assert pptx["text"] == "Q4 auth review\n\nOIDC is live for staff\nNext: retire SAML"     # slides apart
     xlsx = raws["1XLSXcosts001"].payload
-    assert xlsx["type"] == "xlsx" and xlsx["text_status"] == "metadata_only" and xlsx["text"] == ""
-    downloads = {r.url.path for r in fake.requests if r.url.params.get("alt") == "media"}
-    assert "/drive/v3/files/1XLSXcosts001" not in downloads
+    assert xlsx["type"] == "xlsx" and xlsx["text_status"] == "extracted"
+    assert xlsx["text"] == "Costs\nVendor\tMonthly\nSquid support\t300"
+
+
+def test_workbook_cells_keep_their_columns_and_dates_read_as_dates():
+    s = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    r = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    p = "http://schemas.openxmlformats.org/package/2006/relationships"
+    sheet = (f'<worksheet xmlns="{s}"><sheetData>'
+             f'<row r="1"><c r="A1" t="s"><v>0</v></c><c r="C1" t="inlineStr"><is><r><t>Rich </t></r><r><t>text</t></r></is></c></row>'
+             f'<row r="2"><c r="A2" s="1"><v>46310</v></c><c r="B2" s="2"><v>46310.5</v></c><c r="C2" t="b"><v>1</v></c>'
+             f'<c r="D2" s="0"><v>0.25</v></c></row>'
+             f'<row r="3"/></sheetData></worksheet>')
+    data = _zip({
+        "xl/workbook.xml": f'<workbook xmlns="{s}" xmlns:r="{r}"><sheets><sheet name="Log" sheetId="1" r:id="rId9"/>'
+                           f"</sheets></workbook>",
+        "xl/_rels/workbook.xml.rels": f'<Relationships xmlns="{p}"><Relationship Id="rId9" Target="/xl/worksheets/log.xml"/>'
+                                      f"</Relationships>",
+        "xl/sharedStrings.xml": f'<sst xmlns="{s}"><si><t>Opened</t><rPh><t>ignored</t></rPh></si></sst>',
+        "xl/styles.xml": f'<styleSheet xmlns="{s}"><numFmts><numFmt numFmtId="164" formatCode="yyyy-mm-dd hh:mm"/>'
+                         f'</numFmts><cellXfs><xf numFmtId="0"/><xf numFmtId="14"/><xf numFmtId="164"/></cellXfs></styleSheet>',
+        "xl/worksheets/log.xml": sheet,
+    })
+    assert office_text(data, "xlsx") == ("Log\nOpened\t\tRich text\n2026-10-15\t2026-10-15 12:00\tTRUE\t0.25",
+                                         "extracted")
+
+
+@pytest.mark.parametrize(("parts", "status"), [
+    ({"xl/workbook.xml": "<workbook/>"}, "unreadable"),                            # no relationships part
+    ({"xl/workbook.xml": '<!DOCTYPE x [<!ENTITY a "a">]><workbook/>', "xl/_rels/workbook.xml.rels": "<r/>"}, "unreadable"),
+    ({"xl/_rels/workbook.xml.rels": b"<r>" + b" " * (MAX_OFFICE_XML + 1) + b"</r>"}, "too_large"),
+    ({"xl/workbook.xml": "<workbook/>", "xl/_rels/workbook.xml.rels": "<r/>"}, "no_text"),   # no sheets
+])
+def test_hostile_or_empty_workbooks_are_never_fatal(parts, status):
+    assert office_text(_zip(parts), "xlsx") == ("", status)
 
 
 def test_slides_are_read_in_number_order():

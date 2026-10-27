@@ -38,7 +38,7 @@ Every design question below is settled. Rows marked default were open questions;
 | GitHub auth | Customer-created GitHub App, read-only, installed on selected repos. | Default |
 | Jira auth | Service account with an API token, read-only project permissions. Project readers come from who may browse each project, which needs the global "Browse users and groups" permission; without it the readers group is written empty and grants nobody. Issues with a security level are readable by that level's group, written with no members. | Default |
 | Drive auth | Service account added to selected shared drives, or to shared folders where there is no Google Workspace. Domain-wide delegation is an opt-in upgrade for full coverage. | Default |
-| Drive file types | Docs, Slides, text PDFs and uploaded Word and PowerPoint files get full text; Office files are unzipped and read with the standard library, against size budgets, refusing any part with a DOCTYPE. Sheets and Excel files get metadata, ACLs and refs only in v1. Every other file type keeps metadata, so the graph still knows the file, its owner and who may read it. | Default |
+| Drive file types | Docs, Slides, Sheets, text PDFs and uploaded Word, PowerPoint and Excel files get full text; Sheets are exported as .xlsx (a CSV export holds the first sheet only), and Office files are unzipped and read with the standard library, against size budgets, refusing any part with a DOCTYPE. A workbook's text is each sheet's name, then one row per line with cells tab-separated, dates as dates. Every other file type keeps metadata, so the graph still knows the file, its owner and who may read it. | Default |
 | GitHub files | Docs on the default branch only: Markdown, reStructuredText and CODEOWNERS (ADRs, READMEs, handbooks, ownership), as `document` items. Source code and config are never read: they hold real secrets, dwarf everything else, and say what a system does rather than who decided what. A doc is re-read only when its blob changes. | Default |
 | Slack ACLs | Public channels are `internal` (the whole workspace can read them); private channels name a members group. | Default |
 | Slack grouping | Threads keep their `thread_ts`; other messages form bursts (gaps of 20 minutes at most, never across midnight UTC), so the export and the API build the same IDs. | Default |
@@ -154,7 +154,7 @@ Each source is a thin fetcher behind one interface; redaction, ACLs, extraction 
 | GitHub | Code | Customer-created GitHub App, read-only | Repos selected at install | `repo`, `commit`, `pull_request`, `issue`, `document` | Review comments fold into the PR's text; `document` is a doc file on the default branch (see "GitHub files" under Decisions) |
 | Jira | Tickets | Service account, API token | Projects the account can browse | `project`, `issue` (`issue_type` in meta) | A project is an item too, with its description and its lead as owner, so every issue's container exists. ID uses the site's cloud id and the internal issue id; the key and any key from before a move are aliases. Descriptions and comments arrive as ADF and are turned into text before redaction |
 | Slack | Chat | Customer-created internal app, bot token | Channels the bot is invited to | `thread`, `channel` | Internal apps keep Tier 3 rate limits; confirm on first install. No DMs. |
-| Google Drive | Docs | Service account | Shared drives it is added to, or folders shared with its email (domain-wide delegation optional) | `document`, `folder` | Docs and Slides exported to text; PDFs, Word and PowerPoint files read; Sheets, Excel and other types metadata only in v1 |
+| Google Drive | Docs | Service account | Shared drives it is added to, or folders shared with its email (domain-wide delegation optional) | `document`, `folder` | Docs and Slides exported to text, Sheets as .xlsx; PDFs, Word, PowerPoint and Excel files read; other types metadata only |
 
 **Connector interface**
 
@@ -598,6 +598,6 @@ The biggest risks are coverage gaps from source permissions, not engineering.
 - Event-driven freshness (webhooks) instead of nightly batch.
 - A labeled gold set with precision and recall scoring, once prompt changes become frequent.
 - Microsoft Teams and SharePoint via Microsoft Graph, and a GCP Terraform module.
-- Sheets content, scanned PDFs, Confluence, Linear, GitLab, email and calendar.
+- Scanned PDFs, Confluence, Linear, GitLab, email and calendar.
 - Per-customer scope configuration UI beyond grant-based scope.
 - A cost model per seat or per GB, once pilot manifests give real token numbers.

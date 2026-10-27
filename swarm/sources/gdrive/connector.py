@@ -12,11 +12,12 @@ Personal files outside those are never seen. Every call is a read.
   fetch       the root, then every folder and file modified since the
               checkpoint minus 7 days: one query per shared drive, a walk
               down the tree for a listed folder. Docs and Slides are
-              exported to plain text, text PDFs read with pypdf, and
-              uploaded Word and PowerPoint files unzipped and read with
-              the standard library; Sheets, Excel files, folders, scanned
-              PDFs and every other file type keep metadata only, so the
-              graph still knows the file, its owner and who may read it
+              exported to plain text, Sheets exported as .xlsx, text PDFs
+              read with pypdf, and Office files (Word, PowerPoint, Excel,
+              and the Sheets exports) unzipped and read with the standard
+              library (swarm/text.py); folders, scanned PDFs and every other
+              file type keep metadata only, so the graph still knows the
+              file, its owner and who may read it
   list_ids    every folder and file in scope, for reconciliation
   acl         from the file's permissions: anyone -> public, a domain ->
               domain:{d}, a user -> user:{email}, a Google group ->
@@ -67,6 +68,7 @@ FILE_TYPES = {
     "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
 }
+XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 OTHER = "file"                          # any other type: metadata only
 FILE_FIELDS = ("id,name,mimeType,parents,driveId,webViewLink,createdTime,modifiedTime,version,size,description,"
                "inheritedPermissionsDisabled,owners(displayName,emailAddress),"
@@ -190,7 +192,19 @@ class DriveConnector:
             data = self.client.request("GET", f"/drive/v3/files/{f['id']}",
                                        params={"alt": "media", "supportsAllDrives": "true"}).content
             return pdf_text(data)
-        if kind in ("docx", "pptx"):
+        if kind == "sheet":
+            # Exported as .xlsx, not CSV: a CSV export holds the first sheet only.
+            try:
+                data = self.client.request("GET", f"/drive/v3/files/{f['id']}/export",
+                                           params={"mimeType": XLSX}).content
+            except SourceError as e:
+                if e.reason == "exportSizeLimitExceeded":
+                    return "", "too_large"
+                if e.status == 403 and e.reason not in GOOGLE_RATE_LIMITS:
+                    return "", "unreadable"
+                raise
+            return office_text(data, "xlsx")
+        if kind in ("docx", "pptx", "xlsx"):
             if int(f.get("size") or 0) > MAX_OFFICE_BYTES:
                 return "", "too_large"
             data = self.client.request("GET", f"/drive/v3/files/{f['id']}",

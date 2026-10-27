@@ -38,15 +38,22 @@ def load() -> dict:
 
 
 OFFICE = {"application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
-          "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx"}
+          "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx"}
+XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 A = "http://schemas.openxmlformats.org/drawingml/2006/main"
+S = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+P = "http://schemas.openxmlformats.org/package/2006/relationships"
 
 
 def make_office(kind: str, text: str) -> bytes:
     """A minimal .docx (one paragraph per line, split into two runs to show
-    runs join) or .pptx (one slide per \\f-separated block, one paragraph
-    per line), as a zip of the XML parts the connector reads."""
+    runs join), .pptx (one slide per \\f-separated block, one paragraph
+    per line) or .xlsx (one sheet per \\f-separated block: its name, then
+    tab-separated rows; numbers as numbers, text as shared strings), as a
+    zip of the XML parts the connector reads."""
     def paras(block: str, ns: str, pre: str) -> str:
         out = []
         for line in block.split("\n"):
@@ -59,7 +66,31 @@ def make_office(kind: str, text: str) -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
         z.writestr("[Content_Types].xml", "<Types/>")
-        if kind == "docx":
+        if kind == "xlsx":
+            sheets, rels, shared = [], [], []
+            for n, block in enumerate(text.split("\f"), 1):
+                name, *rows = block.split("\n")
+                cells = []
+                for r, row in enumerate(rows, 1):
+                    out = []
+                    for c, value in enumerate(row.split("\t")):
+                        ref = f"{chr(65 + c)}{r}"
+                        if value.replace(".", "", 1).isdigit():
+                            out.append(f'<c r="{ref}"><v>{value}</v></c>')
+                        elif value:
+                            shared.append(value)
+                            out.append(f'<c r="{ref}" t="s"><v>{len(shared) - 1}</v></c>')
+                    cells.append(f'<row r="{r}">{"".join(out)}</row>')
+                z.writestr(f"xl/worksheets/sheet{n}.xml",
+                           f'<worksheet xmlns="{S}"><sheetData>{"".join(cells)}</sheetData></worksheet>')
+                sheets.append(f'<sheet name="{escape(name)}" sheetId="{n}" r:id="rId{n}"/>')
+                rels.append(f'<Relationship Id="rId{n}" Target="worksheets/sheet{n}.xml"/>')
+            z.writestr("xl/workbook.xml", f'<workbook xmlns="{S}" xmlns:r="{R}"><sheets>{"".join(sheets)}'
+                                          f"</sheets></workbook>")
+            z.writestr("xl/_rels/workbook.xml.rels", f'<Relationships xmlns="{P}">{"".join(rels)}</Relationships>')
+            z.writestr("xl/sharedStrings.xml", f'<sst xmlns="{S}">'
+                       + "".join(f"<si><t>{escape(v)}</t></si>" for v in shared) + "</sst>")
+        elif kind == "docx":
             z.writestr("word/document.xml", f'<w:document xmlns:w="{W}"><w:body>{paras(text, W, "w")}'
                                             f"</w:body></w:document>")
         else:
@@ -154,6 +185,9 @@ class FakeDrive:
                 return httpx.Response(403, json={"error": {"code": 403, "message": "insufficientFilePermissions"}})
             return self._page(perms, request, "permissions")
         f = self.files[file_id]
+        if action == "/export" and f["mimeType"] == "application/vnd.google-apps.spreadsheet":
+            assert q["mimeType"] == XLSX
+            return httpx.Response(200, content=make_office("xlsx", f["_text"]), headers={"content-type": XLSX})
         if action == "/export":
             assert q["mimeType"] == "text/plain"
             return httpx.Response(200, text=f["_text"], headers={"content-type": "text/plain; charset=utf-8"})
