@@ -1,7 +1,7 @@
 """
 weights.py - every number the swarm build puts on an edge, in one place.
 
-Two numbers, never mixed:
+Three numbers, never mixed:
 
   confidence  is this edge TRUE?  0..1, goes in the edge's provenance like
               every other producer's. A field the source itself filled is 1.0;
@@ -9,6 +9,9 @@ Two numbers, never mixed:
   weight      how STRONG is it?   the role's strength. Ranks "who knows about
               X" and "what matters here"; says nothing about truth. It does not
               fade with age: old work counts the same as new.
+  sourceAuthority  how far the SOURCE is trusted (code over chat). Stored on
+              extracted edges for ranking and for settling sources that
+              disagree; it never lowers a confidence.
 
 The swarm sends raw signals (roles, `via`, timestamps) and no weights, on
 purpose: these values are first guesses, and tuning them against an answer key
@@ -45,8 +48,12 @@ ROLE_STRENGTH = {
 }
 
 # How much a source is trusted when a model reads it. Order from Karthik's design doc:
-# code > org data > docs > tickets > chat.
+# code > org data > docs > tickets > chat. For ranking and tie-breaks only.
 SOURCE_AUTHORITY = {"github": 1.0, "gdrive": 0.9, "jira": 0.8, "slack": 0.7}
+
+# An extracted entity carries no score from the swarm. Its quote has been found at its offsets
+# in the item, so the item does name it; whether it is a decision or a system is the model's call.
+MENTION_CONFIDENCE = 0.90
 
 def ref_confidence(via: str | None) -> float:
     return VIA_CONFIDENCE.get(via or "", UNKNOWN_VIA_CONFIDENCE)
@@ -66,8 +73,12 @@ def corroborate(confidences: list[float]) -> float:
     return round(1.0 - miss, 4)
 
 
-def extraction_confidence(model_confidence: float, source: str) -> float:
-    """An extracted relation: the model's own 0..1 score times how far its source is trusted.
-    The swarm sends no explicit/implicit/inferred label (asked for), so the model's score is the
-    only per-relation signal; the quote has already been checked against the text."""
-    return round(min(max(model_confidence, 0.0), 1.0) * SOURCE_AUTHORITY.get(source, 0.7), 4)
+def source_authority(source: str) -> float:
+    return SOURCE_AUTHORITY.get(source, 0.7)
+
+
+def extraction_confidence(model_confidence: float) -> float:
+    """An extracted relation: the model's own 0..1 score, clamped. The quote has already been
+    checked against the text. How far the source is trusted is a separate number
+    (source_authority), so a fully sure reading of a Slack thread stays 1.0."""
+    return round(min(max(model_confidence, 0.0), 1.0), 4)

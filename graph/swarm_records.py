@@ -23,13 +23,16 @@ The reading rules, as implemented here:
      id never ingested is a no-op
   5. a tombstone retires the item and every extraction of it
   6. a source identity belongs to the cluster of the latest identity record listing it;
-     a record with merged_into retires its cluster
+     a record with merged_into retires its cluster, and any person:c: id is followed through
+     merged_into to the surviving cluster (resolve_person)
   7. a group member written as a source identity is that person (build_swarm resolves it)
   8. evidence offsets count Unicode code points - which is what Python string slicing counts
+  9. the current extraction of an item is the latest, in run order, whose item_version is the
+     item's current version; if none matches, the latest (current_extractions)
 
-Where the runs come from is a Store. LocalStore reads a folder (a downloaded run, or the fixtures);
-an S3 store slots in once there is a bucket we can reach. Folder names are never trusted for meaning:
-run ids come from the manifests, because a run id holds ':' and Windows folders cannot.
+Where the runs come from is a Store: S3Store reads the bucket, LocalStore a folder holding runs/
+(samples/run-0 in the tests, or a downloaded copy). Folder names are never trusted for meaning:
+run ids come from the manifests.
 """
 
 from __future__ import annotations
@@ -99,34 +102,10 @@ class S3Store:
         return self.s3.get_object(Bucket=self.bucket, Key=key)["Body"].read().decode("utf-8")
 
 
-class ZipStore:
-    """A zip of the bucket's runs/ folder, read in place: unzipping on Windows fails on ':' names."""
-
-    def __init__(self, path: Path) -> None:
-        import zipfile
-        self.zip = zipfile.ZipFile(path)
-        names = self.zip.namelist()
-        # the zip may hold runs/ at its root or inside one top folder
-        self.prefix = next((n[: n.index("runs/")] for n in names if "runs/" in n), "")
-
-    def manifests(self):
-        for name in sorted(self.zip.namelist()):
-            rel = name[len(self.prefix):]
-            if rel.startswith("runs/") and rel.endswith("/_manifest.json") and rel.count("/") == 3:
-                yield name.rsplit("/", 1)[0], json.loads(self.zip.read(name).decode("utf-8"))
-
-    def lines(self, run_key, rel):
-        for line in self.zip.read(f"{run_key}/{rel}").decode("utf-8").splitlines():
-            if line.strip():
-                yield json.loads(line)
-
-
 def open_store(source: str, env: dict | None = None) -> Store:
-    """'s3' (bucket from env), a .zip of runs/, or a folder holding runs/."""
+    """'s3' (bucket from env), or a folder holding runs/."""
     if source == "s3":
         return S3Store.from_env(env or {})
-    if source.endswith(".zip"):
-        return ZipStore(Path(source))
     return LocalStore(Path(source))
 
 
@@ -136,7 +115,8 @@ class State:
     groups: dict[str, dict] = field(default_factory=dict)
     clusters: dict[str, dict] = field(default_factory=dict)       # person_id -> identity record
     person_of: dict[str, str] = field(default_factory=dict)       # source identity id -> person_id
-    extractions: dict[str, dict] = field(default_factory=dict)    # item_id -> latest extraction
+    merged_into: dict[str, str] = field(default_factory=dict)     # retired person_id -> the one it joined
+    extractions: dict[str, list] = field(default_factory=dict)    # item_id -> every extraction, run order
     runs: list[str] = field(default_factory=list)                 # run ids applied, in order
     skipped_runs: list[str] = field(default_factory=list)         # manifests that are not complete
     tombstoned: dict[str, tuple[str, str]] = field(default_factory=dict)  # id -> (reason, detected_at)
@@ -231,31 +211,43 @@ def apply(state: State, rec: dict, acl_seen: dict[str, str]) -> None:
         pid = rec["person_id"]
         if rec.get("merged_into"):
             state.clusters.pop(pid, None)
+            state.merged_into[pid] = rec["merged_into"]
             state.counts["identity cluster merged away"] += 1
             return
+        state.merged_into.pop(pid, None)      # a later record can bring a cluster back
         state.clusters[pid] = rec
         for member in rec.get("members", []):
             state.person_of[member["id"]] = pid       # rule 6: the latest record listing it
 
     elif kind == "extraction":
-        iid = rec["item_id"]
-        old = state.extractions.get(iid)
-        # One per item: the one for the item's current version if there is one, else the newest.
-        state.extractions[iid] = rec if old is None or rec.get("item_version") != old.get("item_version") else old
+        # All kept: which one is current depends on the item's final version (rule 9).
+        state.extractions.setdefault(rec["item_id"], []).append(rec)
 
     else:
         state.problems[f"unknown record_type {kind!r}"] += 1
 
 
+def resolve_person(state: State, pid: str) -> str:
+    """Rule 6: follow merged_into to the surviving cluster. Extractions are not redone when
+    clusters merge, so an older one can name a retired id."""
+    seen = set()
+    while pid in state.merged_into and pid not in seen:
+        seen.add(pid)
+        pid = state.merged_into[pid]
+    return pid
+
+
 def current_extractions(state: State) -> tuple[list[dict], int]:
-    """Extractions whose item is live. The second value counts the ones made from an older
-    version of the item than the one now held (still used, flagged as stale)."""
+    """Rule 9: per live item, the latest extraction (records are kept in run order) whose
+    item_version is the item's current version; if none matches, the latest one, whose evidence
+    offsets may no longer fit the text. The second value counts those."""
     out, stale = [], 0
-    for iid, ex in state.extractions.items():
+    for iid, records in state.extractions.items():
         item = state.items.get(iid)
-        if item is None:
+        if item is None or not records:
             continue
-        if ex.get("item_version") != item.get("version"):
+        matching = [r for r in records if r.get("item_version") == item.get("version")]
+        if not matching:
             stale += 1
-        out.append(ex)
+        out.append((matching or records)[-1])
     return out, stale

@@ -1,30 +1,21 @@
 """
-resolve.py - entity resolution. The actual hard problem.
+resolve.py - the graph's fallback people matching.
 
-A person is a git author name, a git email, and a GitHub login, and nothing in
-the data says they are the same human. The requests code graph has 459
-"contributors" for this reason - "Kenneth Reitz" and "kennethreitz" are two
-nodes describing one person.
-
-The strategy is a ladder, strongest evidence first:
+The swarm owns identity: its identity run clusters source identities into people,
+by email and, with the model on, by judgement. This file only handles identities no
+cluster lists (people named in extracted relations, mostly), and it is deliberately
+timid, because a person's access is the union of their accounts' groups
+(swarm_queries.viewer). A wrong merge does not just misattribute work; it hands one
+person the other's private items.
 
   1. same email                        -> merge, confidence 1.00
-  2. same normalised name              -> merge, confidence 0.95
-  3. github login == normalised name   -> merge, confidence 0.90
-     ("kennethreitz" == "Kenneth Reitz" with spaces and case removed)
-  4. email local-part == github login  -> merge, confidence 0.85
-  5. close string similarity           -> DO NOT MERGE. Queue for a human.
+  2. same normalised name              -> review, 0.95   "John Smith" in Slack and in Jira
+  3. handle == normalised name         -> review, 0.90   "kennethreitz" / "Kenneth Reitz"
+  4. email local-part == handle        -> review, 0.85
+  5. close string similarity           -> review, by score
 
-Rule 5 is the important one. Fuzzy matching is exactly where automated
-resolution quietly corrupts a graph: "Chris Lee" and "Chris Lees" are one
-character apart and are two people. Anything below the threshold becomes a
-ReviewItem, which is a row in the graph a person can accept or reject - not a
-silent merge nobody can audit later.
-
-A model could adjudicate rule 5 given context (same repos? overlapping dates?).
-That is a good use of one. It is not implemented here because the rules-based
-ladder should be measured first - you cannot tell whether a model helps if you
-never established the baseline.
+Only rule 1 merges. Everything else becomes a ReviewItem: a row in the graph a person
+can accept or reject, never a silent merge nobody can audit later.
 """
 
 from __future__ import annotations
@@ -33,15 +24,11 @@ import difflib
 import re
 import unicodedata
 
-REVIEW_THRESHOLD = 0.88     # below the auto-merge rules, above "ignore"
+REVIEW_THRESHOLD = 0.88     # string similarity worth a person's look
 
 # Sources that identify a person by a HANDLE rather than a name: rules 3 and 4
-# compare a handle against a normalised name, and they only make sense for
-# these. This was the literal string "github", which meant that on any corpus
-# without GitHub in it - a company with Slack and Jira, say - two of the four
-# merge rules silently did nothing and every '@priya' stayed a separate human
-# from 'Priya Sharma'.
-HANDLE_SOURCES = {"github", "slack", "jira", "zendesk"}
+# compare a handle against a normalised name, and only make sense for these.
+HANDLE_SOURCES = {"github", "slack", "jira"}
 
 
 def normalise(name: str) -> str:
@@ -51,12 +38,19 @@ def normalise(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", folded.lower())
 
 
+def looks_like_bot(handle: str, name: str) -> bool:
+    """GitHub marks bots `name[bot]`; Slack integrations are conventionally `something-bot`.
+    Bots are flagged rather than dropped - their activity is real - so that "who worked on
+    this" can leave them out."""
+    handle, name = (handle or "").lower(), (name or "").lower()
+    return "[bot]" in handle or name.endswith("[bot]") or handle.endswith("-bot")
+
+
 class Union:
     """Union-find. Accounts get merged into groups; each group becomes a Person."""
 
     def __init__(self) -> None:
         self.parent: dict[str, str] = {}
-        self.why: list[dict] = []
 
     def add(self, key: str) -> None:
         self.parent.setdefault(key, key)
@@ -68,12 +62,10 @@ class Union:
             key = self.parent[key]
         return key
 
-    def union(self, a: str, b: str, rule: str, confidence: float) -> None:
+    def union(self, a: str, b: str) -> None:
         ra, rb = self.find(a), self.find(b)
-        if ra == rb:
-            return
-        self.parent[rb] = ra
-        self.why.append({"a": a, "b": b, "rule": rule, "confidence": confidence})
+        if ra != rb:
+            self.parent[rb] = ra
 
 
 def resolve_people(accounts: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
@@ -93,77 +85,67 @@ def resolve_people(accounts: list[dict]) -> tuple[list[dict], list[dict], list[d
             entry["email"] = account["email"].lower()
 
     groups = Union()
-    for account_id in unique:
-        groups.add(account_id)
-
     by_email: dict[str, str] = {}
-    by_norm: dict[str, str] = {}
     for account_id, account in unique.items():
+        groups.add(account_id)
         if account["email"]:
             if account["email"] in by_email:
-                groups.union(by_email[account["email"]], account_id, "same-email", 1.00)
+                groups.union(by_email[account["email"]], account_id)      # rule 1
             else:
                 by_email[account["email"]] = account_id
-        if account["norm"]:
-            if account["norm"] in by_norm:
-                groups.union(by_norm[account["norm"]], account_id, "same-normalised-name", 0.95)
-            else:
-                by_norm[account["norm"]] = account_id
 
-    # handle vs a full name with the spaces taken out
+    # Rules 2-5 only ever suggest: one suggestion per pair of people, strongest rule first.
+    roots = sorted({groups.find(a) for a in unique})
+    members = {root: [aid for aid in unique if groups.find(aid) == root] for root in roots}
+    suggestions: dict[tuple[str, str], tuple[str, float]] = {}
+
+    def suggest(a: str, b: str, rule: str, confidence: float) -> None:
+        ra, rb = sorted((groups.find(a), groups.find(b)))
+        if ra != rb and (ra, rb) not in suggestions:
+            suggestions[(ra, rb)] = (rule, confidence)
+
+    by_norm: dict[str, list[str]] = {}
     for account_id, account in unique.items():
-        if account["source"] not in HANDLE_SOURCES:
-            continue
-        twin = by_norm.get(normalise(account["handle"]))
-        if twin and twin != account_id:
-            groups.union(twin, account_id, "login-matches-name", 0.90)
-
-    # email local-part vs handle: kennethreitz@gmail.com <-> kennethreitz
-    logins = {normalise(a["handle"]): aid for aid, a in unique.items()
-              if a["source"] in HANDLE_SOURCES}
+        if account["norm"]:
+            by_norm.setdefault(account["norm"], []).append(account_id)
+    for same in by_norm.values():
+        for other in same[1:]:
+            suggest(same[0], other, "same-normalised-name", 0.95)
+    for account_id, account in unique.items():
+        if account["source"] in HANDLE_SOURCES:
+            for twin in by_norm.get(normalise(account["handle"]), []):
+                suggest(twin, account_id, "handle-matches-name", 0.90)
+    logins = {normalise(a["handle"]): aid for aid, a in unique.items() if a["source"] in HANDLE_SOURCES}
     for account_id, account in unique.items():
         local = normalise(account["email"].split("@")[0]) if account["email"] else ""
-        if local and local in logins and logins[local] != account_id:
-            groups.union(logins[local], account_id, "email-matches-login", 0.85)
-
-    # Everything left that merely LOOKS similar becomes a question, not a merge.
-    review: list[dict] = []
-    roots = sorted({groups.find(a) for a in unique})
-    labels = {root: unique[root]["norm"] for root in roots}
+        if local in logins:
+            suggest(logins[local], account_id, "email-matches-handle", 0.85)
     for i, a in enumerate(roots):
         for b in roots[i + 1:]:
-            if not labels[a] or not labels[b]:
-                continue
-            score = difflib.SequenceMatcher(None, labels[a], labels[b]).ratio()
-            if REVIEW_THRESHOLD <= score < 1.0:
-                review.append({
-                    "id": f"review:{a}|{b}", "kind": "identity",
-                    "a": a, "b": b, "aName": unique[a]["name"], "bName": unique[b]["name"],
-                    "score": round(score, 4), "status": "pending",
-                    "reason": f"names {round(score * 100)}% similar - too close to merge automatically",
-                })
+            na, nb = unique[a]["norm"], unique[b]["norm"]
+            if na and nb:
+                score = difflib.SequenceMatcher(None, na, nb).ratio()
+                if REVIEW_THRESHOLD <= score < 1.0:
+                    suggest(a, b, f"names {round(score * 100)}% similar", round(score, 4))
+
+    review = [{"id": f"review:{a}|{b}", "kind": "identity", "a": a, "b": b,
+               "aName": unique[a]["name"], "bName": unique[b]["name"], "rule": rule,
+               "score": score, "status": "pending",
+               "reason": f"{rule}: too weak to merge on its own"}
+              for (a, b), (rule, score) in sorted(suggestions.items())]
 
     people, links = [], []
     for root in roots:
-        members = [aid for aid in unique if groups.find(aid) == root]
+        group = members[root]
         # Prefer the longest human-looking name as the display name.
-        display = max((unique[m]["name"] for m in members), key=len)
-        person_id = f"person:{unique[root]['norm'] or unique[root]['handle']}"
-        # Bots dominate recent commit history (dependabot alone is 64 of the
-        # last 400 here) and drown out humans in any "who worked on this"
-        # query. Flagged rather than dropped - their activity is still real.
-        # GitHub marks bots `name[bot]`; Slack integrations are conventionally
-        # `something-bot`. Only the first was recognised, so a Datadog alert
-        # integration was counted as an employee.
-        is_bot = any("[bot]" in unique[m]["handle"] or unique[m]["name"].endswith("[bot]")
-                     or unique[m]["handle"].endswith("-bot")
-                     for m in members)
+        display = max((unique[m]["name"] for m in group), key=len)
+        person_id = f"person:{unique[root]['email'] or unique[root]['source'] + ':' + unique[root]['handle']}"
         people.append({
-            "id": person_id, "name": display, "accountCount": len(members),
-            "sources": sorted({unique[m]["source"] for m in members}),
-            "isBot": is_bot,
+            "id": person_id, "name": display, "accountCount": len(group),
+            "sources": sorted({unique[m]["source"] for m in group}),
+            "isBot": any(looks_like_bot(unique[m]["handle"], unique[m]["name"]) for m in group),
         })
-        for member in members:
+        for member in group:
             links.append({"personId": person_id, "account": unique[member]})
 
     return people, links, review

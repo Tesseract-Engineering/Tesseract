@@ -27,9 +27,9 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import Iterable
 
-from contract import (Decision, EdgeProposal, NodeProposal, content_hash, now_iso,
+from .contract import (Decision, EdgeProposal, NodeProposal, content_hash, now_iso,
                       as_row, validate)
-from store import Neo4jStore
+from .store import Neo4jStore
 
 # Thresholds for the default policy. Deliberately crude and inspectable - and
 # note the open question: these confidences have never been calibrated. Until
@@ -48,6 +48,9 @@ class Receipt:
     decisions: Counter = field(default_factory=Counter)
     reasons: Counter = field(default_factory=Counter)
     by_type: Counter = field(default_factory=Counter)
+    # Edges escalated and not admitted, as rows: the caller decides whether a
+    # person reviews them. Without this, "escalate" would just mean "drop".
+    held: list = field(default_factory=list)
 
     def __str__(self) -> str:
         parts = [f"accepted={self.accepted}", f"unchanged={self.unchanged}",
@@ -83,7 +86,6 @@ class Ingestor:
         receipt = Receipt()
         nodes: dict[str, list[dict]] = defaultdict(list)
         edges: dict[tuple[str, str, str], list[dict]] = defaultdict(list)
-        escalations: list[dict] = []
 
         known = self.store.existing_hashes(ns) if not dry_run else set()
 
@@ -114,7 +116,7 @@ class Ingestor:
             decision = decide(proposal)
             receipt.decisions[decision] += 1
             if decision == "escalate" and not self.admit_escalated:
-                escalations.append(row)
+                receipt.held.append(row)
                 receipt.rejected += 1
                 receipt.reasons["escalated for review - not admitted"] += 1
                 continue

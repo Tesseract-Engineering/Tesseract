@@ -4,25 +4,29 @@ build_swarm.py - build the company graph from the swarm's runs (record schema v2
     swarm_records.load()   reading rules 1-8 -> the current state: live items, ACLs, groups,
                            identity clusters, extractions
     skeleton               items, containers, accounts; role edges, refs, IN - exact, from fields
-    people                 the swarm's identity clusters; our own resolver for anything they miss
-    meaning                extracted entities merged across items by type and name, with quotes;
-                           extracted relations with the model's confidence weighted by source
+    people                 the swarm's identity clusters; for identities no cluster lists, our
+                           resolver merges on exact email only and writes anything weaker down as
+                           a ReviewItem (a wrong merge would hand one person the other's access)
+    meaning                extracted entities merged across items by type, name and access set,
+                           with quotes; extracted relations with the model's own confidence, each
+                           edge carrying the access of the items it was read from
     the door               namespaced, validated, receipted writes (contract.py, ingest.py)
 
 What is parsed and what is inferred stays apart, as everywhere else: a role or a ref is a field
 (producer swarm:field / swarm:ref:<via>), an extracted relation is a model's reading of prose
 (producer swarm:llm:<model>:<prompt>) and carries its quotes. Weights come from weights.py.
 
-Usage (from graph/):
-    python build_swarm.py --root ../samples/run-0 --dry-run
-    ... build_swarm.py --root <folder holding runs/>            # writes namespace kg:swarm
-    ... build_swarm.py --root runs.zip                          # a zip of the bucket's runs/
-    ... build_swarm.py --root s3 --env <swarm .env>             # the bucket itself
+Usage (from the repo root):
+    python -m graph.build_swarm --root samples/run-0 --dry-run
+    ... -m graph.build_swarm --root <folder holding runs/>      # writes namespace kg:swarm
+    ... -m graph.build_swarm --root s3 --env .env               # the bucket itself
+    docker compose -f swarm/compose.yaml run --rm graph         # the same, inside the stack
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -31,9 +35,10 @@ from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 
-import weights
-from contract import EDGE_TYPES, EdgeProposal, NodeProposal, Provenance, validate
-from swarm_records import State, current_extractions, load, open_store
+from . import weights
+from .contract import EDGE_TYPES, EdgeProposal, NodeProposal, Provenance, validate
+from .resolve import looks_like_bot, resolve_people
+from .swarm_records import State, current_extractions, load, open_store, resolve_person
 
 TYPE_OF_KIND = {"repo": "Container", "channel": "Container", "folder": "Container", "project": "Container",
                 "pull_request": "Issue", "issue": "Issue", "commit": "Commit",
@@ -51,7 +56,6 @@ ROLE_EDGE = {"author": ("AUTHORED", "out"), "reporter": ("AUTHORED", "out"),
              "reviewer": ("REVIEWED", "out"), "assignee": ("ASSIGNED_TO", "in"),
              "commenter": ("PARTICIPATED_IN", "out"), "participant": ("PARTICIPATED_IN", "out"),
              "mentioned": ("MENTIONS", "in"), "owner": ("OWNS", "out")}
-VIS_RANK = {"public": 2, "internal": 1, "restricted": 0}
 
 
 def allowed(edge: str, src: str, dst: str) -> bool:
@@ -92,7 +96,7 @@ def item_props(item: dict) -> dict:
     label = TYPE_OF_KIND[item["kind"]]
     props = {"title": item.get("title") or item["id"], "kind": item["kind"], "source": item["source"],
              "url": item.get("url"), "aliases": item.get("aliases"), "createdAt": when(item.get("created_at")),
-             "updatedAt": when(item.get("updated_at")), "version": item.get("version"),
+             "sourceUpdatedAt": when(item.get("updated_at")), "version": item.get("version"),
              "contentHash": item.get("content_hash"), "runId": item.get("run_id"), "meta": meta}
     text_key = "body" if label in ("Issue", "Commit") else "text"   # what the codeSearch index reads
     props[text_key] = item.get("text")
@@ -108,7 +112,16 @@ def item_props(item: dict) -> dict:
 
 def acl(item: dict) -> tuple[str, list[str]]:
     a = item.get("acl") or {}
-    return a.get("visibility", "restricted"), list(a.get("principals") or [])
+    vis = a.get("visibility", "restricted")
+    return vis, sorted(a.get("principals") or []) if vis == "restricted" else []
+
+
+def acl_key(item: dict) -> str:
+    """One short name per access set: 'public', 'internal', or a digest of the principals."""
+    vis, principals = acl(item)
+    if vis != "restricted":
+        return vis
+    return "r" + hashlib.sha256("|".join(principals).encode("utf-8")).hexdigest()[:10]
 
 
 def build(state: State, ns: str) -> tuple[list, dict]:
@@ -147,10 +160,11 @@ def build(state: State, ns: str) -> tuple[list, dict]:
     for cluster in state.clusters.values():
         for m in cluster.get("members", []):
             account(m["id"], name=m.get("name"), email=(m.get("email") or "").lower() or None)
-    for ex in state.extractions.values():          # people named only in extracted relations
+    extractions, stale = current_extractions(state)     # rule 9
+    for ex in extractions:                               # people named only in extracted relations
         for rel in ex.get("relations", []):
             for ref in (rel["source"], rel["target"]):
-                if ref.startswith("person:"):
+                if ref.startswith("person:") and not ref.startswith("person:c:"):
                     account(ref)
 
     # ---- items: nodes, containers, refs, roles ------------------------------------------ #
@@ -198,32 +212,38 @@ def build(state: State, ns: str) -> tuple[list, dict]:
     report["counts"]["pending refs"] = sum(len(v) for v in pending.values())
 
     # ---- people: identity clusters, then our resolver for identities no cluster lists -- #
-    person_of = dict(state.person_of)
+    # rule 6: an identity listed only by a cluster that later merged away belongs to the survivor
+    person_of = {aid: resolve_person(state, pid) for aid, pid in state.person_of.items()}
+    person_of = {aid: pid for aid, pid in person_of.items() if pid in state.clusters}
     persons: dict[str, dict] = {}
     for pid, cluster in state.clusters.items():
         names = Counter(m.get("name") for m in cluster["members"] if m.get("name"))
         persons[pid] = {"name": names.most_common(1)[0][0] if names else pid,
                         "method": cluster.get("method"), "confidence": float(cluster.get("confidence", 1.0)),
-                        "evidence": cluster.get("evidence")}
+                        "evidence": cluster.get("evidence"),
+                        "isBot": any(looks_like_bot(m.get("handle") or "", m.get("name") or "")
+                                     for m in cluster["members"])}
     loose = [a for a in accounts.values() if a["id"] not in person_of]
     if loose:
-        from resolve import resolve_people
         ours = {(a["source"], a["handle"].lower()): a["id"] for a in loose}
-        people, links, _review = resolve_people([{"source": a["source"], "handle": a["handle"],
-                                                  "name": a.get("name"), "email": a.get("email")} for a in loose])
+        people, links, review = resolve_people([{"source": a["source"], "handle": a["handle"],
+                                                 "name": a.get("name"), "email": a.get("email")} for a in loose])
         for row in people:
             persons[f"person:ours:{row['id']}"] = {"name": row["name"], "method": "graph-resolver",
-                                                   "confidence": 1.0, "evidence": None}
+                                                   "confidence": 1.0, "evidence": None, "isBot": row["isBot"]}
         for link in links:
             src = ours.get((link["account"]["source"], link["account"]["handle"]))
             if src:
                 person_of[src] = f"person:ours:{link['personId']}"
-                persons[person_of[src]]["confidence"] = min(persons[person_of[src]]["confidence"],
-                                                            float(link.get("confidence", 1.0)))
+        for item in review:     # too weak to merge: written down for a person to settle
+            proposals.append(NodeProposal(ns=ns, type="ReviewItem", id=item["id"], props=clean(item),
+                                          provenance=prov("swarm", item["id"], "graph-resolver",
+                                                          item["score"])))
         report["counts"]["identities resolved by our resolver (no swarm cluster)"] = len(loose)
+        report["counts"]["identity matches left for review"] = len(review)
     for pid, p in persons.items():
         proposals.append(NodeProposal(ns=ns, type="Person", id=pid, props=clean({"name": p["name"],
-                                      "resolvedBy": p["method"]}),
+                                      "resolvedBy": p["method"], "isBot": p["isBot"]}),
                                       provenance=prov("swarm", pid, f"identity:{p['method']}", p["confidence"])))
     for aid, a in accounts.items():
         proposals.append(NodeProposal(ns=ns, type="Account", id=aid,
@@ -250,6 +270,10 @@ def build(state: State, ns: str) -> tuple[list, dict]:
                                       provenance=prov(g.get("source", "swarm"), gid, "swarm:group",
                                                       observed=g.get("observed_at"))))
         for m in g.get("members", []):
+            if m in state.groups:      # a group inside a group: readers follow MEMBER_OF transitively
+                edge("MEMBER_OF", m, gid, "Group", "Group", {"as": m},
+                     prov(g.get("source", "swarm"), gid, "swarm:group", observed=g.get("observed_at")))
+                continue
             members = (by_email.get(m[5:].lower(), set()) if m.startswith("user:")
                        else {person_of[m]} if m in person_of else set())     # rule 7
             if not members:
@@ -259,7 +283,6 @@ def build(state: State, ns: str) -> tuple[list, dict]:
                      prov(g.get("source", "swarm"), gid, "swarm:group", observed=g.get("observed_at")))
 
     # ---- meaning: extracted entities and relations ----------------------------------------- #
-    extractions, stale = current_extractions(state)
     report["counts"]["extractions applied"] = len(extractions)
     report["counts"]["extractions from an older item version"] = stale
     entities: dict[str, dict] = {}
@@ -284,9 +307,12 @@ def build(state: State, ns: str) -> tuple[list, dict]:
             if not evidence:
                 report["dropped"]["entity with no checkable evidence"] += 1
                 continue
-            eid = f"entity:{ent['type']}:{norm(ent['name']).replace(' ', '-')}"
+            # One node per thing AND access set. A node shared by a public and a private item
+            # would carry the private item's wording and attributes to everyone who can see it.
+            eid = f"entity:{ent['type']}:{norm(ent['name']).replace(' ', '-')}@{acl_key(item)}"
             local[ent["local_id"]] = (eid, label)
-            e = entities.setdefault(eid, {"label": label, "names": Counter(), "items": {}, "attributes": {}})
+            e = entities.setdefault(eid, {"label": label, "names": Counter(), "items": {}, "attributes": {},
+                                          "acl": acl(item)})
             e["names"][ent["name"]] += 1
             e["attributes"].update(ent.get("attributes") or {})
             e["items"][item["id"]] = (evidence, extractor)
@@ -297,7 +323,10 @@ def build(state: State, ns: str) -> tuple[list, dict]:
                     return local[ref]
                 if ref in state.items:
                     return ref, label_of[ref]
-                if ref.startswith("person:"):
+                if ref.startswith("person:c:"):           # a resolved person the text names
+                    pid = resolve_person(state, ref)
+                    return (pid, "Person") if pid in state.clusters else None
+                if ref.startswith("person:"):             # a source identity on the item
                     return account(ref), "Account"
                 return None
             src, dst = endpoint(rel["source"]), endpoint(rel["target"])
@@ -309,35 +338,44 @@ def build(state: State, ns: str) -> tuple[list, dict]:
             if not evidence:
                 report["dropped"]["relation with no checkable evidence"] += 1
                 continue
-            r = relations.setdefault((etype, src, dst), {"seen": [], "rel": rel["type"]})
+            r = relations.setdefault((etype, src, dst, acl_key(item)), {"seen": [], "rel": rel["type"]})
             r["seen"].append((item, float(rel.get("confidence", 0.5)), evidence, extractor))
 
+    # Extracted edges carry the access of the items they were read from (visibility, aclGroups),
+    # so a reader checks the edge, not only its endpoints: "decided by" from a private thread stays
+    # private even when the decision itself is also public elsewhere.
+    def edge_acl(item: dict) -> dict:
+        vis, principals = acl(item)
+        return {"visibility": vis, "aclGroups": principals}
+
     for eid, e in entities.items():
-        items = [state.items[i] for i in e["items"]]
-        vis = max((acl(it)[0] for it in items), key=VIS_RANK.get)   # visible if any source is
-        principals = sorted({p for it in items for p in acl(it)[1]}) if vis == "restricted" else []
+        vis, principals = e["acl"]
         name = e["names"].most_common(1)[0][0]
+        # Counts of mentions are not stored: readers count the MENTIONS edges they can see.
         proposals.append(NodeProposal(ns=ns, type=e["label"], id=eid, visibility=vis, acl_groups=principals,
                                       props=clean({"name": name, "aliases": sorted(e["names"]),
-                                                   "attributes": e["attributes"], "mentionedIn": len(items)}),
+                                                   "attributes": e["attributes"]}),
                                       provenance=prov("swarm", eid, "swarm:llm:entity")))
         report["counts"][f"node {e['label']} (extracted)"] += 1
         for iid, (evidence, extractor) in e["items"].items():
             it = state.items[iid]
             edge("MENTIONS", iid, eid, label_of[iid], e["label"],
                  {"quote": evidence[0]["quote"], "start": evidence[0]["start"], "end": evidence[0]["end"],
-                  "extractor": extractor},
-                 prov(it["source"], iid, f"swarm:llm:{extractor}",
-                      weights.SOURCE_AUTHORITY.get(it["source"], 0.7), evidence[0]["quote"], it.get("updated_at")))
+                  "extractor": extractor, "sourceAuthority": weights.source_authority(it["source"]),
+                  **edge_acl(it)},
+                 prov(it["source"], iid, f"swarm:llm:{extractor}", weights.MENTION_CONFIDENCE,
+                      evidence[0]["quote"], it.get("updated_at")))
 
-    for (etype, (sid, stype), (did, dtype)), r in relations.items():
-        scored = [weights.extraction_confidence(conf, it["source"]) for it, conf, _, _ in r["seen"]]
+    for (etype, (sid, stype), (did, dtype), _key), r in relations.items():
         it, conf, evidence, extractor = r["seen"][0]
         edge(etype, sid, did, stype, dtype,
              {"relation": r["rel"], "modelConfidence": conf, "corroboratedBy": len(r["seen"]),
               "evidenceItems": [x[0]["id"] for x in r["seen"]], "quote": evidence[0]["quote"],
-              "extractor": extractor},
-             prov(it["source"], it["id"], f"swarm:llm:{extractor}", weights.corroborate(scored),
+              "extractor": extractor,
+              "sourceAuthority": max(weights.source_authority(x[0]["source"]) for x in r["seen"]),
+              **edge_acl(it)},
+             prov(it["source"], it["id"], f"swarm:llm:{extractor}",
+                  weights.corroborate([weights.extraction_confidence(c) for _, c, _, _ in r["seen"]]),
                   evidence[0]["quote"], it.get("updated_at")))
 
     bad = [(p, validate(p)) for p in proposals if validate(p)]
@@ -349,7 +387,7 @@ def build(state: State, ns: str) -> tuple[list, dict]:
 def main(argv: list[str] | None = None) -> None:
     sys.stdout.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser(description="Build the company graph from swarm runs (schema v2)")
-    ap.add_argument("--root", required=True, help="a folder holding runs/, a .zip of it, or 's3' for the bucket")
+    ap.add_argument("--root", required=True, help="a folder holding runs/, or 's3' for the bucket")
     ap.add_argument("--env", type=Path, help="file with S3_ENDPOINT, S3_BUCKET, STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY "
                     "(the swarm's .env); the environment is used when absent")
     ap.add_argument("--ns", default="kg:swarm")
@@ -390,7 +428,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.dry_run:
         print(f"\nDRY RUN - nothing written. {len(proposals)} proposals.")
         return
-    import load as loader_mod
+    from . import load as loader_mod
     print(f"\nWriting to namespace {args.ns!r} ...")
     with loader_mod.Loader(args.ns) as loader:
         if not args.keep:

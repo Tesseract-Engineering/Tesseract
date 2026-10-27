@@ -7,7 +7,10 @@ hit is an engine limitation. But the decision should cost days, not months, and
 it only does if exactly one file knows what the backend is.
 
 Swapping to Postgres+AGE, Kuzu, or Neo4j Enterprise means writing another class
-with these seven methods. Nothing else changes.
+with these methods. Nothing else changes.
+
+Connection from the environment: NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD (required,
+no default: the swarm's .env and compose stack set it), NEO4J_DATABASE.
 
 Design choices that matter at scale:
 
@@ -26,18 +29,22 @@ from typing import Any, Iterable
 
 from neo4j import GraphDatabase
 
-from contract import EDGE_TYPES, EXTERNAL_TYPES, NODE_TYPES
+from .contract import EDGE_TYPES, NODE_TYPES
 
 NEO4J_URI = os.environ.get("NEO4J_URI", "neo4j://localhost:7687")
 NEO4J_USER = os.environ.get("NEO4J_USER", "neo4j")
-NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD", "neo4j-local-dev")
 NEO4J_DATABASE = os.environ.get("NEO4J_DATABASE", "neo4j")
 
 
 class Neo4jStore:
     def __init__(self, uri: str = NEO4J_URI, auth: tuple[str, str] | None = None,
                  database: str = NEO4J_DATABASE, batch_size: int = 1000):
-        self.driver = GraphDatabase.driver(uri, auth=auth or (NEO4J_USER, NEO4J_PASSWORD))
+        if auth is None:
+            password = os.environ.get("NEO4J_PASSWORD")
+            if not password:
+                raise RuntimeError("NEO4J_PASSWORD is not set (see .env.example)")
+            auth = (NEO4J_USER, password)
+        self.driver = GraphDatabase.driver(uri, auth=auth)
         self.database = database
         self.batch_size = batch_size
 
@@ -82,8 +89,6 @@ class Neo4jStore:
         the old behaviour (bench.py does)."""
         wanted_nodes = NODE_TYPES if node_types is None else [t for t in NODE_TYPES if t in node_types]
         wanted_edges = EDGE_TYPES if edge_types is None else [t for t in EDGE_TYPES if t in edge_types]
-        wanted_external = (EXTERNAL_TYPES if node_types is None
-                           else [t for t in EXTERNAL_TYPES if t in node_types])
         # A bare `id IS UNIQUE` constraint from any earlier schema makes
         # (ns, id) unreachable: the first namespace to claim an id locks every
         # other namespace out of it, which is the opposite of what namespacing
@@ -107,20 +112,27 @@ class Neo4jStore:
         for edge_type in wanted_edges:
             self._run(f"CREATE INDEX {edge_type.lower()}_live IF NOT EXISTS "
                       f"FOR ()-[r:{edge_type}]-() ON (r.supersededAt)")
-        # External types keep whatever indexes their owner made. Creating an
-        # id index here is still worth it: every edge to one of them matches
-        # on id, and without it that MATCH is a label scan.
-        for node_type in wanted_external:
-            self._run(f"CREATE INDEX {node_type.lower()}_id IF NOT EXISTS "
-                      f"FOR (n:{node_type}) ON (n.id)")
-        # Keyword search over prose. Without it, "which documents mention
-        # kafka" is a CONTAINS scan of every text property in the graph.
-        text_labels = [t for t in ("Commit", "Issue", "Document", "Claim") if t in wanted_nodes]
-        if text_labels:
-            existing = {r["name"] for r in self._run("SHOW INDEXES YIELD name RETURN name")}
-            if "knowledgeSearch" not in existing:
-                self._run("CREATE FULLTEXT INDEX knowledgeSearch IF NOT EXISTS "
-                          "FOR (n:Commit|Issue|Document|Claim) ON EACH [n.title, n.body, n.text]")
+        # Keyword search. Over prose: without it, "which documents mention kafka"
+        # is a CONTAINS scan of every text property in the graph. Over names:
+        # extracted entities and containers have only a name or a title, so the
+        # prose index alone finds the meeting notes but never the Decision.
+        # Both are created by name and guarded, so an existing database keeps
+        # the definition it has.
+        existing = {r["name"] for r in self._run("SHOW INDEXES YIELD name RETURN name")}
+        if "knowledgeSearch" not in existing and {"Commit", "Issue", "Document"} & set(wanted_nodes):
+            self._run("CREATE FULLTEXT INDEX knowledgeSearch IF NOT EXISTS "
+                      "FOR (n:Commit|Issue|Document) ON EACH [n.title, n.body, n.text]")
+        named = [t for t in ("Decision", "Project", "ActionItem", "System", "Team", "Customer", "Container")
+                 if t in wanted_nodes]
+        if "entitySearch" not in existing and named:
+            self._run("CREATE FULLTEXT INDEX entitySearch IF NOT EXISTS "
+                      "FOR (n:Decision|Project|ActionItem|System|Team|Customer|Container) "
+                      "ON EACH [n.name, n.title, n.aliases]")
+        # A live reader (forge) finds an item by its source ref on every read.
+        for node_type in ("Issue", "Document", "Commit", "Container"):
+            if node_type in wanted_nodes:
+                self._run(f"CREATE INDEX {node_type.lower()}_ref IF NOT EXISTS "
+                          f"FOR (n:{node_type}) ON (n.ref)")
 
     def _legacy_id_constraints(self) -> list[str]:
         """Single-property `id` uniqueness constraints on labels this door
@@ -140,23 +152,12 @@ class Neo4jStore:
     # -- writes ------------------------------------------------------------- #
 
     @staticmethod
-    def _endpoint(node_type: str, id_field: str) -> str:
-        """The MATCH pattern for one end of an edge.
-
-        Nodes this door owns are found by (ns, id), which is the guarantee
-        that keeps two producers' "Person" apart. Nodes another producer owns
-        have no ns to match on, so they are found by id alone - weaker, and
-        deliberately visible here rather than hidden behind a nullable
-        property that silently matches across namespaces.
-        """
-        if node_type in EXTERNAL_TYPES:
-            return f"id: row.{id_field}"
+    def _endpoint(id_field: str) -> str:
+        """The MATCH pattern for one end of an edge: by (ns, id), which is the
+        guarantee that keeps two namespaces' "Person" apart."""
         return f"ns: row.ns, id: row.{id_field}"
 
     def upsert_nodes(self, node_type: str, rows: list[dict]) -> int:
-        if node_type in EXTERNAL_TYPES:
-            raise ValueError(f"{node_type} is owned by build_graph.py - "
-                             f"this store links to it, it does not create it")
         if node_type not in NODE_TYPES:
             raise ValueError(f"{node_type} not in ontology")
         return self._batched(f"""
@@ -166,7 +167,7 @@ class Neo4jStore:
                 n.hash = row.hash, n.visibility = row.visibility,
                 n.aclGroups = row.aclGroups,
                 n.source = row.prov_source, n.producer = row.prov_producer,
-                n.observedAt = row.prov_observed_at, n.updatedAt = row.prov_ingested_at
+                n.observedAt = row.prov_observed_at, n.ingestedAt = row.prov_ingested_at
             RETURN count(n) AS n
         """, rows)
 
@@ -182,8 +183,8 @@ class Neo4jStore:
         # makes supersede meaningful.
         return self._batched(f"""
             UNWIND $rows AS row
-            MATCH (a:{src_type} {{{self._endpoint(src_type, "srcId")}}})
-            MATCH (b:{dst_type} {{{self._endpoint(dst_type, "dstId")}}})
+            MATCH (a:{src_type} {{{self._endpoint("srcId")}}})
+            MATCH (b:{dst_type} {{{self._endpoint("dstId")}}})
             MERGE (a)-[r:{edge_type} {{hash: row.hash}}]->(b)
             SET r += row.props,
                 r.source = row.prov_source, r.sourceId = row.prov_source_id,
@@ -199,7 +200,7 @@ class Neo4jStore:
         old edge stays queryable, tagged with when and by what replaced it."""
         return self._batched(f"""
             UNWIND $rows AS row
-            MATCH (a:{src_type} {{{self._endpoint(src_type, "srcId")}}})-[r:{edge_type}]->(b:{dst_type} {{{self._endpoint(dst_type, "dstId")}}})
+            MATCH (a:{src_type} {{{self._endpoint("srcId")}}})-[r:{edge_type}]->(b:{dst_type} {{{self._endpoint("dstId")}}})
             WHERE r.hash <> row.hash AND r.supersededAt IS NULL
             SET r.supersededAt = datetime($at), r.supersededBy = row.hash
             RETURN count(r) AS n
