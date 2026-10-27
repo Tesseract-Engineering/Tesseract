@@ -46,7 +46,7 @@ def decisions(store: Neo4jStore, ns: str, v: dict) -> list[dict]:
 
 def contributors(store: Neo4jStore, ns: str, v: dict) -> list[dict]:
     """Who has done the most in each repo, channel or folder, as this viewer can see it:
-    the sum of role weights (strength x recency) over readable items only."""
+    the sum of role weights over readable items only."""
     return store._run(
         "MATCH (p:Person {ns: $ns})-[:HAS_ACCOUNT]->(:Account)-[r]->(i {ns: $ns})-[:IN]->(c:Container {ns: $ns}) "
         f"WHERE r.weight IS NOT NULL AND {READABLE.format(n='i')} AND {READABLE.format(n='c')} "

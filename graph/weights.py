@@ -6,8 +6,9 @@ Two numbers, never mixed:
   confidence  is this edge TRUE?  0..1, goes in the edge's provenance like
               every other producer's. A field the source itself filled is 1.0;
               a link spotted in prose is less, by how it was spotted.
-  weight      how STRONG is it?   role strength x recency decay. Ranks "who
-              knows about X" and "what matters here"; says nothing about truth.
+  weight      how STRONG is it?   the role's strength. Ranks "who knows about
+              X" and "what matters here"; says nothing about truth. It does not
+              fade with age: old work counts the same as new.
 
 The swarm sends raw signals (roles, `via`, timestamps) and no weights, on
 purpose: these values are first guesses, and tuning them against an answer key
@@ -16,8 +17,6 @@ Change a number here, rebuild, re-score.
 """
 
 from __future__ import annotations
-
-from datetime import datetime, timezone
 
 # How a ref was found (swarm `refs[].via`) -> confidence the link is real.
 # A field is a link someone set in the tool itself (Jira's "duplicates",
@@ -49,36 +48,13 @@ ROLE_STRENGTH = {
 # code > org data > docs > tickets > chat.
 SOURCE_AUTHORITY = {"github": 1.0, "gdrive": 0.9, "jira": 0.8, "slack": 0.7}
 
-HALF_LIFE_DAYS = 90.0
-
-
-def parse_time(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    try:
-        when = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return when if when.tzinfo else when.replace(tzinfo=timezone.utc)
-
-
-def decay(when: str | None, as_of: datetime) -> float:
-    """0.5 ** (age / half-life). Undated work counts half: unknown is not new."""
-    t = parse_time(when)
-    if t is None:
-        return 0.5
-    age_days = max((as_of - t).total_seconds() / 86400, 0.0)
-    return 0.5 ** (age_days / HALF_LIFE_DAYS)
-
-
 def ref_confidence(via: str | None) -> float:
     return VIA_CONFIDENCE.get(via or "", UNKNOWN_VIA_CONFIDENCE)
 
 
-def role_weight(role: str, when: str | None, as_of: datetime) -> tuple[float, float]:
-    """(strength, weight) for one person-role-item tie."""
-    strength = ROLE_STRENGTH.get(role, 0.2)
-    return strength, round(strength * decay(when, as_of), 4)
+def role_weight(role: str) -> float:
+    """Weight of one person-role-item tie."""
+    return ROLE_STRENGTH.get(role, 0.2)
 
 
 def corroborate(confidences: list[float]) -> float:

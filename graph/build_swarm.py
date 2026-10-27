@@ -28,7 +28,7 @@ import os
 import re
 import sys
 from collections import Counter, defaultdict
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 import weights
@@ -113,7 +113,6 @@ def acl(item: dict) -> tuple[str, list[str]]:
 
 def build(state: State, ns: str) -> tuple[list, dict]:
     """State -> door proposals, plus a report of everything worth a human's attention."""
-    as_of = when(state.as_of) or datetime.now(timezone.utc)
     report: dict = {"counts": Counter(), "dropped": Counter(), "pending_refs": []}
     proposals: list = []
     label_of = {iid: TYPE_OF_KIND[it["kind"]] for iid, it in state.items.items()}
@@ -192,8 +191,7 @@ def build(state: State, ns: str) -> tuple[list, dict]:
                                           else (iid, p["id"], label, "Account"))
                 if not allowed(etype, stype, dtype):     # e.g. an owner of a thread
                     etype, src, dst, stype, dtype = "PARTICIPATED_IN", p["id"], iid, "Account", label
-                strength, weight = weights.role_weight(role, it.get("updated_at"), as_of)
-                edge(etype, src, dst, stype, dtype, {"role": role, "strength": strength, "weight": weight},
+                edge(etype, src, dst, stype, dtype, {"role": role, "weight": weights.role_weight(role)},
                      prov(it["source"], iid, "swarm:field:people", observed=it.get("updated_at")))
     for iid, refs in pending.items():   # rule 4: kept, resolved when the target arrives
         item_nodes[iid].props["pendingRefs"] = refs

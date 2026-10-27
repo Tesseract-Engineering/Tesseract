@@ -70,8 +70,7 @@ dec_by = next(e for e in edges if e.type == "DECIDED_BY")
 check("extracted confidence = model 0.8 x slack authority 0.7", dec_by.provenance.confidence == 0.56,
       dec_by.provenance.confidence)
 author = next(e for e in edges if e.type == "AUTHORED" and e.dst_id == pr)
-check("role edges carry strength and a decayed weight", author.props["strength"] == 1.0
-      and 0 < author.props["weight"] <= 1.0, author.props)
+check("role edges carry the role's weight, not faded by age", author.props["weight"] == 1.0, author.props)
 
 
 # -- reading rules the sample does not reach --------------------------------------------------- #

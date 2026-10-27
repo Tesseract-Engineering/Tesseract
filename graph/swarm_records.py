@@ -1,7 +1,7 @@
 """
 swarm_records.py - read the swarm's output (record schema v2) into the current state of the company.
 
-The swarm (github.com/kar722/Tesseract, branch `swarm`, docs/SWARM.md) writes runs into a bucket:
+The swarm (github.com/Tesseract-Engineering/Tesseract, branch `swarm`, docs/SWARM.md) writes runs into a bucket:
 
     runs/{source}/{run_id}/_manifest.json            written last; status "complete"
     runs/{source}/{run_id}/items/part-00001.jsonl    item records

@@ -12,7 +12,7 @@ bucket runs/ ──▶ swarm_records.py ──▶ build_swarm.py ──▶ the d
 |---|---|
 | `swarm_records.py` | Reads runs (a folder, a zip of `runs/`, or the S3 bucket) and applies SWARM.md's reading rules: complete manifests only, newest content and ACL win, tombstones retire items and their extractions, identity clusters. |
 | `build_swarm.py` | Turns that state into node and edge proposals. Repos, channels, folders and Jira projects become `Container`s; PRs and issues `Issue`s; threads and docs `Document`s. Roles become `AUTHORED`, `REVIEWED`, `ASSIGNED_TO`...; refs become `CLOSES`, `IMPLEMENTS`, `PART_OF`, `BLOCKS`, `DUPLICATES`, `REFERENCES`. |
-| `weights.py` | Every number in the graph: ref confidence by `via`, role strength, 90-day recency half-life, source authority for extractions, noisy-or when sources agree. |
+| `weights.py` | Every number in the graph: ref confidence by `via`, role weight, source authority for extractions, noisy-or when sources agree. |
 | `contract.py`, `ingest.py`, `store.py`, `load.py` | The door: what node and edge types may exist, and the only code that writes to Neo4j. |
 | `resolve.py` | Fallback people matching for accounts the swarm's identity run left unclustered. |
 | `swarm_queries.py` | Reading as one viewer: only items their principals can see, and aggregates (who did the most where) computed per query, never stored. |
