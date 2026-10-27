@@ -226,4 +226,5 @@ var/
 # swarm local dev (docs/SWARM.md): real source data and the dev bucket's files
 /data/
 /storage-data/
+/neo4j-data/
 .claude/

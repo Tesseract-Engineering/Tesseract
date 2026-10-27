@@ -104,7 +104,7 @@ def test_doc_items(items):
     adr = items["github:repo:9001:file:docs/adr/0002%20use%20oidc.md"]
     assert adr.kind == "document" and adr.container == "github:repo:9001"
     assert adr.title == "docs/adr/0002 use oidc.md" and adr.aliases == ["acme-sbx/api/docs/adr/0002 use oidc.md"]
-    assert adr.url == "https://github.com/acme-sbx/api/blob/main/docs/adr/0002%20use%20oidc.md"
+    assert adr.url == f"https://github.com/acme-sbx/api/blob/{adr.meta['last_commit']}/docs/adr/0002%20use%20oidc.md"
     assert adr.version == "d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3"
     assert adr.created_at == adr.updated_at and adr.updated_at.isoformat() == "2026-10-14T16:05:00+00:00"
     assert [(r.type, r.target) for r in adr.refs] == [("references", "github:repo:9001:pr:2")]

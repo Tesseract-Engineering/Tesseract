@@ -35,7 +35,7 @@ def test_sample_has_every_record_type_and_complete_manifests():
     kinds = {parse_line(line.values[0]).record_type for line in sample_lines()}
     assert kinds == {"item", "extraction", "tombstone", "acl_update", "group", "identity"}
     runs = [p for p in SAMPLE.glob("*/*") if p.is_dir()]
-    assert len(runs) == 4
+    assert len(runs) == 6
     for run in runs:
         manifest = Manifest.model_validate_json((run / "_manifest.json").read_text(encoding="utf-8"))
         assert manifest.status == "complete" and manifest.run_id == run.name

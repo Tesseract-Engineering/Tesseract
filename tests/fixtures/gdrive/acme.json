@@ -1,5 +1,5 @@
 {
-  "_about": "A fictional Drive the service account can see: one shared drive (Engineering) and one folder shared with it from a personal account (Club shared), in the Drive API v3 shapes (trimmed to the fields the connector asks for). tests/swarm_tests/gdrive_fixture.py serves it as a fake API. A file's _text is what export, a PDF or a Word or PowerPoint file holds (null: a scanned PDF; \\f separates slides); _permissions is its permission list, or 403 when the account may not list it. {{PLANTED:name}} is replaced with a fake token from tests/fixtures/redaction/corpus.yaml. No club data.",
+  "_about": "A fictional Drive the service account can see: one shared drive (Engineering) and one folder shared with it from a personal account (Club shared), in the Drive API v3 shapes (trimmed to the fields the connector asks for). tests/swarm_tests/gdrive_fixture.py serves it as a fake API. A file's _text is what export, a PDF or a Word or PowerPoint file holds (null: a scanned PDF; \\f separates slides, or a workbook's sheets, each a name line then tab-separated rows); _permissions is its permission list, or 403 when the account may not list it. {{PLANTED:name}} is replaced with a fake token from tests/fixtures/redaction/corpus.yaml. No club data.",
 
   "service_account": "swarm-reader@acme-swarm.iam.gserviceaccount.com",
 
@@ -33,6 +33,7 @@
                       {"id": "01SAM", "type": "user", "role": "organizer", "emailAddress": "sam@acme.com"}]},
 
     {"id": "1SHEETbudget1", "name": "Proxy budget", "mimeType": "application/vnd.google-apps.spreadsheet",
+     "_text": "Budget\nItem\tMonthly\nIdP proxy\t1200\fNotes\nOwner\tsam@acme.com",
      "parents": ["0AENGdrive"], "driveId": "0AENGdrive",
      "createdTime": "2026-09-20T09:00:00.000Z", "modifiedTime": "2026-10-10T09:00:00.000Z", "version": "3",
      "webViewLink": "https://docs.google.com/spreadsheets/d/1SHEETbudget1/edit",
@@ -78,7 +79,7 @@
      "parents": ["0AENGdrive"], "driveId": "0AENGdrive",
      "createdTime": "2026-10-07T10:00:00.000Z", "modifiedTime": "2026-10-07T10:00:00.000Z", "version": "1",
      "webViewLink": "https://drive.google.com/file/d/1XLSXcosts001/view",
-     "_text": null, "_permissions": "$drive:0AENGdrive"},
+     "_text": "Costs\nVendor\tMonthly\nSquid support\t300", "_permissions": "$drive:0AENGdrive"},
 
     {"id": "1PNGdiagram01", "name": "diagram.png", "mimeType": "image/png",
      "parents": ["1SPECSfolder00"], "driveId": "0AENGdrive",
@@ -100,6 +101,7 @@
      "_text": "old", "_permissions": "$drive:0AENGdrive"},
 
     {"id": "1HRdoc0000001", "name": "Salaries", "mimeType": "application/vnd.google-apps.spreadsheet",
+     "_text": "Salaries\nName\tBand",
      "parents": ["0AHRdrive"], "driveId": "0AHRdrive",
      "createdTime": "2026-10-01T09:00:00.000Z", "modifiedTime": "2026-10-01T09:00:00.000Z", "version": "1",
      "_permissions": [{"id": "05HR", "type": "user", "role": "organizer", "emailAddress": "hr@acme.com"}]},

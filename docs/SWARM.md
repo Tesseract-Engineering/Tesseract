@@ -38,7 +38,7 @@ Every design question below is settled. Rows marked default were open questions;
 | GitHub auth | Customer-created GitHub App, read-only, installed on selected repos. | Default |
 | Jira auth | Service account with an API token, read-only project permissions. Project readers come from who may browse each project, which needs the global "Browse users and groups" permission; without it the readers group is written empty and grants nobody. Issues with a security level are readable by that level's group, written with no members. | Default |
 | Drive auth | Service account added to selected shared drives, or to shared folders where there is no Google Workspace. Domain-wide delegation is an opt-in upgrade for full coverage. | Default |
-| Drive file types | Docs, Slides, text PDFs and uploaded Word and PowerPoint files get full text; Office files are unzipped and read with the standard library, against size budgets, refusing any part with a DOCTYPE. Sheets and Excel files get metadata, ACLs and refs only in v1. Every other file type keeps metadata, so the graph still knows the file, its owner and who may read it. | Default |
+| Drive file types | Docs, Slides, Sheets, text PDFs and uploaded Word, PowerPoint and Excel files get full text; Sheets are exported as .xlsx (a CSV export holds the first sheet only), and Office files are unzipped and read with the standard library, against size budgets, refusing any part with a DOCTYPE. A workbook's text is each sheet's name, then one row per line with cells tab-separated, dates as dates. Every other file type keeps metadata, so the graph still knows the file, its owner and who may read it. | Default |
 | GitHub files | Docs on the default branch only: Markdown, reStructuredText and CODEOWNERS (ADRs, READMEs, handbooks, ownership), as `document` items. Source code and config are never read: they hold real secrets, dwarf everything else, and say what a system does rather than who decided what. A doc is re-read only when its blob changes. | Default |
 | Slack ACLs | Public channels are `internal` (the whole workspace can read them); private channels name a members group. | Default |
 | Slack grouping | Threads keep their `thread_ts`; other messages form bursts (gaps of 20 minutes at most, never across midnight UTC), so the export and the API build the same IDs. | Default |
@@ -89,8 +89,10 @@ The arrows from the bottom row are mounts: `.env` supplies tokens; `data/` holds
 | `github`, `slack`, `drive` | Built from `pipelines/{source}` | internal | On demand | One batch run of that source's pipeline, then exit |
 | `jira` | Built from `pipelines/jira` | internal | On demand | One batch run of the Jira pipeline, then exit; runs after `github` and before `slack` and `drive` |
 | `identity` | Built from `pipelines/identity` | internal | On demand | After the source runs: reads every complete run's people, writes identity records |
+| `neo4j` | `neo4j` | internal, host | Always on, when building the graph | The graph database; browser on 7474 and bolt on 7687, published on localhost only. It has no row-level security: access rules are enforced by `graph/swarm_queries.py`, so nothing but the graph job and that layer should connect |
+| `graph` | Built from `swarm/graph.Dockerfile` | internal | On demand | After the identity pass: reads every complete run from the bucket (read-only) and writes the graph. Reaches the bucket as `storage:9000` and the database as `neo4j:7687`, so it needs no host port |
 
-The `host` network exists only so Docker publishes the bucket's ports to the laptop: it publishes nothing for a container that is on internal networks alone. No pipeline is on it.
+The `host` network exists only so Docker publishes the bucket's and Neo4j's ports to the laptop: it publishes nothing for a container that is on internal networks alone. No pipeline is on it.
 
 **Everyday commands**
 
@@ -98,6 +100,8 @@ The `host` network exists only so Docker publishes the bucket's ports to the lap
 docker compose -f swarm/compose.yaml up -d storage proxy     # start the always-on services
 docker compose -f swarm/compose.yaml run --rm init           # create the bucket, once
 docker compose -f swarm/compose.yaml run --rm github         # one GitHub run
+docker compose -f swarm/compose.yaml up -d neo4j             # the graph database
+docker compose -f swarm/compose.yaml run --rm graph          # build the graph from the bucket (--dry-run to check first)
 swarm/nightly.sh                                             # github, jira, slack, then drive
 ```
 
@@ -150,7 +154,7 @@ Each source is a thin fetcher behind one interface; redaction, ACLs, extraction 
 | GitHub | Code | Customer-created GitHub App, read-only | Repos selected at install | `repo`, `commit`, `pull_request`, `issue`, `document` | Review comments fold into the PR's text; `document` is a doc file on the default branch (see "GitHub files" under Decisions) |
 | Jira | Tickets | Service account, API token | Projects the account can browse | `project`, `issue` (`issue_type` in meta) | A project is an item too, with its description and its lead as owner, so every issue's container exists. ID uses the site's cloud id and the internal issue id; the key and any key from before a move are aliases. Descriptions and comments arrive as ADF and are turned into text before redaction |
 | Slack | Chat | Customer-created internal app, bot token | Channels the bot is invited to | `thread`, `channel` | Internal apps keep Tier 3 rate limits; confirm on first install. No DMs. |
-| Google Drive | Docs | Service account | Shared drives it is added to, or folders shared with its email (domain-wide delegation optional) | `document`, `folder` | Docs and Slides exported to text; PDFs, Word and PowerPoint files read; Sheets, Excel and other types metadata only in v1 |
+| Google Drive | Docs | Service account | Shared drives it is added to, or folders shared with its email (domain-wide delegation optional) | `document`, `folder` | Docs and Slides exported to text, Sheets as .xlsx; PDFs, Word, PowerPoint and Excel files read; other types metadata only |
 
 **Connector interface**
 
@@ -219,6 +223,8 @@ The swarm emits six record types. `item` and `extraction` are approved; `tombsto
 | Source identity | `person:{source}:{handle}` | display name |
 | Resolved person | `person:c:{cluster_hash}` | name |
 
+A relation endpoint that is a person can be either kind: a source identity (`person:slack:U…`) for people on the item, or a resolved person (`person:c:…`) for people its text names who are not on it.
+
 **Bucket layout.** Each source writes only under its own prefix; nothing can delete.
 
 ```
@@ -255,9 +261,10 @@ Group names use immutable IDs only, never a repo or org slug. Group members are 
 3. Newest permissions win: an item's ACL comes from its latest `item` or `acl_update`, by `fetched_at` or `observed_at`. A group's members come from its latest `group` record.
 4. A ref may point at an ID not ingested yet: keep it and resolve it when that item arrives. A `tombstone` or `acl_update` for an ID never ingested is a no-op.
 5. A `tombstone` retires the item and every extraction with that `item_id`.
-6. A source identity belongs to exactly one cluster: the one in the latest `identity` record that lists it. A record with `merged_into` retires its cluster.
+6. A source identity belongs to exactly one cluster: the one in the latest `identity` record that lists it. A record with `merged_into` retires its cluster, and any `person:c:` id a record points at is followed through `merged_into` to the surviving cluster. Items are not re-extracted when clusters merge, so an older extraction can name a retired id.
 7. A group member written as a source identity is that person, resolved through identity records.
 8. Evidence span offsets count Unicode code points.
+9. An item can have several extraction records: one per item version, and one more per prompt version when an unchanged item is re-extracted. A Message Batch can also land in a later run than a newer item version. The current extraction of an item is the latest one, in run order, whose `item_version` equals the item's current `version`. If none matches, use the latest one; its evidence offsets may no longer fit the text.
 
 **Run manifest.** The graph side reads a run only once its manifest exists and `status` is `complete`.
 
@@ -427,6 +434,7 @@ swarm/run.py           the shared runner: the pipeline stages for any Connector 
 swarm/stages/          redact, acl, write, manifest, and the hard-fail run checks
 swarm/store.py         the bucket: S3 (RustFS in local dev) or a local folder
 swarm/http.py          the shared HTTP client: proxy from env, pagination, rate-limit backoff
+swarm/text.py          PDF, Office and Jira ADF to text, with the size budgets; public so live readers convert the same way
 swarm/sources/github/  GitHub: App auth, connector, normalizer, deterministic refs
 swarm/sources/slack/   Slack: Web API and export connectors, thread and burst grouping, normalizer
 swarm/sources/gdrive/  Drive: service-account auth, connector (text export, PDFs, Office files, permissions), normalizer
@@ -590,6 +598,6 @@ The biggest risks are coverage gaps from source permissions, not engineering.
 - Event-driven freshness (webhooks) instead of nightly batch.
 - A labeled gold set with precision and recall scoring, once prompt changes become frequent.
 - Microsoft Teams and SharePoint via Microsoft Graph, and a GCP Terraform module.
-- Sheets content, scanned PDFs, Confluence, Linear, GitLab, email and calendar.
+- Scanned PDFs, Confluence, Linear, GitLab, email and calendar.
 - Per-customer scope configuration UI beyond grant-based scope.
 - A cost model per seat or per GB, once pilot manifests give real token numbers.

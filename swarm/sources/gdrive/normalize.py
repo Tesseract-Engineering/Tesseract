@@ -2,8 +2,8 @@
 normalize.py - Drive files to item records.
 
   folder     kind folder: its name, and its description as text
-  document   Docs, Slides, PDFs, Word and PowerPoint files with their text;
-             Sheets, Excel files, PDFs without text and any other file type
+  document   Docs, Slides, Sheets, PDFs, Word, PowerPoint and Excel files
+             with their text; PDFs without text and any other file type
              keep metadata only (meta.text_status says which)
 
 People are the file's owners (role owner; files in a shared drive have none)
