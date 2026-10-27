@@ -223,6 +223,8 @@ The swarm emits six record types. `item` and `extraction` are approved; `tombsto
 | Source identity | `person:{source}:{handle}` | display name |
 | Resolved person | `person:c:{cluster_hash}` | name |
 
+A relation endpoint that is a person can be either kind: a source identity (`person:slack:U…`) for people on the item, or a resolved person (`person:c:…`) for people its text names who are not on it.
+
 **Bucket layout.** Each source writes only under its own prefix; nothing can delete.
 
 ```
@@ -259,9 +261,10 @@ Group names use immutable IDs only, never a repo or org slug. Group members are 
 3. Newest permissions win: an item's ACL comes from its latest `item` or `acl_update`, by `fetched_at` or `observed_at`. A group's members come from its latest `group` record.
 4. A ref may point at an ID not ingested yet: keep it and resolve it when that item arrives. A `tombstone` or `acl_update` for an ID never ingested is a no-op.
 5. A `tombstone` retires the item and every extraction with that `item_id`.
-6. A source identity belongs to exactly one cluster: the one in the latest `identity` record that lists it. A record with `merged_into` retires its cluster.
+6. A source identity belongs to exactly one cluster: the one in the latest `identity` record that lists it. A record with `merged_into` retires its cluster, and any `person:c:` id a record points at is followed through `merged_into` to the surviving cluster. Items are not re-extracted when clusters merge, so an older extraction can name a retired id.
 7. A group member written as a source identity is that person, resolved through identity records.
 8. Evidence span offsets count Unicode code points.
+9. An item can have several extraction records: one per item version, and one more per prompt version when an unchanged item is re-extracted. A Message Batch can also land in a later run than a newer item version. The current extraction of an item is the latest one, in run order, whose `item_version` equals the item's current `version`. If none matches, use the latest one; its evidence offsets may no longer fit the text.
 
 **Run manifest.** The graph side reads a run only once its manifest exists and `status` is `complete`.
 
@@ -431,6 +434,7 @@ swarm/run.py           the shared runner: the pipeline stages for any Connector 
 swarm/stages/          redact, acl, write, manifest, and the hard-fail run checks
 swarm/store.py         the bucket: S3 (RustFS in local dev) or a local folder
 swarm/http.py          the shared HTTP client: proxy from env, pagination, rate-limit backoff
+swarm/text.py          PDF, Office and Jira ADF to text, with the size budgets; public so live readers convert the same way
 swarm/sources/github/  GitHub: App auth, connector, normalizer, deterministic refs
 swarm/sources/slack/   Slack: Web API and export connectors, thread and burst grouping, normalizer
 swarm/sources/gdrive/  Drive: service-account auth, connector (text export, PDFs, Office files, permissions), normalizer
