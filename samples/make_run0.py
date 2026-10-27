@@ -155,6 +155,67 @@ MEMBERS_GROUP = f"group:{CHANNEL}:members"
 MEMBERS = Acl(visibility="restricted", principals=[MEMBERS_GROUP])
 
 
+THREAD_TS = "1760450400.000100"
+THREAD_TEXT = ("Sam Lee: SAML keeps breaking behind the IdP proxy. Proposal: we use OIDC instead of SAML for staff login.\n"
+               "Priya Rao: Agreed. acme/api#412 already has the change.\n"
+               "Sam Lee: Decided then. I'll draft the rollout plan by Friday.")
+SAM_SLACK = ids.person("slack", "U123SAM")
+# Priya's GitHub account, which the first identity pass left in a cluster of
+# its own; the text names her, so the extractor was offered this resolved id.
+PRIYA_GITHUB_CLUSTER = ids.person_cluster("e81d20")
+
+
+def thread_extraction(run_id: str, thread: ItemRecord, prompt_version: str) -> ExtractionRecord:
+    """The decision thread's extraction. sample-v1 re-reads the same item
+    version and also links Priya, by the resolved id she had at the time."""
+    text = thread.text
+    decision = "we use OIDC instead of SAML for staff login"
+    action = "I'll draft the rollout plan by Friday"
+    relations = [
+        Relation(type="decided_in", source="e1", target=thread.id, confidence=0.95,
+                 evidence=[span(text, "Decided then.")]),
+        Relation(type="decided_by", source="e1", target=SAM_SLACK, confidence=0.8,
+                 evidence=[span(text, "Sam Lee: Decided then.")]),
+        Relation(type="assigned_to", source="e2", target=SAM_SLACK, confidence=0.9,
+                 evidence=[span(text, action)]),
+        Relation(type="part_of", source="e1", target="e3", confidence=0.6,
+                 evidence=[span(text, decision)]),
+    ]
+    if prompt_version != "sample-v0":
+        relations.append(Relation(type="works_on", source=PRIYA_GITHUB_CLUSTER, target="e3", confidence=0.7,
+                                  evidence=[span(text, "acme/api#412 already has the change")]))
+    return ExtractionRecord(
+        run_id=run_id, item_id=thread.id, item_version=thread.version, source="slack",
+        extractor=Extractor(model="hand-written", prompt_version=prompt_version),
+        entities=[
+            Entity(local_id="e1", type="decision", name="Use OIDC instead of SAML for staff login",
+                   evidence=[span(text, decision)]),
+            Entity(local_id="e2", type="action_item", name="Sam to draft the OIDC rollout plan",
+                   attributes={"due": "Friday"}, evidence=[span(text, action)]),
+            Entity(local_id="e3", type="project", name="Auth migration",
+                   evidence=[span(text, "SAML keeps breaking behind the IdP proxy")]),
+        ],
+        relations=relations,
+        extracted_at=at("2026-10-20T03:03:05Z" if prompt_version == "sample-v0" else "2026-10-21T03:02:10Z"))
+
+
+def decision_thread(run_id: str, fetched: datetime) -> ItemRecord:
+    sam = Person(id=SAM_SLACK, source="slack", handle="U123SAM", name="Sam Lee",
+                 email="sam@acme.com", roles=["author", "participant"])
+    priya = Person(id=ids.person("slack", "U456PRI"), source="slack", handle="U456PRI", name="Priya Rao",
+                   email="priya@acme.com", roles=["participant"])
+    return item(
+        run_id, id=ids.slack_thread(TEAM, "C42AUTH", THREAD_TS), aliases=[
+            "https://acme.slack.com/archives/C42AUTH/p1760450400000100"],
+        kind="thread", source="slack", container=CHANNEL, title="SAML keeps breaking behind the IdP proxy",
+        text=THREAD_TEXT, url="https://acme.slack.com/archives/C42AUTH/p1760450400000100",
+        created_at=at("2026-10-14T14:00:00Z"), updated_at=at("2026-10-14T14:09:30Z"),
+        version="1760450970.000300", people=[sam, priya],
+        refs=[Ref(type="references", target=ids.github_pr(REPO_ID, 412), via="key")],
+        meta={"message_count": 3, "reply_count": 2, "grouping": "thread"},
+        acl=MEMBERS, fetched_at=fetched)
+
+
 def slack_run(store: LocalStore) -> None:
     run_id = "2026-10-20T03-00-00Z-slack"
     fetched = at("2026-10-20T03:01:40Z")
@@ -167,50 +228,10 @@ def slack_run(store: LocalStore) -> None:
         updated_at=at("2026-10-15T10:20:00Z"), version="2026-10-15T10:20:00Z",
         meta={"is_private": True, "member_count": 9}, acl=MEMBERS, fetched_at=fetched))
 
-    thread_ts = "1760450400.000100"
-    text = ("Sam Lee: SAML keeps breaking behind the IdP proxy. Proposal: we use OIDC instead of SAML for staff login.\n"
-            "Priya Rao: Agreed. acme/api#412 already has the change.\n"
-            "Sam Lee: Decided then. I'll draft the rollout plan by Friday.")
-    sam = Person(id=ids.person("slack", "U123SAM"), source="slack", handle="U123SAM", name="Sam Lee",
-                 email="sam@acme.com", roles=["author", "participant"])
-    priya = Person(id=ids.person("slack", "U456PRI"), source="slack", handle="U456PRI", name="Priya Rao",
-                   email="priya@acme.com", roles=["participant"])
-    thread = item(
-        run_id, id=ids.slack_thread(TEAM, "C42AUTH", thread_ts), aliases=[
-            "https://acme.slack.com/archives/C42AUTH/p1760450400000100"],
-        kind="thread", source="slack", container=CHANNEL, title="SAML keeps breaking behind the IdP proxy",
-        text=text, url="https://acme.slack.com/archives/C42AUTH/p1760450400000100",
-        created_at=at("2026-10-14T14:00:00Z"), updated_at=at("2026-10-14T14:09:30Z"),
-        version="1760450970.000300", people=[sam, priya],
-        refs=[Ref(type="references", target=ids.github_pr(REPO_ID, 412), via="key")],
-        meta={"message_count": 3, "reply_count": 2, "grouping": "thread"},
-        acl=MEMBERS, fetched_at=fetched)
+    thread = decision_thread(run_id, fetched)
     w.add_item(thread)
 
-    decision = "we use OIDC instead of SAML for staff login"
-    action = "I'll draft the rollout plan by Friday"
-    w.add_extraction(ExtractionRecord(
-        run_id=run_id, item_id=thread.id, item_version=thread.version, source="slack",
-        extractor=Extractor(model="hand-written", prompt_version="sample-v0"),
-        entities=[
-            Entity(local_id="e1", type="decision", name="Use OIDC instead of SAML for staff login",
-                   evidence=[span(text, decision)]),
-            Entity(local_id="e2", type="action_item", name="Sam to draft the OIDC rollout plan",
-                   attributes={"due": "Friday"}, evidence=[span(text, action)]),
-            Entity(local_id="e3", type="project", name="Auth migration",
-                   evidence=[span(text, "SAML keeps breaking behind the IdP proxy")]),
-        ],
-        relations=[
-            Relation(type="decided_in", source="e1", target=thread.id, confidence=0.95,
-                     evidence=[span(text, "Decided then.")]),
-            Relation(type="decided_by", source="e1", target=sam.id, confidence=0.8,
-                     evidence=[span(text, "Sam Lee: Decided then.")]),
-            Relation(type="assigned_to", source="e2", target=sam.id, confidence=0.9,
-                     evidence=[span(text, action)]),
-            Relation(type="part_of", source="e1", target="e3", confidence=0.6,
-                     evidence=[span(text, decision)]),
-        ],
-        extracted_at=at("2026-10-20T03:03:05Z")))
+    w.add_extraction(thread_extraction(run_id, thread, "sample-v0"))
 
     w.add(GroupRecord(run_id=run_id, id=MEMBERS_GROUP, source="slack", name="#eng-auth members",
                       members=["user:sam@acme.com", "user:priya@acme.com"],
@@ -281,25 +302,58 @@ def jira_run(store: LocalStore) -> None:
     finish_run(w, started_at=at("2026-10-20T03:00:00Z"), finished_at=at("2026-10-20T03:01:44Z"))
 
 
+def slack_rerun(store: LocalStore) -> None:
+    """The next night: the thread is unchanged, so no item is written, but a
+    newer prompt re-extracts the same item version."""
+    run_id = "2026-10-21T03-00-00Z-slack"
+    w = RunWriter(store, "slack", run_id)
+    thread = decision_thread("2026-10-20T03-00-00Z-slack", at("2026-10-20T03:01:40Z"))
+    w.add_extraction(thread_extraction(run_id, thread, "sample-v1"))
+    finish_run(w, started_at=at("2026-10-21T03:00:00Z"), finished_at=at("2026-10-21T03:02:30Z"),
+               extractor_versions=["sample-v1"])
+
+
 # --------------------------------------------------------------------------- #
-# Identity: one email match and one LLM match
+# Identity: an email match, then a later LLM match that merges Priya's two
+# clusters, retiring the one the sample-v1 extraction points at
 # --------------------------------------------------------------------------- #
+
+SAM = [IdentityMember(id=SAM_SLACK, source="slack", handle="U123SAM", email="sam@acme.com", name="Sam Lee"),
+       IdentityMember(id=ids.person("github", "slee"), source="github", handle="slee", email="sam@acme.com", name="Sam Lee")]
+PRIYA_SLACK = IdentityMember(id=ids.person("slack", "U456PRI"), source="slack", handle="U456PRI",
+                             email="priya@acme.com", name="Priya Rao")
+PRIYA_GITHUB = IdentityMember(id=ids.person("github", "priya-r"), source="github", handle="priya-r",
+                              email=None, name="Priya Rao")
+SAM_CLUSTER = ids.person_cluster("7f3a91")
+PRIYA_CLUSTER = ids.person_cluster("b20c44")
+
 
 def identity_run(store: LocalStore) -> None:
     run_id = "2026-10-20T04-00-00Z-identity"
     w = RunWriter(store, "identity", run_id)
-    w.add(IdentityRecord(
-        run_id=run_id, person_id=ids.person_cluster("7f3a91"),
-        members=[IdentityMember(id=ids.person("slack", "U123SAM"), source="slack", handle="U123SAM", email="sam@acme.com", name="Sam Lee"),
-                 IdentityMember(id=ids.person("github", "slee"), source="github", handle="slee", email="sam@acme.com", name="Sam Lee")],
-        method="email", confidence=1.0, evidence="Slack profile email equals the commit email"))
-    w.add(IdentityRecord(
-        run_id=run_id, person_id=ids.person_cluster("b20c44"),
-        members=[IdentityMember(id=ids.person("slack", "U456PRI"), source="slack", handle="U456PRI", email="priya@acme.com", name="Priya Rao"),
-                 IdentityMember(id=ids.person("github", "priya-r"), source="github", handle="priya-r", email=None, name="Priya Rao")],
-        method="llm", confidence=0.82,
-        evidence="GitHub profile name matches the Slack display name; both review the same PR"))
+    w.add(IdentityRecord(run_id=run_id, person_id=SAM_CLUSTER, members=SAM, method="email", confidence=1.0,
+                         evidence="Slack profile email equals the commit email"))
+    w.add(IdentityRecord(run_id=run_id, person_id=PRIYA_CLUSTER, members=[PRIYA_SLACK], method="email",
+                         confidence=1.0, evidence="no other identity shares its email"))
+    w.add(IdentityRecord(run_id=run_id, person_id=PRIYA_GITHUB_CLUSTER, members=[PRIYA_GITHUB], method="email",
+                         confidence=1.0, evidence="no other identity shares its email"))
     finish_run(w, started_at=at("2026-10-20T04:00:00Z"), finished_at=at("2026-10-20T04:00:09Z"))
+
+
+def identity_rerun(store: LocalStore) -> None:
+    """The model matches Priya's accounts. Of two ids with one member each,
+    the smaller survives (swarm/identity.py) and the other is retired."""
+    run_id = "2026-10-21T04-00-00Z-identity"
+    w = RunWriter(store, "identity", run_id)
+    evidence = "GitHub profile name matches the Slack display name; both review the same PR"
+    w.add(IdentityRecord(run_id=run_id, person_id=SAM_CLUSTER, members=SAM, method="email", confidence=1.0,
+                         evidence="Slack profile email equals the commit email"))
+    w.add(IdentityRecord(run_id=run_id, person_id=PRIYA_GITHUB_CLUSTER, members=[], method="llm",
+                         confidence=0.82, evidence=evidence, merged_into=PRIYA_CLUSTER))
+    w.add(IdentityRecord(run_id=run_id, person_id=PRIYA_CLUSTER, members=[PRIYA_SLACK, PRIYA_GITHUB],
+                         method="llm", confidence=0.82, evidence=evidence))
+    finish_run(w, started_at=at("2026-10-21T04:00:00Z"), finished_at=at("2026-10-21T04:00:11Z"),
+               extractor_versions=["identity-v2"])
 
 
 def build(out: Path = OUT) -> None:
@@ -309,6 +363,8 @@ def build(out: Path = OUT) -> None:
         slack_run(store)
         jira_run(store)
         identity_run(store)
+        slack_rerun(store)
+        identity_rerun(store)
         target = out / "runs"
         if target.exists():
             shutil.rmtree(target)
