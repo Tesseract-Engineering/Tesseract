@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from swarm.interfaces import Checkpoint
-from swarm.sources.gdrive.connector import MAX_OFFICE_XML, MAX_PDF_BYTES, _office_text
+from swarm.text import MAX_OFFICE_XML, MAX_PDF_BYTES, office_text
 
 from .gdrive_fixture import NOW, FakeDrive, connector, make_office, make_pdf
 
@@ -286,7 +286,7 @@ def test_word_and_powerpoint_uploads_are_read_and_excel_keeps_metadata():
 
 
 def test_slides_are_read_in_number_order():
-    text, status = _office_text(make_office("pptx", "\f".join(f"slide {n}" for n in range(1, 12))), "pptx")
+    text, status = office_text(make_office("pptx", "\f".join(f"slide {n}" for n in range(1, 12))), "pptx")
     assert status == "extracted" and text.split("\n\n") == [f"slide {n}" for n in range(1, 12)]
 
 
@@ -295,7 +295,7 @@ def test_text_box_paragraphs_follow_the_paragraph_that_holds_them():
     body = (f'<w:document xmlns:w="{w}"><w:body><w:p><w:r><w:t>Before</w:t></w:r><w:r><w:txbxContent>'
             f"<w:p><w:r><w:t>In the box</w:t></w:r></w:p></w:txbxContent></w:r><w:r><w:tab/><w:t>after</w:t>"
             f"</w:r></w:p><w:p><w:r><w:t>Next</w:t></w:r></w:p></w:body></w:document>")
-    assert _office_text(_zip({"word/document.xml": body}), "docx") == ("Before\tafter\nIn the box\nNext", "extracted")
+    assert office_text(_zip({"word/document.xml": body}), "docx") == ("Before\tafter\nIn the box\nNext", "extracted")
 
 
 def _zip(parts: dict[str, str | bytes]) -> bytes:
@@ -318,7 +318,7 @@ def _zip(parts: dict[str, str | bytes]) -> bytes:
     (make_office("docx", ""), "no_text"),
 ])
 def test_hostile_or_empty_office_files_are_never_fatal(data, status):
-    assert _office_text(data, "docx") == ("", status)
+    assert office_text(data, "docx") == ("", status)
 
 
 def test_an_oversized_office_file_is_not_downloaded():
