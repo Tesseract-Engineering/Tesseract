@@ -161,6 +161,11 @@ check("P1 counts 7 asks (6 public + 1 private), not 10 items", access and access
 check("the evidence says why there are more items than asks", access and "3 filed from or duplicating another ask" in access.evidence)
 check("requesters count once across Slack and Jira", access and access.requesters == 7, access and access.requesters)
 
+check("handler counted per ask: Slack asks are handled by whoever answered them", access
+      and access.resolver == "Dhruv Pendharkar" and access.signals["same_resolver"] >= 0.8, access and access.signals)
+check("place counted per ask: where each was first asked", access and access.signals["same_place"] == round(6 / 7, 4),
+      access and access.signals)
+
 print("approver from ownership")
 names = {tuple(a["people"]): a for a in access.approvers} if access else {}
 check("Grafana asks route to Dhruv, from the handbook table", ("Dhruv Pendharkar",) in names
@@ -209,6 +214,18 @@ check("outside the private channel: 6 asks, not 7", a2.frequency == 6, a2.freque
 check("and the private ask is not in the evidence", all("CESC" not in i["id"] for i in a2.items))
 check("the report says whose view it is", "as sam@tess.dev can see it" in markdown(out, viewer_email="sam@tess.dev"))
 print(markdown(ops, viewer_email="hamilton@tess.dev"))
+
+print("groups inside groups")
+from access import readable, viewer  # noqa: E402
+from directory import Directory  # noqa: E402
+
+nested = {"group:inner": {"id": "group:inner", "members": ["user:sam@tess.dev"]},
+          "group:outer": {"id": "group:outer", "members": ["group:inner"]},
+          "group:far": {"id": "group:far", "members": ["group:outer"]}}
+d = Directory(items)
+item = {"acl": {"visibility": "restricted", "principals": ["group:far"]}}
+check("a member of a group inside a group reads what the outer group may", readable(item, viewer("sam@tess.dev", nested, d)))
+check("and someone in neither does not", not readable(item, viewer("hamilton@tess.dev", nested, d)))
 
 print("\nALL PASS" if ok else "\nFAILURES")
 sys.exit(0 if ok else 1)

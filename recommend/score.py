@@ -19,7 +19,7 @@ import rec_weights as W
 from directory import Directory, norm_name
 from linking import Links, asks
 from owners import Owner, system_of
-from patterns import Pattern, requesters, resolvers, stepped
+from patterns import Pattern, replier, requesters, resolvers, stepped
 from rec_weights import when
 from runbooks import runbook
 
@@ -58,6 +58,14 @@ class Opportunity:
 
 def _share(counts: Counter, total: int) -> float:
     return counts.most_common(1)[0][1] / total if counts and total else 0.0
+
+
+def _handler(ask: list[dict], ctx: Context) -> str | None:
+    """Who handled one ask: its ticket's assignee, else (a Slack-only ask) whoever answered the thread."""
+    for i in ask:
+        if hit := resolvers(i):
+            return ctx.directory.key(sorted(hit)[0])
+    return next((ctx.directory.key(r) for i in ask if i.get("source") == "slack" and (r := replier(i))), None)
 
 
 _APPROVES = re.compile(r"\b([A-Z][a-z]+(?: [A-Z][a-z]+)?) (?:approves|must approve|signs off)\b")
@@ -129,14 +137,16 @@ def score(p: Pattern, ctx: Context, review: dict | None = None) -> Opportunity:
     units = asks(p.items, ctx.links)
     n = len(units)
     rb = runbook(units, ctx.links)
-    handlers = Counter(ctx.directory.key(r) for i in p.items for r in resolvers(i))
-    places = Counter(i.get("container") for i in p.items if i.get("container"))
+    # Per ask, not per item: a Slack ask has no assignee and its ticket would count twice. An ask's
+    # handler is its ticket's assignee or whoever answered its thread; its place is where it was first asked.
+    handlers = Counter(h for unit in units if (h := _handler(unit, ctx)))
+    places = Counter(unit[0].get("container") for unit in units if unit[0].get("container"))
     signals = {
         "runbook": (1.0 if rb["steps"] else W.RUNBOOK_NO_STEPS) if rb else 0.0,
-        "stepped_text": sum(stepped(i) for i in p.items) / len(p.items),
-        "same_resolver": _share(handlers, len(p.items)),
+        "stepped_text": sum(any(stepped(i) for i in unit) for unit in units) / n,
+        "same_resolver": _share(handlers, n),
         "tight_wording": sum(p.sims) / len(p.items),
-        "same_place": _share(places, len(p.items)),
+        "same_place": _share(places, n),
     }
     defined = sum(W.DEFINITION_WEIGHTS[k] * v for k, v in signals.items())
     if review:

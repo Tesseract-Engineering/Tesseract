@@ -114,5 +114,20 @@ def requesters(item: dict) -> set[str]:
     return {p["id"] for p in item.get("people") or [] if set(p.get("roles") or []) & {"author", "reporter"}}
 
 
+def replier(item: dict) -> str | None:
+    """Who answered a Slack thread: the person, other than whoever asked, with the most messages in it.
+    Slack items carry no assignee; their text is "Name: message" lines, one per message."""
+    asked = requesters(item)
+    others = {p["id"]: p for p in item.get("people") or [] if p["id"] not in asked}
+    if not others:
+        return None
+    said = Counter(line.split(":", 1)[0].strip() for line in (item.get("text") or "").splitlines() if ":" in line)
+    def count(p: dict) -> int:
+        name = p.get("name") or ""
+        return said.get(name, 0) + (said.get(name.split()[0], 0) if " " in name else 0)
+    best = max(others.values(), key=count)
+    return best["id"] if count(best) else None
+
+
 def stepped(item: dict) -> bool:
     return len(_STEP.findall(item.get("text") or "")) >= 2
