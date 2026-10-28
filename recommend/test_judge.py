@@ -144,6 +144,9 @@ check("three title groups joined into one pattern of four", len(o3) == 1 and o3[
       [(o.label, o.frequency) for o in o3])
 check("each join keeps the model's reason and the items it joined", len(o3[0].merges) == 2
       and all(m["reason"] and m["items"] for m in o3[0].merges), o3[0].merges)
+note = [ln for ln in markdown(o3).splitlines() if ln.startswith("Also joined by")]
+check("one model decision is one line, naming the asks it joined", len(note) == 1
+      and '"Need prod Postgres creds"' in note[0] and "Why: all ask for prod DB read access" in note[0], note)
 check("unknown, reused and single-group merges refused", j3.counts["merge: refused (unknown, repeated or single group)"] == 2,
       dict(j3.counts))
 

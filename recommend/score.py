@@ -76,7 +76,7 @@ def _runbook_owner(rb: dict | None, ctx: Context) -> Owner | None:
         repo = (ctx.links.items.get(rb["id"].split(":file:")[0]) or {}).get("title", "").split("/")[-1]
         hit = next((o for o in ctx.owners if norm_name(repo) in o.aliases or norm_name(f"{repo} repo") in o.aliases), None)
         if repo and hit:
-            return Owner(rb["title"], hit.people, hit.source, hit.url, f"owns the {repo} repo ({hit.how})")
+            return Owner(rb["title"], hit.people, hit.source, hit.url, f"owner of the {repo} repo, per the {hit.how}")
     people = [p["id"] for p in doc.get("people") or [] if "owner" in (p.get("roles") or [])] or \
              [p["id"] for p in doc.get("people") or [] if "author" in (p.get("roles") or [])]
     if not people:
@@ -151,6 +151,7 @@ def score(p: Pattern, ctx: Context, review: dict | None = None) -> Opportunity:
     evidence = (f"asked {n} times in the last {W.WINDOW_DAYS} days" + (f" by {len(asked_by)} {'person' if len(asked_by) == 1 else 'people'}" if asked_by else "")
                 + f", across {', '.join(sources)}"
                 + (f" ({len(p.items)} items; {len(p.items) - n} filed from or duplicating another ask)" if len(p.items) > n else ""))
+    evidence = evidence.replace("asked 1 times", "asked once")
     if review and review.get("steps"):
         steps, steps_from, steps_evidence = review["steps"], "model", review["evidence"]
     elif rb and rb["steps"]:

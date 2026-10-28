@@ -68,6 +68,19 @@ def opportunities(state: State, as_of: datetime | None = None, judge: Judge | No
     return rank(patterns, ctx, reviews)
 
 
+# How each approver source reads in the report.
+_SOURCE = {"owners table": "the owners table", "CODEOWNERS": "CODEOWNERS", "extracted": "extracted from the records",
+           "named in runbook": "the runbook, which names them", "runbook owner": "the runbook's owner"}
+
+
+def _from_runbook(how: str) -> bool:
+    return how in ("named in runbook", "runbook owner") or how.startswith("owner of the ")
+
+
+def _n(n: int, one: str, many: str) -> str:
+    return f"{n} {one if n == 1 else many}"
+
+
 def _keep_asks(before: list[dict], kept: list[dict], links: Links) -> list[dict]:
     """READ judges items one by one, so it may drop a Slack thread ("Should that go through CS?") whose
     ticket it keeps. The thread is still where the ask started: an item READ dropped comes back when
@@ -92,11 +105,14 @@ def markdown(ops: list[Opportunity], limit: int = 10, viewer_email: str | None =
         if o.approvers or o.unrouted:
             out.append("Approver, from ownership:")
             for a in o.approvers:
-                systems = ", ".join(f"{s} ({k})" for s, k in a["systems"].items())
-                where = "; ".join(dict.fromkeys(f"{src['how']} <{src['url'] or src['id']}>" for src in a["sources"]))
-                out.append(f"- {' and '.join(a['people'])}: {systems}, per {where}")
+                how = {src["system"]: src["how"] for src in a["sources"]}
+                systems = ", ".join((f"asks following \"{s}\" ({k})" if _from_runbook(how.get(s, "")) else f"{s} ({k})")
+                                    for s, k in a["systems"].items())
+                where = "; ".join(dict.fromkeys(f"{_SOURCE.get(src['how'], src['how'])} <{src['url'] or src['id']}>"
+                                                for src in a["sources"]))
+                out.append(f"- {' and '.join(a['people'])}: {systems}. Source: {where}")
             if o.unrouted:
-                out.append(f"- {o.unrouted} asks name no system with a known owner")
+                out.append(f"- {_n(o.unrouted, 'ask names', 'asks name')} no system with a known owner")
             out.append("")
         if o.steps:
             if o.steps_from == "runbook":
@@ -109,14 +125,18 @@ def markdown(ops: list[Opportunity], limit: int = 10, viewer_email: str | None =
             out.append(f"Steps ({src}):")
             out.extend(f"{k}. {s}" for k, s in enumerate(o.steps, 1))
             out.append("")
+        decisions: dict[tuple, list[dict]] = {}
         for m in o.merges:
-            out.append(f"Joined with \"{m['joined']}\" ({len(m['items'])} items) by {m['model']}: {m['reason']}\n")
+            decisions.setdefault((m["model"], m["reason"]), []).append(m)
+        for (model, reason), joined in decisions.items():
+            asks_joined = ", ".join(f"\"{m.get('sample') or m['joined']}\"" for m in joined)
+            out.append(f"Also joined by {model}: {asks_joined}. Why: {reason}\n")
         out.append(f"frequency {o.parts['frequency']:.2f} · well-defined {o.parts['definition']:.2f}"
                    + (f" · handled by {o.resolver}" if o.resolver else " · no single handler") + "\n")
-        for it in o.items[:6]:
+        for it in o.items[::-1][:6]:                     # newest first
             out.append(f"- {it['created_at'][:10] if it['created_at'] else '?'} {it['title']} <{it['url'] or it['id']}>")
         if len(o.items) > 6:
-            out.append(f"- … and {len(o.items) - 6} more")
+            out.append(f"- … and {len(o.items) - 6} older")
         out.append("")
     return "\n".join(out)
 

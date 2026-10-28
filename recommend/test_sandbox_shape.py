@@ -115,8 +115,8 @@ for n in range(4):
 
 # -- P2 customer data exports: 3 tickets linking a runbook that names the approver ---------------- #
 add("github:repo:1:file:customer-data-exports.md", "document", "github", "customer-data-exports.md",
-    "# Customer data exports\n\n1. Hamilton approves the request on the ticket\n2. Run the export script\n"
-    "3. Upload with the Reports API\n", people=[(ISHAN, ["author"])], meta={"path": "customer-data-exports.md"},
+    "# Customer data exports\n\n1. Hamilton approves the request on the ticket\n2. Run the export script from a\n"
+    "   web-app checkout\n3. Upload with the Reports API\n", people=[(ISHAN, ["author"])], meta={"path": "customer-data-exports.md"},
     url="https://github.com/tess/handbook/blob/main/customer-data-exports.md")
 for n, tenant in enumerate(["Acme", "Northwind", "Globex"]):
     add(f"jira:CS-{n}", "issue", "jira", f"Data export: {tenant} Q3 usage",
@@ -178,6 +178,14 @@ check("P2 names no system, so its approver is the one its runbook names", export
       and exports.approvers[0]["people"] == ["Hamilton Park"] and exports.approvers[0]["sources"][0]["how"] == "named in runbook",
       exports and exports.approvers)
 check("a descriptive owners cell still names its system", "Grafana" in names.get(("Dhruv Pendharkar",), {}).get("systems", {}))
+
+check("a runbook step that wraps onto a second line stays one step", exports and exports.runbook["steps"]
+      == ["Hamilton approves the request on the ticket", "Run the export script from a web-app checkout",
+          "Upload with the Reports API"], exports and exports.runbook["steps"])
+report = markdown(ops, viewer_email="hamilton@tess.dev")
+check("the report says where each approver comes from, in words", "Source: the runbook, which names them" in report
+      and "Source: the owners table" in report and 'asks following "Runbook - Rotate Staging Keys"' in report)
+check("no '1 asks'", "1 asks" not in report and "1 times" not in report)
 
 print("steps from the linked runbook")
 check("P1's runbook is the Access Policy, linked by a GitHub file URL", access.runbook and access.runbook["title"] == "access-policy.md"

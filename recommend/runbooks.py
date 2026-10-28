@@ -27,6 +27,8 @@ def steps_in(text: str) -> list[str]:
             m = pattern.match(line)
             if m:
                 block.append(m.group(1))
+            elif block and line[:1].isspace() and line.strip():
+                block[-1] += " " + line.strip()      # a step that wraps onto an indented second line
             elif block and line.strip():
                 break
         if len(block) >= 2:

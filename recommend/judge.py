@@ -39,6 +39,12 @@ def _sample(item: dict) -> str:
     return f"{what} (handled: {_cut(how, W.MERGE_HANDLED_CHARS)})" if how else what
 
 
+def _short(text: str, limit: int = 70) -> str:
+    """One line, cut at a word boundary, for the report."""
+    line = text.splitlines()[0] if text else ""
+    return line if len(line) <= limit else line[:limit].rsplit(" ", 1)[0] + "…"
+
+
 def _cut(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit] + f"\n[cut here: {len(text) - limit} more characters]"
 
@@ -124,6 +130,7 @@ class Judge:
             keep, *rest = (shown[g - 1] for g in nums)
             for other in rest:
                 keep.merges.append({"joined": other.label, "items": [i["id"] for i in other.items],
+                                    "sample": _short(other.items[0].get("title") or ""),
                                     "reason": m.get("reason", ""), "model": model})
                 keep.items.extend(other.items)
                 keep.sims.extend(other.sims)
