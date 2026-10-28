@@ -35,16 +35,21 @@ from patterns import detect, requests  # noqa: E402
 from rec_weights import parse_time  # noqa: E402
 from runbooks import runbook  # noqa: E402
 from score import Context, Opportunity, rank, score  # noqa: E402
-from swarm_records import State, load, open_store  # noqa: E402
+from swarm_records import State, current_extractions, load, open_store, resolve_person  # noqa: E402
 
 
 def context(state: State, as_email: str | None = None) -> tuple[dict[str, dict], Context]:
     """The items the viewer may read, and everything scoring reads, built from those items only."""
-    person_of, clusters = getattr(state, "person_of", {}), getattr(state, "clusters", {})
+    clusters = getattr(state, "clusters", {})
+    # rule 6: a cluster merged into another is that other one
+    person_of = {sid: resolve_person(state, pid) if hasattr(state, "merged_into") else pid
+                 for sid, pid in getattr(state, "person_of", {}).items()}
     v = viewer(as_email, getattr(state, "groups", {}), Directory(state.items, person_of, clusters)) if as_email else None
     items = visible(state.items, v)
     directory = Directory(items, person_of, clusters)
-    extractions = {k: e for k, e in (getattr(state, "extractions", {}) or {}).items() if k in items}
+    # rule 9: each item's current extraction
+    current = current_extractions(state)[0] if hasattr(state, "runs") else []
+    extractions = {e["item_id"]: e for e in current if e["item_id"] in items}
     return items, Context(directory, Links(items), owners(items, directory, extractions), as_email)
 
 
