@@ -29,6 +29,9 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e '.[dev,swarm]'
-      - run: ruff check tests swarm pipelines samples
+      - run: ruff check tests swarm pipelines samples recommend
       - run: pytest
+      - run: python recommend/test_recommend.py
+      - run: python recommend/test_judge.py
+      - run: python recommend/test_sandbox_shape.py
 
