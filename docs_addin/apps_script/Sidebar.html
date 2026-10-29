@@ -228,7 +228,7 @@ function focusBar() {
   if (!f) {
     el.innerHTML = '<div class="hint">Select text, or click into a paragraph, then <b>Check</b> it against Jira, GitHub, Slack and Drive.</div>';
   } else {
-    var done = state.notes[f.text] && !state.notes[f.text].busy;
+    var done = state.notes[f.text] && !state.notes[f.text].busy && !state.notes[f.text].error;
     el.innerHTML = '<div class="row"><div class="what"><b>' + (f.selected ? 'Selected' : 'This paragraph') +
       (f.section ? ' · ' + esc(f.section) : '') + '</b><span>' + esc(f.text) + '</span></div>' +
       '<button class="check" id="checkbtn"' + (state.notes[f.text] && state.notes[f.text].busy ? ' disabled' : '') + '>' +
