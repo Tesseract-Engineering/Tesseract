@@ -217,3 +217,18 @@ def test_slack_goes_on_the_people_an_answer_names():
     assert out["locked"]["owners"][0]["slack"]["user"] == "U2"
     assert out["notes"][0]["people"] == [{"name": "Dhruv Pendharkar", "slack": dhruv}]   # the title's person only
     assert out["notes"][1]["people"] == []
+
+
+def test_figures_need_the_key_and_stay_in_their_folder(api):
+    app, url = api
+    def get(path, key=None):
+        req = urllib.request.Request(url + path, headers={"X-Addin-Key": key} if key else {})
+        try:
+            with urllib.request.urlopen(req) as r:
+                return r.status, r.headers.get("Content-Type")
+        except urllib.error.HTTPError as e:
+            return e.code, None
+    assert get("/figures/fig1-current.png")[0] == 404
+    assert get("/figures/fig1-current.png", key=app.key) == (200, "image/png")
+    assert get("/figures/..%2Fapi.py", key=app.key)[0] == 404
+    assert get("/figures/nope.png", key=app.key)[0] == 404

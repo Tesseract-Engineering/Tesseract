@@ -9,6 +9,7 @@ api.py - the add-in's one endpoint, in front of the graph and the model.
                    -> up to three notes on the paragraph being written (conflict, incident,
                       decided, owner), cited the same way; none when nothing bears on it
     GET  /health   {"ok": true, "ns": ...}
+    GET  /figures/<name>.png   the demo doc's figures, with the key (the script that writes the doc)
     GET  /dev      the sidebar in a plain browser tab, its google.script.run calls served from
                    here (POST /dev/answer, no key): ADDIN_DEV=1 only, for working on the sidebar
                    without deploying it. The server listens on 127.0.0.1 alone
@@ -109,8 +110,12 @@ def handler(app: App):
         def do_GET(self) -> None:
             if self.path == "/health":
                 return self._send(200, {"ok": True, "ns": app.ns})
-            name = self.path.split("?")[0].removeprefix("/dev/figures/")
-            if app.dev and self.path.startswith("/dev/figures/") and name.endswith(".png") and "/" not in name:
+            # The demo doc's figures: on /dev for the dev page, and behind the key for the script that
+            # writes the Google Doc. Only the PNGs in figures/, by bare name.
+            route = self.path.split("?")[0]
+            name = route.rsplit("/", 1)[-1]
+            keyed = route.startswith("/figures/") and hmac.compare_digest(self.headers.get("X-Addin-Key", ""), app.key)
+            if (keyed or (app.dev and route.startswith("/dev/figures/"))) and name.endswith(".png") and "/" not in name:
                 path = HERE / "figures" / name
                 if path.is_file():
                     data = path.read_bytes()
