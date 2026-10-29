@@ -111,8 +111,6 @@ a:hover{text-decoration:underline}
 .slk{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:#4a154b;background:#f4ede4;border:1px solid #e8dccf;border-radius:999px;padding:2px 9px;cursor:pointer}
 .slk:hover{background:#efe3d6;text-decoration:none}
 .slk svg{width:11px;height:11px}
-.dm small{font-size:11px;color:var(--faint)}
-.dm small a{color:var(--faint);text-decoration:underline}
 .toast{position:fixed;left:12px;right:12px;bottom:86px;background:#242424;color:#fff;font-size:12px;border-radius:8px;padding:8px 10px;opacity:0;transform:translateY(6px);transition:all .2s;pointer-events:none;z-index:5}
 .toast.on{opacity:1;transform:none}
 </style>
@@ -169,9 +167,10 @@ function slackHtml(person, message) {
   if (!person || !person.slack) return '';
   var i = DMS.push({person: person, message: message}) - 1;
   var sl = person.slack;
-  return '<span class="dm"><a class="slk" data-dm="' + i + '" href="https://app.slack.com/client/' + esc(sl.team) + '/' + esc(sl.user) + '">' +
-    SLACK_ICON + 'Message ' + esc(person.name.split(' ')[0]) + ' on Slack</a>' +
-    '<small><a data-dm="' + i + '" href="slack://user?team=' + esc(sl.team) + '&id=' + esc(sl.user) + '">desktop app</a></small></span>';
+  // app_redirect is the one link that reaches a DM by user id: it opens the desktop app if there
+  // is one, and otherwise offers the web client (a client/<team>/<user> URL lands in the last channel).
+  return '<span class="dm"><a class="slk" data-dm="' + i + '" href="https://slack.com/app_redirect?team=' + esc(sl.team) +
+    '&channel=' + esc(sl.user) + '">' + SLACK_ICON + 'Message ' + esc(person.name.split(' ')[0]) + ' on Slack</a></span>';
 }
 
 function toast(text) {
