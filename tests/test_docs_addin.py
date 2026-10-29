@@ -232,3 +232,13 @@ def test_figures_need_the_key_and_stay_in_their_folder(api):
     assert get("/figures/fig1-current.png", key=app.key) == (200, "image/png")
     assert get("/figures/..%2Fapi.py", key=app.key)[0] == 404
     assert get("/figures/nope.png", key=app.key)[0] == 404
+
+
+def test_no_slack_button_for_the_viewer_themselves():
+    from docs_addin.api import App
+    app = App.__new__(App)
+    me = {"user": "U9", "team": "T1", "web": None}
+    app._directory = lambda: ({"Ishan Sinha": "ishan@x.com"}, {"Ishan Sinha": me})
+    out = app.with_slack({"viewer": {"email": "ishan@x.com"},
+                          "notes": [{"kind": "owner", "title": "Ishan Sinha owns this", "text": "[1]"}]})
+    assert out["notes"][0]["people"] == []

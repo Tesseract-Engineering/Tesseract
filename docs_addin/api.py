@@ -69,9 +69,12 @@ class App:
 
     def with_slack(self, out: dict) -> dict:
         """Where to message the people an answer names: the person to ask, whoever can share
-        what is locked, and anyone a note names in full. Added after the model, so prompts and
-        recordings do not change."""
-        slack = self._directory()[1]
+        what is locked, and anyone a note names in full, other than the viewer. Added after the
+        model, so prompts and recordings do not change."""
+        emails, slack = self._directory()
+        me = (out.get("viewer") or {}).get("email")
+        # Nobody needs a button to message themselves.
+        slack = {n: s for n, s in slack.items() if not me or emails.get(n) != me}
         if out.get("ask") and out["ask"]["name"] in slack:
             out["ask"]["slack"] = slack[out["ask"]["name"]]
         for owner in out.get("locked", {}).get("owners", []):
