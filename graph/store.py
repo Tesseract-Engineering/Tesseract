@@ -27,7 +27,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from neo4j import GraphDatabase
+from neo4j import GraphDatabase, RoutingControl
 
 from .contract import EDGE_TYPES, NODE_TYPES
 
@@ -59,6 +59,12 @@ class Neo4jStore:
 
     def _run(self, query: str, **params: Any):
         return self.driver.execute_query(query, database_=self.database, **params).records
+
+    def read(self, query: str, **params: Any) -> list[dict]:
+        """Run a read-only query; rows come back as plain dicts. For consumers (forge, recommend)."""
+        records = self.driver.execute_query(query, database_=self.database,
+                                            routing_=RoutingControl.READ, **params).records
+        return [r.data() for r in records]
 
     def _batched(self, query: str, rows: list[dict], **params: Any) -> int:
         """Returns rows ACTUALLY written, not rows attempted.
