@@ -99,7 +99,11 @@ jobs:
       # `docker buildx build --cache-to type=gha` from a shell step needs the runtime token in the environment.
       - uses: crazy-max/ghaction-github-runtime@v3
       - name: Validate the compose stack
-        run: docker compose -f swarm/compose.yaml config -q
+        run: |
+          docker compose -f swarm/compose.yaml config -q
+          # The released-images override (C7): all eight job services run a GHCR image and build nothing.
+          docker compose -f swarm/compose.yaml -f swarm/compose.images.yaml --profile jobs config --format json \
+            | python3 .github/scripts/check_images_override.py
       # One job, one loop: branch protection requires a single `images` check however many images there are.
       # A new component adds its image here (forge plan F9: "forge:forge/Dockerfile", and -f forge/compose.yaml
       # in the validation step above) and to release.yml.
