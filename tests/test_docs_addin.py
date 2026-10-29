@@ -14,9 +14,9 @@ import pytest
 
 pytest.importorskip("neo4j")      # docs_addin reads the graph through graph/, which needs the driver
 
-from docs_addin.answer import finish, prompt  # noqa: E402
+from docs_addin.answer import finish, finish_context, prompt  # noqa: E402
 from docs_addin.api import handler  # noqa: E402
-from docs_addin.retrieve import Context, Locked, Source, asks, display_name, search_terms  # noqa: E402
+from docs_addin.retrieve import Context, Locked, Source, asks, display_name, paragraph_query, search_terms  # noqa: E402
 
 
 def source(i: int, **kw) -> Source:
@@ -94,6 +94,30 @@ def test_locked_items_reach_the_prompt_as_counts_and_owners_only():
     assert "[S1] Jira issue: SBX-1 Ticket 1" in text and "[S3]" not in text
 
 
+def test_notes_share_one_numbering_and_uncited_ones_go():
+    out = finish_context({"notes": [
+        {"kind": "incident", "title": "JWKS fetched once", "text": "Broke web-app [S2] [S9]."},
+        {"kind": "decided", "title": "An opinion", "text": "Just a thought."},
+        {"kind": "conflict", "title": "Deprecated", "text": "SBX-5 [S3], see also [S2]."},
+        {"kind": "owner", "title": "Dhruv", "text": "Owns OPS-1 [S1]."},
+        {"kind": "owner", "title": "A fifth", "text": "Never shown [S1]."},
+    ]}, ctx(3))
+    assert [n["title"] for n in out["notes"]] == ["JWKS fetched once", "Deprecated"]
+    assert out["notes"][0]["text"] == "Broke web-app [1]."
+    assert out["notes"][1]["text"] == "SBX-5 [2], see also [1]."
+    assert [s["alias"] for s in out["sources"]] == ["SBX-2", "SBX-3"]
+
+
+def test_no_notes_is_an_answer():
+    out = finish_context({"notes": []}, ctx(3))
+    assert out["notes"] == [] and out["sources"] == [] and out["read"] == 3
+
+
+def test_paragraph_query_leads_with_the_section():
+    assert paragraph_query("Fetch the JWKS once.", "Token validation") == "Token validation. Fetch the JWKS once."
+    assert paragraph_query("Fetch the JWKS once.", None) == "Fetch the JWKS once."
+
+
 # -- the API ----------------------------------------------------------------------- #
 
 class FakeApp:
@@ -105,6 +129,10 @@ class FakeApp:
     def ask(self, question, viewer):
         self.asked.append((question, viewer))
         return {"status": "none", "answer": "", "sources": []}
+
+    def context(self, paragraph, section, doc, viewer):
+        self.asked.append((paragraph, section, doc, viewer))
+        return {"notes": [], "sources": []}
 
 
 @pytest.fixture
@@ -141,9 +169,19 @@ def test_api_needs_a_question_and_a_viewer(api):
     assert code == 200 and app.asked == [("q?", "a@b.c")] and "seconds" in body
 
 
+def test_context_takes_a_paragraph_and_its_section(api):
+    app, url = api
+    assert post(url + "/context", {"paragraph": "p", "viewer": "a@b.c"})[0] == 401
+    assert post(url + "/context", {"section": "Rollout", "viewer": "a@b.c"}, key=app.key)[0] == 400
+    code, body = post(url + "/context", {"paragraph": " Ship it. ", "section": "Rollout", "doc": "D",
+                                         "viewer": "a@b.c"}, key=app.key)
+    assert code == 200 and app.asked == [("Ship it.", "Rollout", "D", "a@b.c")] and body["notes"] == []
+
+
 def test_dev_routes_are_off_unless_asked_for(api):
     app, url = api
     assert post(url + "/dev/answer", {"question": "q?", "viewer": "a@b.c"})[0] == 404
+    assert post(url + "/dev/context", {"paragraph": "p", "viewer": "a@b.c"})[0] == 404
     with pytest.raises(urllib.error.HTTPError) as e:
         urllib.request.urlopen(url + "/dev")
     assert e.value.code == 404

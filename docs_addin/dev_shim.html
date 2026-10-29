@@ -1,19 +1,32 @@
-<!-- Served by api.py at /dev only: stands in for google.script.run, so the sidebar runs in a plain
-     browser tab against the local API. ?viewer=<email> picks who is asking. -->
+<!-- Served by api.py at /dev only: stands in for google.script.run and for the document, so the
+     sidebar runs in a plain browser tab against the local API. The demo doc (demo_doc.json) is
+     drawn on the left; clicking a paragraph puts the "cursor" there. ?viewer=<email> picks who
+     is asking. -->
 <script>
 (function () {
   var DOC = __DEV_DOC__;
-  var viewer = new URLSearchParams(location.search).get('viewer') || 'hamilton.tesseract@gmail.com';
+  var viewer = new URLSearchParams(location.search).get('viewer') || 'ishan.tesseract@gmail.com';
+  var cursor = null;
+
+  function isQuestion(t) { return t.length >= 15 && /\?(\s|$)/.test(t) ? t : null; }
+  function sectionOf(i) {
+    for (var j = i - 1; j >= 0; j--) if (/^h[23]$/.test(DOC.blocks[j].style)) return DOC.blocks[j].text;
+    return null;
+  }
+  function post(path, body) {
+    body.viewer = viewer;
+    return fetch('/dev' + path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)})
+      .then(function (r) { return r.json(); });
+  }
+
   var server = {
     getContext: function () {
-      return {title: DOC.title, viewer: viewer, questions: DOC.questions.map(function (q) { return {text: q, answered: false}; })};
+      return {title: DOC.title, viewer: viewer, questions: DOC.blocks.filter(function (b) { return b.style === 'p' && isQuestion(b.text); })
+        .map(function (b) { return {text: b.text, answered: false}; })};
     },
-    getCursorQuestion: function () { return null; },
-    ask: function (question) {
-      return fetch('/dev/answer', {method: 'POST', headers: {'Content-Type': 'application/json'},
-                                   body: JSON.stringify({question: question, viewer: viewer})})
-        .then(function (r) { return r.json(); });
-    },
+    getCursorParagraph: function () { return cursor; },
+    ask: function (question) { return post('/answer', {question: question}); },
+    askContext: function (paragraph, section) { return post('/context', {paragraph: paragraph, section: section, doc: DOC.title}); },
     insertAnswer: function (question, answer, sources) {
       console.log('[dev] insert under', JSON.stringify(question), answer, sources);
       return true;
@@ -34,6 +47,34 @@
     return r;
   }
   window.google = {script: {run: runner(null, null)}};
+
+  document.addEventListener('DOMContentLoaded', function () {
+    var pane = document.createElement('div');
+    pane.id = 'devdoc';
+    DOC.blocks.forEach(function (b, i) {
+      var el = document.createElement(b.style === 'title' ? 'h1' : b.style === 'p' ? 'p' : b.style);
+      el.textContent = b.text;
+      if (b.style === 'p') {
+        el.onclick = function () {
+          document.querySelectorAll('#devdoc p').forEach(function (x) { x.classList.remove('cur'); });
+          el.classList.add('cur');
+          cursor = {text: b.text, section: sectionOf(i), question: isQuestion(b.text)};
+        };
+      }
+      pane.appendChild(el);
+    });
+    document.documentElement.appendChild(pane);
+  });
 })();
 </script>
-<style>html{background:#e9e8e7}body{max-width:300px;margin:0 auto;border-left:1px solid #e0e0e0;border-right:1px solid #e0e0e0;height:100vh}</style>
+<style>
+html{background:#e9e8e7}
+body{max-width:300px;margin:0 0 0 auto !important;border-left:1px solid #e0e0e0;height:100vh}
+#devdoc{position:fixed;left:0;top:0;bottom:0;right:301px;overflow:auto;background:#fff;padding:40px 56px;font:14px/1.6 Arial,sans-serif;color:#202124;box-sizing:border-box}
+#devdoc h1{font-size:22px;font-weight:400;margin:0 0 12px}
+#devdoc h2{font-size:17px;font-weight:400;margin:22px 0 6px}
+#devdoc h3{font-size:14px;font-weight:700;margin:16px 0 4px;color:#434343}
+#devdoc p{margin:0 0 10px;cursor:text;border-radius:4px;padding:2px 4px;margin-left:-4px}
+#devdoc p:hover{background:#f1f3f4}
+#devdoc p.cur{background:#e8f0fe;box-shadow:inset 2px 0 0 #1a73e8}
+</style>

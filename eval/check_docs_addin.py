@@ -1,6 +1,20 @@
 """
-check_docs_addin.py - the Docs add-in's answer key: the SOC2 auditor questions, answered from the
-sandbox graph as two people who can read different things.
+check_docs_addin.py - the Docs add-in's answer key, in two parts.
+
+The design doc (docs_addin/demo_doc.json, the demo): "billing-service: verify OIDC tokens directly",
+read paragraph by paragraph as Ishan writes it. Each paragraph that walks into the sandbox's
+history must get the note that history calls for:
+
+    context     the SBX-10 shim belongs to payments; Hooli (CS-2) was hit by the same 401s
+    goals       "standard OIDC claim set": there is none for tenant_id and roles; SBX-4 namespaced them
+    jwks        JWKS fetched once at startup: the OPS-8 staging SEV-2; WEB-3 refreshes every 10 minutes
+    s2s         a new /oauth/token client: SBX-5 is deprecating it
+    rollout     production the week of Dec 14: the auth cutover (Dec 15) and the key rotation
+    neutral     "Reviewers: comment by Friday": nothing (silence is the check)
+plus a paragraph that agrees with SBX-4 and must not be called a conflict, and the doc's two open
+questions answered with citations.
+
+The SOC2 auditor questions (the first demo), answered as two people who can read different things:
 
 The sandbox's planning folder holds "SOC2 Auditor Questions - Authentication" (Legal, FY2025
 follow-up). Its five questions are what the add-in demo answers. The key, from what the sandbox
@@ -25,12 +39,14 @@ Answers vary run to run, so checks look for the right sources and words, not exa
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import sys
+from pathlib import Path
 
-from docs_addin.answer import answer, model_from_env
-from docs_addin.retrieve import directory, gather
+from docs_addin.answer import answer, context, model_from_env
+from docs_addin.retrieve import directory, gather, paragraph_query
 from graph.store import Neo4jStore
 
 TODAY = "2026-10-28"          # fixed, so recorded answers replay
@@ -187,44 +203,184 @@ def _(a, v):
     return ok, str(lk)
 
 
+# -- the design doc, paragraph by paragraph ------------------------------------------------------ #
+
+DOC = json.loads((Path(__file__).parent.parent / "docs_addin" / "demo_doc.json").read_text(encoding="utf-8"))
+# One paragraph not in the doc: it follows SBX-4, so calling it a conflict would be a false alarm.
+AGREE = ("Claims", "billing-service reads the tenant from the namespaced claim "
+         "https://tesseract.example/claims/tenant_id, as decided in SBX-4.")
+
+CONTEXT_CHECKS = []
+
+
+def ccheck(name: str):
+    def register(fn):
+        CONTEXT_CHECKS.append((name, fn))
+        return fn
+    return register
+
+
+def paragraphs() -> dict[str, tuple[str | None, str]]:
+    """key -> (section, text) for the doc's keyed paragraphs, in order, plus the agreeing one."""
+    out, section = {}, None
+    for b in DOC["blocks"]:
+        if b["style"] in ("h2", "h3"):
+            section = b["text"]
+        elif b.get("key"):
+            out[b["key"]] = (section, b["text"])
+    out["agree"] = AGREE
+    return out
+
+
+def notes(out: dict, *kinds: str) -> list[dict]:
+    return [n for n in out["notes"] if not kinds or n["kind"] in kinds]
+
+
+def note_says(out: dict, kinds: tuple[str, ...], *patterns: str) -> bool:
+    """Some note of these kinds mentions every pattern (in its title or text)."""
+    return any(all(re.search(p, n["title"] + " " + n["text"], re.I) for p in patterns) for n in notes(out, *kinds))
+
+
+def shown(out: dict) -> str:
+    return " | ".join(f"{n['kind']}: {n['title']}" for n in out["notes"]) or "no notes"
+
+
+@ccheck("context: the shim belongs to payments, and Hooli was hit by the same 401s")
+def _(c):
+    out = c["context"]
+    ok = note_says(out, (), r"payments|Hooli|CS-2") and cites(out, r"SBX-10\b", r"CS-2\b", r"billing", r"Hooli")
+    return ok, f"{shown(out)}; cited {cited(out)}"
+
+
+@ccheck("goals: no standard OIDC claim for tenant and roles; SBX-4 namespaced them")
+def _(c):
+    out = c["goals"]
+    ok = note_says(out, ("conflict", "decided"), r"namespac") and cites(
+        out, r"SBX-4\b", r"Auth OIDC Migration - Design Doc", r"Namespace custom claims", r"custom claims")
+    return ok, f"{shown(out)}; cited {cited(out)}"
+
+
+@ccheck("jwks: fetching once at startup is the OPS-8 incident; refresh every 10 minutes")
+def _(c):
+    out = c["jwks"]
+    ok = note_says(out, ("incident", "conflict"), r"refresh|10 min|rotat") and cites(
+        out, r"Postmortem", r"OPS-8\b", r"SEV-2", r"WEB-3\b")
+    return ok, f"{shown(out)}; cited {cited(out)}"
+
+
+@ccheck("s2s: a new /oauth/token client conflicts with SBX-5's deprecation")
+def _(c):
+    out = c["s2s"]
+    ok = note_says(out, ("conflict",), r"deprecat|sunset|remov") and cites(out, r"SBX-5\b", r"Deprecate /oauth/token")
+    return ok, f"{shown(out)}; cited {cited(out)}"
+
+
+@ccheck("rollout: the week of Dec 14 runs into the cutover or the key rotation")
+def _(c):
+    out = c["rollout"]
+    return note_says(out, (), r"Dec(ember)? 15|cutover|rotat"), shown(out)
+
+
+@ccheck("neutral: a paragraph about the review process gets no notes")
+def _(c):
+    return not c["neutral"]["notes"], shown(c["neutral"])
+
+
+@ccheck("agree: following SBX-4 is not called a conflict")
+def _(c):
+    return not notes(c["agree"], "conflict"), shown(c["agree"])
+
+
+@ccheck("every note cites a source, and none cites a draft, a copy or the 2025 overview")
+def _(c):
+    c = {k: out for k, out in c.items() if "notes" in out}
+    bad = [f"{k}: {n['title']}" for k, out in c.items() for n in out["notes"] if not re.search(r"\[\d+\]", n["text"])]
+    bad += [f"{k}: {s['label'][:40]}" for k, out in c.items() for s in out["sources"]
+            if any(re.search(p, s["title"]) for p in NEVER_CITED)]
+    return not bad, "; ".join(bad)
+
+
+@ccheck("no he/she in notes")
+def _(c):
+    bad = [k for k, out in c.items() for n in out.get("notes", []) if re.search(r"\b(he|she|his|her|him)\b", n["text"], re.I)]
+    return not bad, ", ".join(bad)
+
+
+@ccheck("open question: an audit record points at the token-issuance audit log (SBX-20)")
+def _(c):
+    out = c["q_audit"]
+    return out["status"] != "none" and cites(out, r"SBX-20\b", r"Audit Log for Token Issuance", r"audit log"), \
+        f"{out['status']}; cited {cited(out)}"
+
+
+@ccheck("open question: billing-service belongs to the payments team")
+def _(c):
+    out = c["q_owner"]
+    return out["status"] != "none" and says(out, r"payments"), out["answer"][:200]
+
+
+def run_checks(title: str, checks, results: dict, viewers) -> tuple[int, int]:
+    print(f"\n{title}")
+    failed = total = 0
+    for name, *rest in checks:
+        fn, who_list = (rest[1], rest[0]) if len(rest) == 2 else (rest[0], viewers)
+        for v in who_list:
+            total += 1
+            try:
+                ok, detail = fn(results[v], v) if len(rest) == 2 else fn(results[v])
+            except Exception as e:
+                ok, detail = False, f"{type(e).__name__}: {e}"
+            failed += not ok
+            who = v.split(".")[0]
+            print(f"  {'PASS' if ok else 'FAIL'}  [{who}] {name}" + (f"\n        {detail}" if detail and not ok else ""))
+    return failed, total
+
+
 def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8")
     ns = os.environ.get("ADDIN_NS", "kg:sandbox")
     store = Neo4jStore()
     model = model_from_env()
     people = directory(store, ns)
-    answers = {}
     tokens = [0, 0]
+
+    def tally(out):
+        tokens[0] += out["tokens"]["input"]
+        tokens[1] += out["tokens"]["output"]
+        return out
+
+    # The design doc, as Ishan writes it: notes for each paragraph, answers for the open questions.
+    design: dict[str, dict] = {}
+    for key, (section, text) in paragraphs().items():
+        if key.startswith("q_"):
+            design[key] = tally(answer(model, text, gather(store, ns, ISHAN, text), people, today=TODAY))
+        else:
+            ctx = gather(store, ns, ISHAN, paragraph_query(text, section))
+            design[key] = tally(context(model, text, section, DOC["title"], ctx, people, today=TODAY))
+
+    answers = {}
     for v in VIEWERS:
-        answers[v] = {}
-        for key, q in QUESTIONS.items():
-            out = answer(model, q, gather(store, ns, v, q), people, today=TODAY)
-            answers[v][key] = out
-            tokens[0] += out["tokens"]["input"]
-            tokens[1] += out["tokens"]["output"]
+        answers[v] = {key: tally(answer(model, q, gather(store, ns, v, q), people, today=TODAY))
+                      for key, q in QUESTIONS.items()}
     store.close()
 
+    print("design doc, as ishan")
+    for key, out in design.items():
+        if "notes" in out:
+            print(f"  {key:10} {shown(out)}")
+        else:
+            print(f"  {key:10} {out['status']}: {out['answer'][:90]}")
     for v in VIEWERS:
-        print(f"\n{v}")
+        print(f"\nSOC2, as {v}")
         for key, out in answers[v].items():
             print(f"  {key:12} {out['status']:8} {len(out['sources']):>2}/{out['read']:<2} cited, "
                   f"{out['locked']['count']} locked, ask {(out['ask'] or {}).get('name', '-')}")
     print(f"\n{model.name}, {tokens[0]:,} input and {tokens[1]:,} output tokens (zero when replayed)")
 
-    failed = 0
-    total = 0
-    for name, viewers, fn in CHECKS:
-        for v in viewers:
-            total += 1
-            try:
-                ok, detail = fn(answers[v], v)
-            except Exception as e:
-                ok, detail = False, f"{type(e).__name__}: {e}"
-            failed += not ok
-            who = v.split(".")[0]
-            print(f"  {'PASS' if ok else 'FAIL'}  [{who}] {name}" + (f"\n        {detail}" if detail and not ok else ""))
-    print(f"\n{total - failed}/{total} passed")
-    return 1 if failed else 0
+    f1, t1 = run_checks("design doc", CONTEXT_CHECKS, {ISHAN: design}, (ISHAN,))
+    f2, t2 = run_checks("SOC2 questions", CHECKS, answers, VIEWERS)
+    print(f"\n{t1 + t2 - f1 - f2}/{t1 + t2} passed")
+    return 1 if f1 + f2 else 0
 
 
 if __name__ == "__main__":

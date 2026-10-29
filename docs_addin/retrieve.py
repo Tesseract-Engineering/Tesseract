@@ -89,6 +89,12 @@ def search_terms(question: str) -> str:
     return " ".join(terms)
 
 
+def paragraph_query(paragraph: str, section: str | None) -> str:
+    """What to search for when the writer is on a paragraph: its section heading helps find the
+    right records ("Rollout", "Token validation")."""
+    return f"{section}. {paragraph}" if section else paragraph
+
+
 def _normal(text: str) -> str:
     return " ".join(re.findall(r"[a-z0-9]+", text.lower()))
 

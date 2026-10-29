@@ -81,6 +81,20 @@ a:hover{text-decoration:underline}
 .cbox.live button{background:var(--brand);color:#fff}
 .composer .fine{text-align:center}
 .empty{color:var(--muted);font-size:12.5px;background:var(--card);border:1px dashed var(--line);border-radius:10px;padding:10px}
+.here-card{background:var(--card);border:1px solid var(--brand2);border-radius:10px;padding:9px 10px;display:flex;flex-direction:column;gap:8px;box-shadow:0 0 0 3px var(--brand-soft)}
+.here-card.idle{border:1px dashed var(--line);box-shadow:none}
+.here-card .lbl{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);display:flex;gap:6px;align-items:center}
+.here-card .snip{font-size:12px;color:var(--muted);border-left:3px solid var(--brand2);padding-left:8px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.note{display:flex;flex-direction:column;gap:3px;border-radius:8px;padding:7px 9px;background:var(--soft)}
+.note .nt{display:flex;flex-direction:column;align-items:flex-start;gap:3px;font-weight:600;font-size:12.5px}
+.note .nx{font-size:12.5px;line-height:1.5;overflow-wrap:anywhere}
+.kind{font-size:9.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;border-radius:4px;padding:1px 5px;flex:none}
+.k-conflict{background:#fdecea;color:#b42318}.note.conflict{background:#fff6f5}
+.k-incident{background:var(--lock-soft);color:var(--lock)}.note.incident{background:#fffbef}
+.k-decided{background:var(--brand-soft);color:var(--brand-ink)}
+.k-owner{background:#efefef;color:#424242}
+.quiet{font-size:12px;color:var(--muted);display:flex;gap:7px;align-items:center}
+.sect{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin:4px 0 -4px}
 </style>
 </head>
 <body>
@@ -97,7 +111,8 @@ a:hover{text-decoration:underline}
 </div>
 
 <script>
-var state = {doc: null, cards: [], here: null};
+var state = {doc: null, cards: [], here: null, para: null, seen: null, notes: {}};
+var KIND = {conflict: 'Conflicts', incident: 'Happened before', decided: 'Already decided', owner: 'Talk to'};
 var LABEL = {jira: 'Jira', github: 'GitHub', slack: 'Slack', gdrive: 'Drive'};
 var STATUS = {answered: 'Answered', partial: 'Partial', none: 'Nothing found'};
 
@@ -171,13 +186,7 @@ function result(card, i) {
         (r.gaps || []).map(function (g) { return '- ' + g; }).join('\n') + '\n\nDo you know, or know where it’s written down?\n\nThanks')) +
       '">Draft a note</a></span></div>';
   }
-  if (r.sources.length) {
-    h += '<details class="src"><summary>Sources</summary><ol>' + r.sources.map(function (s) {
-      return '<li><span class="cite">' + s.n + '</span><span class="badge b-' + esc(s.source) + '">' + esc(LABEL[s.source] || s.source) + '</span><span>' +
-        (s.url ? '<a href="' + esc(s.url) + '">' + esc(s.label) + '</a>' : esc(s.label)) +
-        '<small>' + esc([s.updated, (s.people || []).join(', ')].filter(Boolean).join(' · ')) + '</small></span></li>';
-    }).join('') + '</ol></details>';
-  }
+  if (r.sources.length) h += sourcesHtml(r.sources);
   if (card.inserted) {
     h += '<div class="ok"><span class="ck">&#10003;</span><span>Inserted under the question, shaded, with source links. Undo with Ctrl/⌘+Z.</span></div>';
   } else if (!card.free) {
@@ -189,11 +198,37 @@ function result(card, i) {
   return h;
 }
 
+function sourcesHtml(sources) {
+  return '<details class="src"><summary>Sources</summary><ol>' + sources.map(function (s) {
+    return '<li><span class="cite">' + s.n + '</span><span class="badge b-' + esc(s.source) + '">' + esc(LABEL[s.source] || s.source) + '</span><span>' +
+      (s.url ? '<a href="' + esc(s.url) + '">' + esc(s.label) + '</a>' : esc(s.label)) +
+      '<small>' + esc([s.updated, (s.people || []).join(', ')].filter(Boolean).join(' · ')) + '</small></span></li>';
+  }).join('') + '</ol></details>';
+}
+
+/* The paragraph the cursor rests on, and what the graph says about it. */
+function paraHtml() {
+  var p = state.para;
+  if (!p) return '<div class="here-card idle"><div class="quiet"><span class="pulse"></span>Write, or click into a paragraph. I’ll flag conflicts, past incidents and owners as you go.</div></div>';
+  var r = state.notes[p.text];
+  var h = '<div class="here-card"><div class="lbl">This paragraph' + (p.section ? '<span class="dot"></span>' + esc(p.section) : '') + '</div>' +
+    '<div class="snip">' + esc(p.text) + '</div>';
+  if (!r || r.busy) return h + '<div class="think"><span class="pulse"></span>Checking Jira, GitHub, Slack and Drive&hellip;</div></div>';
+  if (r.error) return h + '<div class="err">' + esc(r.error) + '</div></div>';
+  if (!r.notes.length) return h + '<div class="quiet">&#10003; Nothing to flag here.</div></div>';
+  r.notes.forEach(function (n) {
+    h += '<div class="note ' + esc(n.kind) + '"><div class="nt"><span class="kind k-' + esc(n.kind) + '">' + esc(KIND[n.kind] || n.kind) + '</span>' + esc(n.title) + '</div>' +
+      '<div class="nx">' + answerHtml(n.text, r.sources) + '</div></div>';
+  });
+  return h + sourcesHtml(r.sources) + '</div>';
+}
+
 function render() {
   header();
   var body = document.getElementById('body');
-  var h = '<div class="hello"><h4>Hi ' + esc(firstName(state.doc.viewer)) + '.</h4><p>I answer each question from the Jira tickets, PRs, Slack threads and Drive docs you can open, and cite every claim.</p></div>';
-  if (!state.cards.length) h += '<div class="empty">No questions found. Tesseract looks for paragraphs that ask something (with a question mark). You can still ask below.</div>';
+  var h = '<div class="hello"><h4>Hi ' + esc(firstName(state.doc.viewer)) + '.</h4><p>I read the Jira tickets, PRs, Slack threads and Drive docs you can open, and cite every claim.</p></div>';
+  h += paraHtml();
+  if (state.cards.length) h += '<div class="sect">Questions in this doc</div>';
   state.cards.forEach(function (c, i) {
     var cls = 'q' + (c.shown ? '' : ' fresh') + (c.result && c.result.status !== 'none' ? ' done' : '') + (state.here === c.text ? ' here' : '');
     h += '<div class="' + cls + '" id="card' + i + '"><div class="qt" data-ask="' + i + '"><span class="n">' + (c.free ? '?' : i + 1) + '</span><span class="qx">' + esc(c.text) + '</span>' +
@@ -273,17 +308,34 @@ function load() {
 }
 document.getElementById('refresh').addEventListener('click', load);
 
-/* Follow the cursor: the question it sits in gets a ring, so the pane tracks the document. */
+/* Follow the cursor. A question gets a ring; any other paragraph gets its own card, fetched once
+   the cursor has rested on it for two polls (the writer paused) and kept per paragraph text. */
+function context(p) {
+  var r = state.notes[p.text] = {busy: true};
+  render();
+  run('askContext', p.text, p.section).then(function (out) {
+    if (out && out.error) { r.busy = false; r.error = out.error; } else { state.notes[p.text] = out; }
+    render();
+  }, function (e) { r.busy = false; r.error = (e && e.message) || String(e); render(); });
+}
+
 setInterval(function () {
-  run('getCursorQuestion').then(function (q) {
+  run('getCursorParagraph').then(function (p) {
+    var q = p && p.question;
     if (q !== state.here) {
       state.here = q;
       document.querySelectorAll('.q').forEach(function (el, i) { el.classList.toggle('here', !!q && state.cards[i] && state.cards[i].text === q); });
       var i = state.cards.findIndex(function (c) { return c.text === q; });
       if (i >= 0) document.getElementById('card' + i).scrollIntoView({behavior: 'smooth', block: 'nearest'});
     }
+    if (!p || p.question || p.text.length < 40) return;
+    var rested = state.seen === p.text;
+    state.seen = p.text;
+    if (!rested) return;
+    if (!state.para || state.para.text !== p.text) { state.para = p; render(); }
+    if (!state.notes[p.text]) context(p);
   }, function () {});
-}, 2500);
+}, 2000);
 
 load();
 </script>

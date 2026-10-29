@@ -4,6 +4,9 @@ api.py - the add-in's one endpoint, in front of the graph and the model.
     POST /answer   {"question": "...", "viewer": "hamilton@..."}   header X-Addin-Key
                    -> answer.py's JSON: status, answer with [n] markers, cited sources, gaps,
                       who to ask, and what is locked
+    POST /context  {"paragraph": "...", "section": "...", "doc": "...", "viewer": "..."}  same key
+                   -> up to three notes on the paragraph being written (conflict, incident,
+                      decided, owner), cited the same way; none when nothing bears on it
     GET  /health   {"ok": true, "ns": ...}
     GET  /dev      the sidebar in a plain browser tab, its google.script.run calls served from
                    here (POST /dev/answer, no key): ADDIN_DEV=1 only, for working on the sidebar
@@ -14,7 +17,8 @@ sends the key from its Script Properties. The viewer is whoever the script says 
 the key is what makes that trustworthy, so it never leaves the server and the script project.
 A deployment for real users would verify a Google ID token (ScriptApp.getIdentityToken) instead.
 
-    ADDIN_KEY=... NEO4J_PASSWORD=... python -m docs_addin.api        ADDIN_PORT (8787), ADDIN_NS (kg:sandbox)
+    ADDIN_KEY=... NEO4J_PASSWORD=... python -m docs_addin.api        ADDIN_PORT (8787), ADDIN_NS (kg:sandbox),
+                                                                     ADDIN_TODAY (pin the date, to replay)
 """
 
 from __future__ import annotations
@@ -30,25 +34,15 @@ from pathlib import Path
 
 from graph.store import Neo4jStore
 
-from .answer import answer, model_from_env
-from .retrieve import directory, gather
+from .answer import answer, context, model_from_env
+from .retrieve import directory, gather, paragraph_query
 
 HERE = Path(__file__).parent
 MAX_QUESTION = 2000
 MAX_BODY = 16_000
 
-# The questions the /dev page shows in place of a real document's.
-DEV_DOC = {
-    "title": "SOC2 Responses - Authentication (FY2026)",
-    "questions": [
-        "Does the authentication service use an industry-standard protocol (for example OpenID Connect) "
-        "for federated login?",
-        "How are token signing keys rotated, and how often? Provide evidence of the last rotation.",
-        "Which custom claims are issued in access tokens, and how are they validated downstream?",
-        "Are deprecated authentication endpoints inventoried, with a removal date?",
-        "How is access to token signing material restricted?",
-    ],
-}
+# The document the /dev page shows in place of a real one: the billing-service design doc.
+DEV_DOC = json.loads((HERE / "demo_doc.json").read_text(encoding="utf-8"))
 
 
 class App:
@@ -56,6 +50,9 @@ class App:
         self.ns, self.key, self.dev = ns, key, dev
         self.store = Neo4jStore()
         self.model = model_from_env()
+        # The date the prompts say it is. Pinned (ADDIN_TODAY=2026-10-28), recorded answers keep
+        # replaying on later days; unset, it is the real date.
+        self.today = os.environ.get("ADDIN_TODAY", "").strip() or None
         self._people: tuple[float, dict[str, str]] | None = None
         self._lock = threading.Lock()
 
@@ -67,7 +64,13 @@ class App:
 
     def ask(self, question: str, viewer: str) -> dict:
         ctx = gather(self.store, self.ns, viewer, question)
-        out = answer(self.model, question, ctx, self.people())
+        out = answer(self.model, question, ctx, self.people(), today=self.today)
+        out["viewer"] = {"email": ctx.viewer["email"], "member": ctx.viewer["member"]}
+        return out
+
+    def context(self, paragraph: str, section: str | None, doc: str | None, viewer: str) -> dict:
+        ctx = gather(self.store, self.ns, viewer, paragraph_query(paragraph, section))
+        out = context(self.model, paragraph, section, doc, ctx, self.people(), today=self.today)
         out["viewer"] = {"email": ctx.viewer["email"], "member": ctx.viewer["member"]}
         return out
 
@@ -93,8 +96,11 @@ def handler(app: App):
             self._send(404, {"error": "not found"})
 
         def do_POST(self) -> None:
-            dev = self.path == "/dev/answer" and app.dev       # the /dev page, on localhost only
-            if self.path != "/answer" and not dev:
+            path = self.path
+            dev = path.startswith("/dev/") and app.dev       # the /dev page, on localhost only
+            if dev:
+                path = path[len("/dev"):]
+            if path not in ("/answer", "/context"):
                 return self._send(404, {"error": "not found"})
             if not dev and not hmac.compare_digest(self.headers.get("X-Addin-Key", ""), app.key):
                 return self._send(401, {"error": "bad key"})
@@ -103,20 +109,23 @@ def handler(app: App):
                 return self._send(413, {"error": "too large"})
             try:
                 body = json.loads(self.rfile.read(length) or b"{}")
-                question = str(body.get("question") or "").strip()[:MAX_QUESTION]
                 viewer = str(body.get("viewer") or "").strip().lower()
+                text = str(body.get("question" if path == "/answer" else "paragraph") or "").strip()[:MAX_QUESTION]
+                section = str(body.get("section") or "").strip()[:200] or None
+                doc = str(body.get("doc") or "").strip()[:200] or None
             except (ValueError, AttributeError):
                 return self._send(400, {"error": "expected JSON"})
-            if not question or "@" not in viewer:
-                return self._send(400, {"error": "question and viewer are required"})
+            if not text or "@" not in viewer:
+                return self._send(400, {"error": "text and viewer are required"})
             started = time.time()
             try:
-                out = app.ask(question, viewer)
+                out = app.ask(text, viewer) if path == "/answer" else app.context(text, section, doc, viewer)
             except Exception as e:              # the sidebar shows this; the log has the rest
-                print(f"answer failed: {type(e).__name__}: {e}", file=sys.stderr)
+                print(f"{path} failed: {type(e).__name__}: {e}", file=sys.stderr)
                 return self._send(502, {"error": f"{type(e).__name__}: {e}"})
             out["seconds"] = round(time.time() - started, 1)
-            print(f"{viewer} {out['status']:8} {out['seconds']:5}s  {question[:70]}", file=sys.stderr)
+            what = out["status"] if path == "/answer" else f"{len(out['notes'])} notes"
+            print(f"{viewer} {path[1:]:7} {what:8} {out['seconds']:5}s  {text[:70]}", file=sys.stderr)
             self._send(200, out)
 
         def log_message(self, *_args) -> None:     # one line per answer above is enough

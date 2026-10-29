@@ -1,9 +1,10 @@
 /**
  * Tesseract for Google Docs: the sidebar's server side.
  *
- * Finds the questions in the open document, sends one at a time to the add-in API
- * (docs_addin/api.py) as the signed-in user, and inserts an answer under its question
- * when the user clicks Insert. Nothing is written to the document otherwise.
+ * Follows the cursor: for the paragraph being written it asks the add-in API
+ * (docs_addin/api.py), as the signed-in user, what the writer should know (conflicts, past
+ * incidents, decisions, owners). Finds the document's questions and inserts an answer under
+ * one when the user clicks Insert. Nothing is written to the document otherwise.
  *
  * Script Properties (Project Settings > Script Properties):
  *   TESSERACT_API_URL   the API's public URL (the tunnel in front of docs_addin/api.py)
@@ -78,8 +79,25 @@ function getContext() {
   return {title: doc.getName(), viewer: viewer_(), questions: questions};
 }
 
-/** The question the cursor or selection is in, if any: the sidebar jumps to it. */
-function getCursorQuestion() {
+/** The nearest heading above a body child: the section a paragraph sits in, or null. */
+function section_(body, index) {
+  for (var i = index - 1; i >= 0; i--) {
+    var child = body.getChild(i);
+    if (child.getType() !== DocumentApp.ElementType.PARAGRAPH) continue;
+    var heading = child.asParagraph().getHeading();
+    if (heading !== DocumentApp.ParagraphHeading.NORMAL && heading !== DocumentApp.ParagraphHeading.TITLE) {
+      var text = child.asText().getText().trim();
+      if (text) return text;
+    }
+  }
+  return null;
+}
+
+/**
+ * The paragraph the cursor or selection is in: its text, its section, and whether it is one of
+ * the questions. Headings and the shaded answers Insert wrote are not paragraphs to comment on.
+ */
+function getCursorParagraph() {
   var doc = DocumentApp.getActiveDocument();
   var el = null;
   var cursor = doc.getCursor();
@@ -89,20 +107,28 @@ function getCursorQuestion() {
   while (el && el.getType() !== DocumentApp.ElementType.PARAGRAPH && el.getType() !== DocumentApp.ElementType.LIST_ITEM) {
     el = el.getParent();
   }
-  return el ? question_(el.asText().getText()) : null;
+  if (!el) return null;
+  var text = el.asText().getText().trim();
+  var heading = el.getType() === DocumentApp.ElementType.PARAGRAPH ? el.asParagraph().getHeading() : null;
+  var isHeading = heading && heading !== DocumentApp.ParagraphHeading.NORMAL;
+  var shaded = text.length > 0 && el.asText().getBackgroundColor(0) === ANSWER_BG;
+  if (!text || isHeading || shaded) return null;
+  var body = doc.getBody();
+  return {text: text, section: section_(body, body.getChildIndex(el)), question: question_(text)};
 }
 
-/** Ask the API. Returns its JSON, or {error} for the sidebar to show. */
-function ask(question) {
+/** POST to the API. Returns its JSON, or {error} for the sidebar to show. */
+function call_(path, payload) {
   var props = PropertiesService.getScriptProperties();
   var url = props.getProperty('TESSERACT_API_URL');
   var key = props.getProperty('TESSERACT_API_KEY');
   if (!url || !key) return {error: 'Set TESSERACT_API_URL and TESSERACT_API_KEY in Script Properties.'};
-  var response = UrlFetchApp.fetch(url.replace(/\/$/, '') + '/answer', {
+  payload.viewer = viewer_();
+  var response = UrlFetchApp.fetch(url.replace(/\/$/, '') + path, {
     method: 'post',
     contentType: 'application/json',
     headers: {'X-Addin-Key': key},
-    payload: JSON.stringify({question: question, viewer: viewer_()}),
+    payload: JSON.stringify(payload),
     muteHttpExceptions: true
   });
   var body;
@@ -113,6 +139,16 @@ function ask(question) {
   }
   if (response.getResponseCode() !== 200) return {error: body.error || ('HTTP ' + response.getResponseCode())};
   return body;
+}
+
+/** Answer one of the document's questions. */
+function ask(question) {
+  return call_('/answer', {question: question});
+}
+
+/** What the writer should know about the paragraph they are on. */
+function askContext(paragraph, section) {
+  return call_('/context', {paragraph: paragraph, section: section, doc: DocumentApp.getActiveDocument().getName()});
 }
 
 /**

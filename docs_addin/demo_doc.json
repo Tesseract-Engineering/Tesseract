@@ -1,0 +1,23 @@
+{
+  "title": "billing-service: verify OIDC tokens directly (retire the SBX-10 shim)",
+  "blocks": [
+    {"style": "title", "text": "billing-service: verify OIDC tokens directly (retire the SBX-10 shim)"},
+    {"style": "p", "text": "Status: Draft. Author: Ishan Sinha. Reviewers: Karthik Valluri, Dhruv Pendharkar."},
+    {"style": "h2", "text": "Context"},
+    {"style": "p", "key": "context", "text": "billing-service receives webhooks carrying tokens from auth-service and reads tenant_id from the token to route each event to the right tenant. Today a compatibility shim in auth-service rewrites the namespaced claim back to tenant_id for the billing webhook audience."},
+    {"style": "h2", "text": "Goals"},
+    {"style": "p", "key": "goals", "text": "Remove the shim, have billing-service validate OIDC ID tokens itself, and read the tenant and roles from the standard OIDC claim set."},
+    {"style": "h2", "text": "Design"},
+    {"style": "h3", "text": "Token validation"},
+    {"style": "p", "key": "jwks", "text": "billing-service will fetch auth-service's JWKS once at startup and cache the keys in memory for the life of the process."},
+    {"style": "h3", "text": "Service-to-service calls"},
+    {"style": "p", "key": "s2s", "text": "To call auth-service's tenant lookup API, billing-service will get a token from the /oauth/token endpoint using client credentials."},
+    {"style": "h3", "text": "Rollout"},
+    {"style": "p", "key": "rollout", "text": "Ship behind a flag in staging first, then switch production over the week of December 14."},
+    {"style": "h2", "text": "Open questions"},
+    {"style": "p", "key": "q_audit", "text": "Do we need an audit record of which tokens billing-service accepted?"},
+    {"style": "p", "key": "q_owner", "text": "Who owns billing-service once the shim is gone?"},
+    {"style": "h2", "text": "Review"},
+    {"style": "p", "key": "neutral", "text": "Reviewers: please leave comments by Friday so we can finalize the plan at the next sync."}
+  ]
+}

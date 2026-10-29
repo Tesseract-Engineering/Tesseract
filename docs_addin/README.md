@@ -1,36 +1,38 @@
 # docs_addin
 
-A Google Docs sidebar that answers the questions in a document from the company graph, as the person reading it. Built for the sandbox demo: the SOC2 auditor questions in the planning folder, answered from Jira, GitHub, Slack and Drive with every claim cited, the gaps named, and what the reader cannot open counted but never shown.
+A Google Docs sidebar that reads the company graph as the person writing. As they move through a design doc it flags, for the paragraph they are on, what that paragraph contradicts, what went wrong the last time someone did it, what was already decided, and who to talk to, every claim cited. It also answers the questions in a document (an open question in a design, an auditor's list), and counts what the reader cannot open without showing it.
 
 ```
 Google Doc ── Apps Script sidebar (apps_script/) ──HTTPS──▶ api.py ──▶ retrieve.py ──▶ Neo4j (graph/)
-                 questions in the doc, Insert                 │          as the viewer: swarm_queries
-                                                              └──▶ answer.py ──▶ Claude (swarm/model.py)
+                 the cursor's paragraph, questions, Insert         │          as the viewer: swarm_queries
+                                                                    └──▶ answer.py ──▶ Claude (swarm/model.py)
 ```
 
 | File | What it does |
 |---|---|
-| `retrieve.py` | Finds what bears on a question, as one viewer: keyword search over items and over decisions and systems, then one hop along refs. Every read goes through `graph/swarm_queries.py`'s `READABLE`, `EDGE_READABLE` and `LIVE`. Items a readable source links to but the viewer cannot open come back as a count per source and the people who could share them, never by title. |
-| `answer.py` | One model call: the question and the readable sources under keys `S1..Sn`, answered as JSON with `[S#]` after each claim, a status (`answered`, `partial`, `none`), the gaps, and who to ask. Code keeps only markers that name a real source and renumbers them `[1]..[n]`; an answer that cites nothing is shown as "nothing found". |
-| `api.py` | `POST /answer` behind a shared key, `GET /health`, and `GET /dev` (the sidebar in a browser tab, against this API, for development). |
-| `apps_script/` | The add-in: `Code.gs` finds the questions (paragraphs ending in `?`), calls the API as the signed-in user, and inserts an answer under its question; `Sidebar.html` is the pane. |
-| `../eval/check_docs_addin.py` | The answer key: the five SOC2 questions for two viewers, 25 checks. |
+| `retrieve.py` | Finds what bears on a question or paragraph, as one viewer: keyword search over items and over decisions and systems, then one hop along refs. Every read goes through `graph/swarm_queries.py`'s `READABLE`, `EDGE_READABLE` and `LIVE`. Items a readable source links to but the viewer cannot open come back as a count per source and the people who could share them, never by title. |
+| `answer.py` | Two model calls over the same sources, keyed `S1..Sn`. `context`: up to three notes on a paragraph (`conflict`, `incident`, `decided`, `owner`), none when nothing bears on it. `answer`: a cited answer to a question with a status (`answered`, `partial`, `none`), the gaps and who to ask. Code keeps only markers that name a real source, renumbers them `[1]..[n]`, and drops a note that cites nothing. |
+| `api.py` | `POST /context` and `POST /answer` behind a shared key, `GET /health`, and `GET /dev` (the demo doc and the sidebar in a browser tab, against this API, for development). |
+| `apps_script/` | The add-in: `Code.gs` follows the cursor (paragraph, section, whether it is a question), calls the API as the signed-in user, and inserts an answer under its question; `Sidebar.html` is the pane. |
+| `demo_doc.json` | The demo design doc's text, used by `/dev`, the eval, and to write the Google Doc. |
+| `../eval/check_docs_addin.py` | The answer key: 11 checks on the design doc, 25 on the SOC2 questions for two viewers. |
 
 ## What the demo shows
 
-The doc: "SOC2 Responses - Authentication (FY2026)" with the five questions from `SOC2 Auditor Questions - Authentication.pdf` pasted in. Open the sidebar, click Answer on each.
+The doc is "billing-service: verify OIDC tokens directly (retire the SBX-10 shim)" (`demo_doc.json`), written as Ishan. Click into each paragraph and pause; the sidebar's "This paragraph" card fills in.
 
-| # | Question | What the graph has | The moment |
-|---|---|---|---|
-| 1 | OIDC for federated login? | In progress: discovery endpoint shipped (SBX-2, PR #3), ID tokens underway (SBX-3), cutover blocked on the key rotation and web-app | It does not claim the migration is done |
-| 2 | Key rotation, how often, evidence? | The runbook (24h overlap in the JWKS), OPS-1, the staging dry run and its postmortem (OPS-8), SBX-22 | **Partial**: no schedule anywhere, no completed production rotation on record; ask Dhruv |
-| 3 | Custom claims, validated how? | `tenant_id` and `roles`, namespaced (option B, SBX-4, the #auth-migration thread); the billing webhook shim (SBX-10) | Pulls in a downstream consumer nobody asked about |
-| 4 | Deprecated endpoints, removal date? | `/oauth/token` (SBX-5), its blockers (WEB-1, OPS-1), the Sunset header work | **Partial**: no calendar date; the removed CSV export is left out (not auth) |
-| 5 | Access to signing material? | KMS via Terraform, and little else | **Partial**, says so, names Dhruv |
+| Paragraph | What the sidebar says | From |
+|---|---|---|
+| Context: billing reads `tenant_id`, a shim rewrites the claim | The payments team owns the webhooks and the shim waits on them; Hooli was hit by the same 401s | SBX-10, CS-2, #eng and #customer-success threads |
+| Goals: "read the tenant and roles from the standard OIDC claim set" | **Conflicts**: there is no standard claim for either; SBX-4 namespaced them | SBX-4, SBX-7, PR #4 |
+| Token validation: "fetch the JWKS once at startup" | **Happened before**: web-app did that and 15% of staging logins failed for 47 minutes; **Conflicts**: keys overlap only 24h in a rotation | the OPS-8 postmortem, WEB-3, the rotation runbook |
+| Service-to-service: "get a token from /oauth/token" | **Conflicts**: SBX-5 is deprecating it before the Dec 15 cutover | SBX-5, PR #5, WEB-1 |
+| Rollout: "production the week of December 14" | **Conflicts**: that is the auth cutover week; the last rotation broke staging | sync notes, OPS-8, OPS-1 |
+| Review: "comment by Friday" | Nothing to flag | |
 
-Who is asking matters. **Ishan** reads all three repos, so his answers cite the PRs. **Hamilton** is not a reader of the auth-service repo: his answers come from Jira, Slack and Drive, and each card says "3 linked items you can't open (3 GitHub). Ishan Sinha can share them. Draft a note", which opens a Gmail draft and sends nothing.
+The two open questions ("an audit record of which tokens billing-service accepted?", "who owns billing-service?") have Answer buttons: the first finds SBX-20's audit log covers issuance only, the second names the payments team. Insert puts an answer under its question, shaded, with a "Sources:" line of links (Docs has no API for suggestions or anchored comments).
 
-Insert puts the answer under its question, shaded, with a small "Sources:" line linking each cited item. Docs has no API for suggestions (tracked changes) or for comments anchored to text, so the shading marks what Tesseract wrote and the links carry the provenance; Ctrl/⌘+Z undoes it.
+The first demo, the SOC2 auditor questions ("SOC2 Responses - Authentication (FY2026)" with the five questions from the planning folder's PDF), still works and is still in the eval. As Hamilton, who cannot read the auth-service repo, its answers come from Jira, Slack and Drive and each says how many linked items are locked and who can share them.
 
 ## Run it
 
@@ -54,10 +56,14 @@ NEO4J_PASSWORD=neo4j-local-dev ADDIN_MODEL_REPLAY=data/replay-addin python -m ev
 
 Apps Script runs on Google's servers, so the API needs a public URL. A quick tunnel does it: `cloudflared tunnel --url http://127.0.0.1:8787` prints one.
 
-1. Signed in as the sandbox account that will demo, create the response doc in the sandbox Drive and paste in the five questions, one paragraph each.
-2. Extensions > Apps Script. Replace `Code.gs` with `apps_script/Code.gs`, add an HTML file named `Sidebar` with `apps_script/Sidebar.html`, and in Project Settings tick "Show appsscript.json" and replace it with `apps_script/appsscript.json`.
+Use a Chrome profile signed in to the demo account alone. With several Google accounts in one profile, Apps Script opens the bound script editor as "unable to open the file" and the sidebar's calls fail with `PERMISSION_DENIED`: they run as the profile's default account, not the one viewing the doc.
+
+1. Create the doc in the demo account's My Drive (outside the folders the swarm reads, so the sandbox answer key does not change) with the text of `demo_doc.json`.
+2. At script.google.com, New project. Replace `Code.gs` with `apps_script/Code.gs`, add an HTML file named `Sidebar` with `apps_script/Sidebar.html`, and in Project Settings tick "Show appsscript.json" and replace it with `apps_script/appsscript.json`. (Extensions > Apps Script on the doc also works, as a bound script.)
 3. Project Settings > Script Properties: `TESSERACT_API_URL` (the tunnel URL) and `TESSERACT_API_KEY` (the `ADDIN_KEY`). Optionally `TESSERACT_VIEWER` to answer as another sandbox person.
-4. Reload the doc. Extensions > Tesseract > Open Tesseract, and authorize once.
+4. Deploy > Test deployments > Editor Add-on > Create new test: Latest Code, Enabled in current document, the doc. Select it and Execute; in the doc, Extensions > the project > Open Tesseract, and authorize once (the app is unverified: Advanced, then go to it).
+
+A quick tunnel's URL changes every time it starts; update `TESSERACT_API_URL` when it does.
 
 The viewer is the email the script reports; the key is what makes that trustworthy, so it stays in Script Properties and on the server. For real users the script would send `ScriptApp.getIdentityToken()` and the API would verify it with Google.
 
@@ -72,6 +78,7 @@ The viewer is the email the script reports; the key is what makes that trustwort
 | `ADDIN_MODEL`, `ADDIN_MODEL_EFFORT` | `claude-opus-5-5`, `medium` | |
 | `ADDIN_MODEL_REPLAY` | off | a directory: answers are recorded there and replayed (`data/` is git-ignored) |
 | `ADDIN_MODEL_BACKEND` | `anthropic` | `replay` answers only from recordings |
+| `ADDIN_TODAY` | the real date | the date the prompts carry; the recordings in `data/replay-addin` were made with `2026-10-28`, so pin that to replay them on a later day |
 | `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD` | as `graph/` | |
 
-One answer reads about 6k tokens and writes under 1k, about 10 seconds on `claude-opus-5-5` at medium effort.
+One answer or set of notes reads about 6k tokens and writes under 1k, about 10 seconds on `claude-opus-5-5` at medium effort. The sidebar asks for notes once the cursor has rested on a paragraph for two polls (about 4 seconds) and keeps them per paragraph text.
