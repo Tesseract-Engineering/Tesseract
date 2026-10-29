@@ -2,6 +2,8 @@
 
 A Google Docs sidebar that checks a document against the company graph when the writer asks. Select a passage of a design doc (or click into a paragraph) and press Check: Tesseract says what it contradicts, what went wrong the last time someone did it, what was already decided, and who to talk to, every claim cited. The writer can also ask a question about the selection, or have the document's own questions answered and inserted. It reads only what the writer can open, counts what they cannot without showing it, and does nothing until asked.
 
+**It runs inside the Tesseract core** (`core/README.md`): `python -m core` serves these routes as `/docs/answer` and `/docs/context`, beside the threads the call page and Slack share. With a thread picked, the sidebar uses it as context for every check and question, links the doc to it, drafts a cited Background section from it (Insert only once the thread's owner approves that exact text), and hands it on to Slack. `api.py` still runs on its own for the eval.
+
 ```
 Google Doc ── Apps Script sidebar (apps_script/) ──HTTPS──▶ api.py ──▶ retrieve.py ──▶ Neo4j (graph/)
                  selection, Check, questions, Insert                │          as the viewer: swarm_queries
@@ -58,17 +60,15 @@ The viewer is the email the script reports; the key is what makes that trustwort
 # 1. the graph and the bucket (Docker)
 docker compose -f swarm/compose.yaml up -d --wait storage neo4j
 
-# 2. the API (keep it running); the key lives in data/addin-key.txt (git-ignored)
-set -a; . ./.env; set +a
-NEO4J_URI=neo4j://localhost:7687 NEO4J_PASSWORD=neo4j-local-dev \
-  ADDIN_MODEL_REPLAY=data/replay-addin ADDIN_TODAY=2026-10-28 ADDIN_KEY="$(cat data/addin-key.txt)" \
-  python -m docs_addin.api
+# 2. the core, with Slack and the call page (keep it running); the key lives in data/addin-key.txt (git-ignored)
+ADDIN_MODEL_REPLAY=data/replay-addin ADDIN_TODAY=2026-10-28 ADDIN_KEY="$(cat data/addin-key.txt)" \
+  python -m core --meeting                 # or plain `python -m core` for Docs alone
 
 # 3. the tunnel (keep it running); it prints https://<words>.trycloudflare.com
 cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8787
 ```
 
-4. In the Apps Script project ("Tesseract for Docs", owned by the demo account), Project Settings > Script Properties: set `TESSERACT_API_URL` to the new tunnel URL. A quick tunnel gets a new URL every time it starts, and Cloudflare can expire one mid-session ("DNS error" or "Tunnel not found" in the sidebar): restart step 3 and update the property again.
+4. In the Apps Script project ("Tesseract for Docs", owned by the demo account), paste the latest `Code.gs` and `Sidebar.html` if they changed (they call the core's `/docs/...` paths and add threads), then Project Settings > Script Properties: set `TESSERACT_API_URL` to the new tunnel URL. A quick tunnel gets a new URL every time it starts, and Cloudflare can expire one mid-session ("DNS error" or "Tunnel not found" in the sidebar): restart step 3 and update the property again.
 5. In the Chrome profile signed in to the demo account alone: Deploy > Test deployments, select the design doc's test, Execute. In the doc that opens, Extensions > Tesseract for Docs > Open Tesseract.
 6. Check that `curl https://<tunnel>/health` answers, and that a Check on 4.5 Tenant resolution comes back in well under a second (it replays).
 
@@ -90,7 +90,7 @@ After changing `Code.gs` or `Sidebar.html` in the repo, paste them into the proj
 
 ### Development, without Google
 
-`ADDIN_DEV=1 ADDIN_PORT=8788` on the API serves `http://127.0.0.1:8788/dev`: the demo doc (with its tables and figures) beside the sidebar, with `google.script.run` answered by the local API. Click a paragraph to put the cursor there; select text to make a selection; `?viewer=hamilton.tesseract@gmail.com` asks as someone else.
+`ADDIN_DEV=1` on the core (`python -m core`) serves `http://127.0.0.1:8787/dev`, threads included; on `api.py` alone, `ADDIN_DEV=1 ADDIN_PORT=8788` serves `http://127.0.0.1:8788/dev`: the demo doc (with its tables and figures) beside the sidebar, with `google.script.run` answered by the local API. Click a paragraph to put the cursor there; select text to make a selection; `?viewer=hamilton.tesseract@gmail.com` asks as someone else.
 
 ```bash
 python -m pytest tests/test_docs_addin.py                       # no database, no model

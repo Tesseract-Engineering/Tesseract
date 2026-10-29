@@ -48,9 +48,9 @@ DEV_DOC = json.loads((HERE / "demo_doc.json").read_text(encoding="utf-8"))
 
 
 class App:
-    def __init__(self, ns: str, key: str, dev: bool = False):
+    def __init__(self, ns: str, key: str, dev: bool = False, store: Neo4jStore | None = None):
         self.ns, self.key, self.dev = ns, key, dev
-        self.store = Neo4jStore()
+        self.store = store or Neo4jStore()
         self.model = model_from_env()
         # The date the prompts say it is. Pinned (ADDIN_TODAY=2026-10-28), recorded answers keep
         # replaying on later days; unset, it is the real date.
@@ -87,15 +87,16 @@ class App:
             note["people"] = [{"name": n, "slack": slack[n]} for n in named]
         return out
 
-    def ask(self, question: str, viewer: str, about: str | None = None) -> dict:
+    def ask(self, question: str, viewer: str, about: str | None = None, working: str | None = None) -> dict:
         ctx = gather(self.store, self.ns, viewer, f"{question} {about}" if about else question)
-        out = answer(self.model, question, ctx, self.people(), today=self.today, about=about)
+        out = answer(self.model, question, ctx, self.people(), today=self.today, about=about, working=working)
         out["viewer"] = {"email": ctx.viewer["email"], "member": ctx.viewer["member"]}
         return self.with_slack(out)
 
-    def context(self, paragraph: str, section: str | None, doc: str | None, viewer: str) -> dict:
+    def context(self, paragraph: str, section: str | None, doc: str | None, viewer: str,
+                working: str | None = None) -> dict:
         ctx = gather(self.store, self.ns, viewer, paragraph_query(paragraph, section))
-        out = context(self.model, paragraph, section, doc, ctx, self.people(), today=self.today)
+        out = context(self.model, paragraph, section, doc, ctx, self.people(), today=self.today, working=working)
         out["viewer"] = {"email": ctx.viewer["email"], "member": ctx.viewer["member"]}
         return self.with_slack(out)
 
@@ -140,6 +141,8 @@ def handler(app: App):
             dev = path.startswith("/dev/") and app.dev       # the /dev page, on localhost only
             if dev:
                 path = path[len("/dev"):]
+            if path.startswith("/docs/"):       # the core's paths for the same two routes (core/api.py)
+                path = path[len("/docs"):]
             if path not in ("/answer", "/context"):
                 return self._send(404, {"error": "not found"})
             if not dev and not hmac.compare_digest(self.headers.get("X-Addin-Key", ""), app.key):

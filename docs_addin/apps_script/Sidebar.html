@@ -115,6 +115,17 @@ a:hover{text-decoration:underline}
 .slk svg{width:11px;height:11px}
 .toast{position:fixed;left:12px;right:12px;bottom:86px;background:#242424;color:#fff;font-size:12px;border-radius:8px;padding:8px 10px;opacity:0;transform:translateY(6px);transition:all .2s;pointer-events:none;z-index:5}
 .toast.on{opacity:1;transform:none}
+.thr{margin:4px 12px 0;display:flex;flex-direction:column;gap:5px;flex:none}
+.thr .row{display:flex;gap:6px;align-items:center}
+.thr select{flex:1;min-width:0;font:inherit;font-size:12px;border:1px solid var(--line);border-radius:8px;padding:4px 6px;background:var(--card);color:var(--ink)}
+.thr .lbl{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);font-weight:600}
+.thr .on{background:var(--brand-soft);border:1px solid var(--brand2);border-radius:10px;padding:7px 9px;display:flex;flex-direction:column;gap:6px}
+.thr .on .t{font-weight:600;font-size:12.5px}
+.thr .on ul{margin:0;padding-left:16px;font-size:11.5px;color:var(--muted)}
+.thr .on .acts .btn{padding:3px 10px;font-size:11.5px;background:var(--card);border-color:var(--line)}
+.draft h5{margin:0;font-size:12.5px}
+.draft .qs{font-size:12px;color:var(--muted)}
+.draft .qs ul{margin:3px 0 0;padding-left:16px}
 </style>
 </head>
 <body>
@@ -124,6 +135,7 @@ a:hover{text-decoration:underline}
 
 <div class="head"><svg class="mark"><use href="#tmark"/></svg>Tesseract<span class="r"><button class="icon" id="refresh" title="Rescan the document">&#8635;</button></span></div>
 <div class="ctx" id="ctx">Reading the document&hellip;</div>
+<div class="thr" id="thr"></div>
 <div class="focus" id="focus"></div>
 <div class="body" id="body"></div>
 <div class="toast" id="toast"></div>
@@ -134,7 +146,7 @@ a:hover{text-decoration:underline}
 </div>
 
 <script>
-var state = {doc: null, cards: [], here: null, focus: null, notes: {}, feed: []};
+var state = {doc: null, cards: [], here: null, focus: null, notes: {}, feed: [], threads: null, thread: null};
 var KIND = {conflict: 'Conflicts', incident: 'Happened before', decided: 'Already decided', owner: 'Talk to'};
 var LABEL = {jira: 'Jira', github: 'GitHub', slack: 'Slack', gdrive: 'Drive'};
 var STATUS = {answered: 'Answered', partial: 'Partial', none: 'Nothing found'};
@@ -324,8 +336,8 @@ function render() {
   if (!state.feed.length) {
     h += '<div class="empty-state">Select a passage and <b>Check</b> it, or ask a question below.</div>';
   }
-  state.feed.forEach(function (item) {
-    h += item.type === 'check' ? checkHtml(item) : askHtml(item.card);
+  state.feed.forEach(function (item, i) {
+    h += item.type === 'check' ? checkHtml(item) : item.type === 'draft' ? draftHtml(item, i) : askHtml(item.card);
   });
   body.innerHTML = h;
 }
@@ -336,6 +348,103 @@ function toBottom() {
   body.scrollTop = body.scrollHeight;
 }
 
+/* The thread the writer is working in (core/threads.py): a call they were on, work from Slack.
+   Picking one makes it context for every check and question here, and links this doc to it. */
+function threadBar() {
+  var el = document.getElementById('thr');
+  var list = state.threads;
+  if (!list || (!list.length && !state.thread)) { el.innerHTML = ''; return; }
+  var t = state.thread;
+  var h = '<div class="row"><span class="lbl">Thread</span><select id="thrpick"><option value="">' +
+    (t ? 'Stop using a thread' : 'Pick a thread to work in…') + '</option>' +
+    list.map(function (x) {
+      return '<option value="' + esc(x.id) + '"' + (t && t.id === x.id ? ' selected' : '') + '>' + esc(x.title) + '</option>';
+    }).join('') + '</select></div>';
+  if (t) {
+    var kept = (t.entries || []).filter(function (e) { return e.status === 'kept'; });
+    var lines = kept.filter(function (e) { return e.kind === 'decision' || e.kind === 'question'; }).map(function (e) {
+      return '<li>' + (e.kind === 'decision' ? 'Decided: ' : 'Open: ') + esc(e.text) + '</li>';
+    });
+    h += '<div class="on"><span class="t">' + esc(t.title) + '</span>' + (lines.length ? '<ul>' + lines.join('') + '</ul>' : '') +
+      '<div class="acts"><button class="btn" id="thrdraft">Draft background</button><button class="btn" id="thrslack">' +
+      SLACK_ICON.replace('<svg', '<svg width="11" height="11"') + ' Continue in Slack</button></div>' +
+      '<span class="fine">Checks and questions use this thread as context. It is never cited.</span></div>';
+  }
+  el.innerHTML = h;
+  document.getElementById('thrpick').onchange = function (e) { pick(e.target.value); };
+  if (t) {
+    document.getElementById('thrdraft').onclick = draft;
+    document.getElementById('thrslack').onclick = toSlack;
+  }
+}
+
+function threads() {
+  run('listThreads').then(function (list) {
+    state.threads = list && list.error ? [] : list;
+    threadBar();
+  }, function () { state.threads = []; threadBar(); });
+}
+
+function pick(id) {
+  if (!id) { state.thread = null; threadBar(); return; }
+  run('pickThread', id).then(function (t) {
+    if (t && t.error) { toast(t.error); return; }
+    state.thread = t; threadBar();
+    toast('Working in “' + t.title + '”. This doc is linked to it.');
+  }, function (e) { toast((e && e.message) || String(e)); });
+}
+
+function toSlack() {
+  run('continueInSlack', state.thread.id).then(function (r) {
+    if (r && r.error) { toast(r.error); return; }
+    toast('Tesseract has DMed you in Slack with this thread.');
+    if (r.slack && r.slack.team && r.slack.bot_user) {
+      window.open('https://slack.com/app_redirect?team=' + encodeURIComponent(r.slack.team) + '&channel=' + encodeURIComponent(r.slack.bot_user));
+    }
+  }, function (e) { toast((e && e.message) || String(e)); });
+}
+
+/* Draft background: a cited section from the thread's topic, Inserted only once the core says the
+   thread's owner approved this exact text (the hash on the card). */
+function draft() {
+  var item = {type: 'draft', busy: true, title: state.thread.title};
+  state.feed.push(item); render(); toBottom();
+  run('draftSection', state.thread.id).then(function (r) {
+    item.busy = false;
+    if (r && r.error) item.error = r.error; else item.result = r;
+    render(); toBottom();
+  }, function (e) { item.busy = false; item.error = (e && e.message) || String(e); render(); toBottom(); });
+}
+
+function draftHtml(item, i) {
+  var h = '<div class="here-card draft"><div class="lbl">Background from the thread<span class="dot"></span>' + esc(item.title) + '</div>';
+  if (item.busy) return h + '<div class="think"><span class="pulse"></span>Reading Jira, GitHub, Slack and Drive as you&hellip;</div></div>';
+  if (item.error) return h + '<div class="err">' + esc(item.error) + '</div></div>';
+  var r = item.result;
+  h += '<h5>Background</h5>';
+  h += r.answer ? '<div class="ans">' + answerHtml(r.answer, r.sources) + '</div>'
+                : '<div class="ans" style="color:var(--muted)">Nothing you can read covers this yet.</div>';
+  if (r.questions && r.questions.length) {
+    h += '<div class="qs"><b>Open questions</b><ul>' + r.questions.map(function (q) { return '<li>' + esc(q) + '</li>'; }).join('') + '</ul></div>';
+  }
+  if (r.sources && r.sources.length) h += sourcesHtml(r.sources);
+  if (item.inserted) {
+    h += '<div class="ok"><span class="ck">&#10003;</span><span>Inserted at the cursor and logged on the thread. Undo with Ctrl/⌘+Z.</span></div>';
+  } else if (r.approval) {
+    h += '<div class="acts"><button class="btn p" data-draft="' + i + '">Insert</button></div>' +
+      '<span class="fine">Inserts exactly this, once the thread’s owner approves it. <code>' + esc(r.approval.hash) + '</code></span>';
+  }
+  return h + '</div>';
+}
+
+function insertDraft(i) {
+  var item = state.feed[i], a = item.result.approval;
+  run('insertSection', a.id, a.hash).then(function (r) {
+    if (r && r.error) { toast(r.error); return; }
+    item.inserted = true; render();
+  }, function (e) { toast((e && e.message) || String(e)); });
+}
+
 /* ---- actions -------------------------------------------------------------------------- */
 
 function ask(i) {
@@ -344,7 +453,7 @@ function ask(i) {
   card.busy = true; card.error = null; card.result = null; card.inserted = false;
   render(); toBottom();
   var last = state.feed.length && state.feed[state.feed.length - 1].card === card;
-  run('ask', card.text, card.about || null).then(function (r) {
+  run('ask', card.text, card.about || null, state.thread ? state.thread.id : null).then(function (r) {
     card.busy = false;
     if (r && r.error) card.error = r.error; else card.result = r;
     render(); if (last) toBottom();
@@ -374,10 +483,11 @@ document.getElementById('body').addEventListener('click', function (e) {
     if (d) { copyText(d.message); toast('Message copied. Paste it into the DM with ' + d.person.name + ' and press Send.'); }
     return;       // the link itself opens Slack
   }
-  var t = e.target.closest('[data-insert],[data-copy],[data-retry]');
+  var t = e.target.closest('[data-insert],[data-copy],[data-retry],[data-draft]');
   if (!t) return;
   e.preventDefault();
-  if (t.dataset.insert != null) insert(Number(t.dataset.insert));
+  if (t.dataset.draft != null) insertDraft(Number(t.dataset.draft));
+  else if (t.dataset.insert != null) insert(Number(t.dataset.insert));
   else if (t.dataset.copy != null) copy(Number(t.dataset.copy));
   else if (t.dataset.retry != null) ask(Number(t.dataset.retry));
 });
@@ -410,6 +520,7 @@ function load() {
   run('getContext').then(function (doc) {
     state.doc = doc;
     render();
+    threads();
   }, function (e) {
     document.getElementById('ctx').textContent = 'Could not read the document: ' + ((e && e.message) || e);
   });
@@ -426,7 +537,7 @@ function check() {
   if (state.notes[f.text] && !state.notes[f.text].error) { render(); toBottom(); return; }
   var r = state.notes[f.text] = {busy: true};
   render(); toBottom();
-  run('askContext', f.text, f.section).then(function (out) {
+  run('askContext', f.text, f.section, state.thread ? state.thread.id : null).then(function (out) {
     if (out && out.error) { r.busy = false; r.error = out.error; } else { state.notes[f.text] = out; }
     render(); toBottom();
   }, function (e) { r.busy = false; r.error = (e && e.message) || String(e); render(); toBottom(); });

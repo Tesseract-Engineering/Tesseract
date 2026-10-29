@@ -13,8 +13,8 @@ from __future__ import annotations
 
 from collections import OrderedDict
 
-from .answer import Answer
-from .graph import Hit, Who
+from core.answer import Answer
+from core.graph import Hit, Who
 
 SOURCE = {"gdrive": "Drive", "slack": "Slack", "jira": "Jira", "github": "GitHub"}
 KIND = {"document": "doc", "thread": "thread", "issue": "ticket", "pull_request": "PR", "commit": "commit"}
@@ -222,3 +222,81 @@ def fallback(a: Answer) -> str:
     if a.status == "INFO" and a.claims:
         return f"{a.headline}: {a.claims[0].quote[:200]}"
     return a.headline
+
+
+# -- the thread a person is working in (core/threads.py) ---------------------------------------- #
+
+SURFACE = {"zoom": "the call", "docs": "Docs", "slack": "Slack", "tickets": "ticketing"}
+
+
+def notice(text: str) -> list[dict]:
+    return [{"type": "section", "text": {"type": "mrkdwn", "text": esc(text)}}]
+
+
+def no_thread() -> list[dict]:
+    return notice("You're not working in a thread yet. Start one on the call page, or pick one in the Docs "
+                  "sidebar, then ask again.")
+
+
+def review_draft(a: dict, t: dict) -> list[dict]:
+    """The exact message that would post, and its hash: the one approval."""
+    p = a["payload"]
+    return [
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"*Review request, review before posting*\n"
+                                                              f"From your thread _{esc(t['title'])}_"}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": ">" + p["text"].replace("\n", "\n>")}},
+        {"type": "actions", "elements": [
+            _button("Post", "approve_post", f"{a['id']}|{a['hash']}", "primary"),
+            _button("Cancel", "cancel_approval", a["id"])]},
+        _context(f"Posts exactly this in <#{p['channel']}>, labelled as sent through Tesseract. Only the thread's "
+                 f"owner can approve it. `{a['hash']}`"),
+    ]
+
+
+def posted_message(text: str, user: str, h: str) -> list[dict]:
+    return [{"type": "section", "text": {"type": "mrkdwn", "text": text}},
+            _context(f"Sent by <@{user}> via Tesseract · `{h}`")]
+
+
+def posted(a: dict, link: str, thread: str | None) -> list[dict]:
+    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": f"*Posted* · <{link}|view message>"}}]
+    if thread:
+        blocks.append({"type": "actions", "elements": [_button("Make a ticket", "make_ticket", thread, "primary")]})
+    blocks.append(_context(f"You approved this text. Logged on the thread. `{a['hash']}`"))
+    return blocks
+
+
+def ticket_draft(a: dict, t: dict) -> list[dict]:
+    p = a["payload"]
+    brief = p["description"] if len(p["description"]) <= 2800 else p["description"][:2797] + "…"
+    return [
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"*Ticket, review before creating*\n*{esc(p['summary'])}*"}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": "```" + brief.replace("```", "'''") + "```"}},
+        {"type": "actions", "elements": [
+            _button("Create ticket", "approve_ticket", f"{a['id']}|{a['hash']}", "primary"),
+            _button("Cancel", "cancel_approval", a["id"])]},
+        _context("The ticketing bot creates the issue with exactly this brief, for a coding agent to start from. "
+                 f"Only the thread's owner can approve it. `{a['hash']}`"),
+    ]
+
+
+def ticket_done(a: dict) -> list[dict]:
+    r = a.get("result") or {}
+    what = f"<{r['url']}|{esc(r.get('text') or r['url'])}>" if r.get("url") else esc(r.get("text") or "Created")
+    return [{"type": "section", "text": {"type": "mrkdwn", "text": f"*Ticket created* · {what}"}},
+            _context(f"From your thread, with the brief you approved. `{a['hash']}`")]
+
+
+def handoff(t: dict, came_from: str) -> list[dict]:
+    decided = [e.get("text", "") for e in t["entries"] if e["kind"] == "decision"]
+    open_q = [e.get("text", "") for e in t["entries"] if e["kind"] == "question"]
+    docs = [e for e in t["entries"] if e["kind"] == "link" and e.get("url")]
+    lines = [f"*Continuing in Slack:* {esc(t['title'])}", f"_from {SURFACE.get(came_from, came_from)}_"]
+    lines += [f"• Decided: {esc(d)}" for d in decided] + [f"• Open: {esc(q)}" for q in open_q]
+    lines += [f"• Doc: <{d['url']}|{esc(d.get('title') or 'design doc')}>" for d in docs[-1:]]
+    return [
+        {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}},
+        {"type": "actions", "elements": [_button("Make a ticket", "make_ticket", t["id"])]},
+        _context("Your asks here use this thread as context. In a channel, `/tesseract draft a review request "
+                 "for my doc` drafts the message for you to approve."),
+    ]

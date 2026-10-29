@@ -70,6 +70,13 @@ SCHEMA = {
 SOURCE_LABEL = {"github": "GitHub", "jira": "Jira", "slack": "Slack", "gdrive": "Drive"}
 MARKER = re.compile(r"\[S(\d+)\]")
 
+# A thread the writer picked (core/threads.py): what they are in the middle of. It helps read the
+# question and the paragraph; it is not a source, so it gets no key and nothing may cite it. Only
+# prompts with a thread carry it, so recordings made without one keep replaying.
+WORKING_NOTE = ("Working context, what the writer is in the middle of (a call, decisions, open questions). Use "
+                "it only to understand what they are doing; it is not a source, so never cite it or state a fact "
+                "from it:")
+
 
 def model_from_env() -> Model:
     name = os.environ.get("ADDIN_MODEL", "claude-opus-5-5")
@@ -115,8 +122,11 @@ def _sources(ctx: Context, who: str) -> list[str]:
     return parts
 
 
-def prompt(question: str, ctx: Context, viewer_name: str | None, today: str, about: str | None = None) -> str:
+def prompt(question: str, ctx: Context, viewer_name: str | None, today: str, about: str | None = None,
+           working: str | None = None) -> str:
     parts = [f"Today: {today}", f"Asked by: {viewer_name or ctx.viewer['email']}"]
+    if working:
+        parts.append(f"{WORKING_NOTE}\n{working}")
     if about:
         parts.append(f"About this passage of the document they are writing: {about}")
     parts += [f"Question: {question}", ""]
@@ -183,10 +193,12 @@ def finish(data: dict, ctx: Context, people: dict[str, str]) -> dict:
 
 
 def answer(model: Model, question: str, ctx: Context, people: dict[str, str], today: str | None = None,
-           about: str | None = None) -> dict:
-    """`about` is the passage the asker had selected, when the question is about it."""
+           about: str | None = None, working: str | None = None) -> dict:
+    """`about` is the passage the asker had selected, when the question is about it. `working` is
+    the writer's thread, as context only."""
     viewer_name = next((n for n, e in people.items() if e == ctx.viewer["email"]), None)
-    done = model.extract(SYSTEM, prompt(question, ctx, viewer_name, today or date.today().isoformat(), about), SCHEMA)
+    done = model.extract(SYSTEM, prompt(question, ctx, viewer_name, today or date.today().isoformat(), about,
+                                        working), SCHEMA)
     if done.data is None:
         raise RuntimeError(f"no answer from {done.model} (stop reason {done.stop_reason})")
     out = finish(done.data, ctx, people)
@@ -252,8 +264,10 @@ MAX_NOTES = 3
 
 
 def context_prompt(paragraph: str, section: str | None, doc: str | None, ctx: Context,
-                   viewer_name: str | None, today: str) -> str:
+                   viewer_name: str | None, today: str, working: str | None = None) -> str:
     parts = [f"Today: {today}", f"Writer: {viewer_name or ctx.viewer['email']}"]
+    if working:
+        parts.append(f"{WORKING_NOTE}\n{working}")
     if doc:
         parts.append(f"Document: {doc}")
     if section:
@@ -278,10 +292,10 @@ def finish_context(data: dict, ctx: Context) -> dict:
 
 
 def context(model: Model, paragraph: str, section: str | None, doc: str | None, ctx: Context,
-            people: dict[str, str], today: str | None = None) -> dict:
+            people: dict[str, str], today: str | None = None, working: str | None = None) -> dict:
     viewer_name = next((n for n, e in people.items() if e == ctx.viewer["email"]), None)
     done = model.extract(CONTEXT_SYSTEM, context_prompt(paragraph, section, doc, ctx, viewer_name,
-                                                        today or date.today().isoformat()), CONTEXT_SCHEMA)
+                                                        today or date.today().isoformat(), working), CONTEXT_SCHEMA)
     if done.data is None:
         raise RuntimeError(f"no answer from {done.model} (stop reason {done.stop_reason})")
     out = finish_context(done.data, ctx)

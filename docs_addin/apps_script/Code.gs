@@ -2,14 +2,20 @@
  * Tesseract for Google Docs: the sidebar's server side.
  *
  * Only when asked: for the text the writer selects (or the paragraph the cursor is in) it asks
- * the add-in API (docs_addin/api.py), as the signed-in user, what the writer should know
+ * the Tesseract core (core/api.py), as the signed-in user, what the writer should know
  * (conflicts, past incidents, decisions, owners), or answers a question about it. Finds the
  * document's questions and inserts an answer under one when the user clicks Insert. Nothing is
  * written to the document otherwise.
  *
+ * Threads (core/threads.py): the sidebar lists the writer's open threads (a call they were on,
+ * work handed over from Slack); picking one makes it context for every check and question, and
+ * links this doc to it. Draft background writes a cited Background section from the thread's
+ * topic, which Insert puts in the doc once the core says the thread's owner approved that exact
+ * text. Continue in Slack hands the thread on.
+ *
  * Script Properties (Project Settings > Script Properties):
- *   TESSERACT_API_URL   the API's public URL (the tunnel in front of docs_addin/api.py)
- *   TESSERACT_API_KEY   the API's ADDIN_KEY
+ *   TESSERACT_API_URL   the core's public URL (the tunnel in front of python -m core)
+ *   TESSERACT_API_KEY   the core's docs key (ADDIN_KEY, or "docs" in data/core-keys.json)
  *   TESSERACT_VIEWER    optional: answer as this email instead of the signed-in user (demo only)
  */
 
@@ -152,20 +158,21 @@ function top_(el) {
   return el;
 }
 
-/** POST to the API. Returns its JSON, or {error} for the sidebar to show. */
+/** POST to the core (or GET, with no payload). Returns its JSON, or {error} for the sidebar to show. */
 function call_(path, payload) {
   var props = PropertiesService.getScriptProperties();
   var url = props.getProperty('TESSERACT_API_URL');
   var key = props.getProperty('TESSERACT_API_KEY');
   if (!url || !key) return {error: 'Set TESSERACT_API_URL and TESSERACT_API_KEY in Script Properties.'};
-  payload.viewer = viewer_();
-  var response = UrlFetchApp.fetch(url.replace(/\/$/, '') + path, {
-    method: 'post',
-    contentType: 'application/json',
-    headers: {'X-Addin-Key': key},
-    payload: JSON.stringify(payload),
-    muteHttpExceptions: true
-  });
+  var options = {headers: {'X-Addin-Key': key}, muteHttpExceptions: true};
+  if (payload) {
+    payload.viewer = viewer_();
+    payload.by = viewer_();
+    options.method = 'post';
+    options.contentType = 'application/json';
+    options.payload = JSON.stringify(payload);
+  }
+  var response = UrlFetchApp.fetch(url.replace(/\/$/, '') + path, options);
   var body;
   try {
     body = JSON.parse(response.getContentText());
@@ -177,13 +184,90 @@ function call_(path, payload) {
 }
 
 /** Answer a question: one of the document's, or one typed in the sidebar, about the selection. */
-function ask(question, about) {
-  return call_('/answer', {question: question, about: about || null});
+function ask(question, about, thread) {
+  return call_('/docs/answer', {question: question, about: about || null, thread: thread || null});
 }
 
 /** What the writer should know about the text they selected. */
-function askContext(paragraph, section) {
-  return call_('/context', {paragraph: paragraph, section: section, doc: DocumentApp.getActiveDocument().getName()});
+function askContext(paragraph, section, thread) {
+  return call_('/docs/context', {paragraph: paragraph, section: section, doc: DocumentApp.getActiveDocument().getName(),
+                                 thread: thread || null});
+}
+
+/** The writer's open threads, newest first. */
+function listThreads() {
+  return call_('/threads?member=' + encodeURIComponent(viewer_()));
+}
+
+/** Work in this thread: it becomes the writer's context everywhere, and this doc is linked to it once. */
+function pickThread(id) {
+  var doc = DocumentApp.getActiveDocument();
+  var t = call_('/threads/' + id + '/active', {});
+  if (t.error) return t;
+  var linked = (t.entries || []).some(function (e) { return e.kind === 'link' && e.url === doc.getUrl(); });
+  if (!linked) {
+    var e = call_('/threads/' + id + '/entries', {kind: 'link', url: doc.getUrl(), title: doc.getName()});
+    if (e.error) return e;
+  }
+  return call_('/threads/' + id + '?as=' + encodeURIComponent(viewer_()));
+}
+
+/** A cited Background section from the thread, and the approval Insert needs. */
+function draftSection(thread) {
+  var doc = DocumentApp.getActiveDocument();
+  return call_('/docs/draft', {thread: thread, url: doc.getUrl(), doc: doc.getName()});
+}
+
+/**
+ * Insert the drafted section, once the core says this exact text is approved (only the thread's
+ * owner can): at the cursor's paragraph, or at the end. The heading, the text shaded as Tesseract's,
+ * a Sources line, and the thread's open questions. Then tell the core it is done.
+ */
+function insertSection(approvalId, hash) {
+  var ok = call_('/approvals/' + approvalId + '/approve', {hash: hash});
+  if (ok.error) return ok;
+  var p = ok.payload;
+  var doc = DocumentApp.getActiveDocument();
+  var body = doc.getBody();
+  var at = body.getNumChildren();
+  var cursor = doc.getCursor();
+  if (cursor) {
+    var block = block_(cursor.getElement());
+    if (block) at = body.getChildIndex(top_(block)) + 1;
+  }
+  var head = body.insertParagraph(at++, p.heading || 'Background');
+  head.setHeading(DocumentApp.ParagraphHeading.HEADING2);
+  if (p.text) {
+    var line = body.insertParagraph(at++, p.text);
+    line.setHeading(DocumentApp.ParagraphHeading.NORMAL);
+    line.editAsText().setBackgroundColor(ANSWER_BG).setBold(false).setItalic(false);
+  }
+  if (p.sources && p.sources.length) {
+    var cite = body.insertParagraph(at++, 'Sources: ');
+    cite.setHeading(DocumentApp.ParagraphHeading.NORMAL);
+    var text = cite.editAsText();
+    text.setBackgroundColor(null).setFontSize(9).setForegroundColor(SOURCE_COLOR).setBold(false).setItalic(false);
+    p.sources.forEach(function (s, i) {
+      var start = text.getText().length;
+      var piece = '[' + s.n + '] ' + s.label;
+      text.appendText(piece + (i < p.sources.length - 1 ? '; ' : ''));
+      if (s.url) text.setLinkUrl(start, start + piece.length - 1, s.url);
+    });
+  }
+  if (p.questions && p.questions.length) {
+    var q = body.insertParagraph(at++, 'Open questions');
+    q.setHeading(DocumentApp.ParagraphHeading.HEADING3);
+    p.questions.forEach(function (text) {
+      body.insertListItem(at++, text).setGlyphType(DocumentApp.GlyphType.BULLET);
+    });
+  }
+  return call_('/approvals/' + approvalId + '/done',
+               {result: {text: 'Inserted ' + (p.heading || 'Background') + ' into ' + doc.getName(), url: doc.getUrl()}});
+}
+
+/** Hand the thread to Slack: Tesseract DMs the writer there, with the thread as context. */
+function continueInSlack(thread) {
+  return call_('/threads/' + thread + '/handoff', {to: 'slack'});
 }
 
 /**

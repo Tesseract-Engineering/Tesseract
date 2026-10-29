@@ -14,14 +14,16 @@
     return null;
   }
   function post(path, body) {
-    body.viewer = viewer;
+    body.viewer = viewer; body.by = viewer;
     return fetch('/dev' + path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)})
       .then(function (r) { return r.json(); });
   }
+  function get(path) { return fetch('/dev' + path).then(function (r) { return r.json(); }); }
+  var DOC_URL = 'https://docs.google.com/document/d/demo';
 
   var server = {
     getContext: function () {
-      return {title: DOC.title, url: 'https://docs.google.com/document/d/demo', viewer: viewer, questions: DOC.blocks.filter(function (b) { return b.style === 'p' && isQuestion(b.text); })
+      return {title: DOC.title, url: DOC_URL, viewer: viewer, questions: DOC.blocks.filter(function (b) { return b.style === 'p' && isQuestion(b.text); })
         .map(function (b) { return {text: b.text, answered: false}; })};
     },
     getFocus: function () {
@@ -34,8 +36,28 @@
       }
       return cursor;
     },
-    ask: function (question, about) { return post('/answer', {question: question, about: about}); },
-    askContext: function (paragraph, section) { return post('/context', {paragraph: paragraph, section: section, doc: DOC.title}); },
+    ask: function (question, about, thread) { return post('/docs/answer', {question: question, about: about, thread: thread}); },
+    askContext: function (paragraph, section, thread) {
+      return post('/docs/context', {paragraph: paragraph, section: section, doc: DOC.title, thread: thread});
+    },
+    listThreads: function () { return get('/threads?member=' + encodeURIComponent(viewer)); },
+    pickThread: function (id) {
+      return post('/threads/' + id + '/active', {}).then(function (t) {
+        if (t.error) return t;
+        var linked = (t.entries || []).some(function (e) { return e.kind === 'link' && e.url === DOC_URL; });
+        return (linked ? Promise.resolve() : post('/threads/' + id + '/entries', {kind: 'link', url: DOC_URL, title: DOC.title}))
+          .then(function () { return get('/threads/' + id + '?as=' + encodeURIComponent(viewer)); });
+      });
+    },
+    draftSection: function (thread) { return post('/docs/draft', {thread: thread, url: DOC_URL, doc: DOC.title}); },
+    insertSection: function (id, hash) {
+      return post('/approvals/' + id + '/approve', {hash: hash}).then(function (a) {
+        if (a.error) return a;
+        console.log('[dev] insert section', a.payload);
+        return post('/approvals/' + id + '/done', {result: {text: 'Inserted Background into ' + DOC.title, url: DOC_URL}});
+      });
+    },
+    continueInSlack: function (thread) { return post('/threads/' + thread + '/handoff', {to: 'slack'}); },
     insertAnswer: function (question, answer, sources) {
       console.log('[dev] insert under', JSON.stringify(question), answer, sources);
       return true;
