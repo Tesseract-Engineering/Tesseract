@@ -90,6 +90,11 @@ check("extracted confidence is the model's own score, not scaled by source",
       one("DECIDED_BY").provenance.confidence)
 author = one("AUTHORED", d=pr)
 check("role edges carry the role's weight, not faded by age", author.props["weight"] == 1.0, author.props)
+auth12 = "jira:c0ffee00-1111-2222-3333-444455556666:issue:10012"
+check("live items carry their source ref",
+      nodes[pr].props.get("ref") == "forge://github/pull/acme/api/412"
+      and nodes[auth12].props.get("ref") == "forge://jira/issue/AUTH-12",
+      (nodes[pr].props.get("ref"), nodes[auth12].props.get("ref")))
 
 
 # -- reading rules and access cases the sample does not reach ---------------------------------- #
