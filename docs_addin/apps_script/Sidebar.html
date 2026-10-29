@@ -95,6 +95,18 @@ a:hover{text-decoration:underline}
 .k-owner{background:#efefef;color:#424242}
 .quiet{font-size:12px;color:var(--muted);display:flex;gap:7px;align-items:center}
 .sect{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin:4px 0 -4px}
+.focus{margin:6px 12px 0;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 9px;display:flex;flex-direction:column;gap:6px;flex:none}
+.focus.on{border-color:var(--brand2);box-shadow:0 0 0 3px var(--brand-soft)}
+.focus .row{display:flex;gap:8px;align-items:center}
+.focus .what{flex:1;min-width:0;font-size:12px;color:var(--muted)}
+.focus .what b{display:block;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);font-weight:600}
+.focus .what span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.focus .hint{font-size:12px;color:var(--muted)}
+.check{border:0;border-radius:999px;background:var(--brand);color:#0A0A0B;font-weight:600;font-size:12px;padding:6px 12px;cursor:pointer;white-space:nowrap}
+.check:hover{background:var(--brand2)}
+.check[disabled]{opacity:.45;cursor:default}
+.about{font-size:11px;color:var(--faint);padding:0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.about b{color:var(--brand-ink);font-weight:600}
 </style>
 </head>
 <body>
@@ -104,14 +116,16 @@ a:hover{text-decoration:underline}
 
 <div class="head"><svg class="mark"><use href="#tmark"/></svg>Tesseract<span class="r"><button class="icon" id="refresh" title="Rescan the document">&#8635;</button></span></div>
 <div class="ctx" id="ctx">Reading the document&hellip;</div>
+<div class="focus" id="focus"></div>
 <div class="body" id="body"></div>
 <div class="composer">
+  <div class="about" id="about"></div>
   <div class="cbox" id="cbox"><input id="free" placeholder="Ask anything about this doc" autocomplete="off"><button id="send" title="Ask">&#8593;</button></div>
-  <div class="fine">Reads only what you can open. Writes only when you click Insert.</div>
+  <div class="fine">Works only when you ask. Reads only what you can open. Writes only when you click Insert.</div>
 </div>
 
 <script>
-var state = {doc: null, cards: [], here: null, para: null, seen: null, notes: {}};
+var state = {doc: null, cards: [], here: null, focus: null, notes: {}, feed: []};
 var KIND = {conflict: 'Conflicts', incident: 'Happened before', decided: 'Already decided', owner: 'Talk to'};
 var LABEL = {jira: 'Jira', github: 'GitHub', slack: 'Slack', gdrive: 'Drive'};
 var STATUS = {answered: 'Answered', partial: 'Partial', none: 'Nothing found'};
@@ -206,16 +220,34 @@ function sourcesHtml(sources) {
   }).join('') + '</ol></details>';
 }
 
-/* The paragraph the cursor rests on, and what the graph says about it. */
-function paraHtml() {
-  var p = state.para;
-  if (!p) return '<div class="here-card idle"><div class="quiet"><span class="pulse"></span>Write, or click into a paragraph. I’ll flag conflicts, past incidents and owners as you go.</div></div>';
-  var r = state.notes[p.text];
-  var h = '<div class="here-card"><div class="lbl">This paragraph' + (p.section ? '<span class="dot"></span>' + esc(p.section) : '') + '</div>' +
-    '<div class="snip">' + esc(p.text) + '</div>';
+/* What the writer is pointing at, and the button that asks about it. Reading the selection is
+   free; nothing goes to Tesseract until Check (or a question) is clicked. */
+function focusBar() {
+  var f = state.focus, el = document.getElementById('focus');
+  el.classList.toggle('on', !!f);
+  if (!f) {
+    el.innerHTML = '<div class="hint">Select text, or click into a paragraph, then <b>Check</b> it against Jira, GitHub, Slack and Drive.</div>';
+  } else {
+    var done = state.notes[f.text] && !state.notes[f.text].busy;
+    el.innerHTML = '<div class="row"><div class="what"><b>' + (f.selected ? 'Selected' : 'This paragraph') +
+      (f.section ? ' · ' + esc(f.section) : '') + '</b><span>' + esc(f.text) + '</span></div>' +
+      '<button class="check" id="checkbtn"' + (state.notes[f.text] && state.notes[f.text].busy ? ' disabled' : '') + '>' +
+      (done ? 'Checked &#10003;' : 'Check') + '</button></div>';
+    document.getElementById('checkbtn').onclick = check;
+  }
+  var about = document.getElementById('about');
+  about.innerHTML = f && f.selected ? 'Asking about <b>the selection</b>: ' + esc(f.text) : '';
+  document.getElementById('free').placeholder = f && f.selected ? 'Ask about the selected text' : 'Ask anything about this doc';
+}
+
+/* One check in the feed: the text checked, then its notes. */
+function checkHtml(item) {
+  var r = state.notes[item.text];
+  var h = '<div class="here-card"><div class="lbl">Checked' + (item.section ? '<span class="dot"></span>' + esc(item.section) : '') + '</div>' +
+    '<div class="snip">' + esc(item.text) + '</div>';
   if (!r || r.busy) return h + '<div class="think"><span class="pulse"></span>Checking Jira, GitHub, Slack and Drive&hellip;</div></div>';
   if (r.error) return h + '<div class="err">' + esc(r.error) + '</div></div>';
-  if (!r.notes.length) return h + '<div class="quiet">&#10003; Nothing to flag here.</div></div>';
+  if (!r.notes.length) return h + '<div class="quiet">&#10003; Nothing in the company’s records bears on this.</div></div>';
   r.notes.forEach(function (n) {
     h += '<div class="note ' + esc(n.kind) + '"><div class="nt"><span class="kind k-' + esc(n.kind) + '">' + esc(KIND[n.kind] || n.kind) + '</span>' + esc(n.title) + '</div>' +
       '<div class="nx">' + answerHtml(n.text, r.sources) + '</div></div>';
@@ -223,15 +255,31 @@ function paraHtml() {
   return h + sourcesHtml(r.sources) + '</div>';
 }
 
+/* A question typed in the sidebar, in the feed. */
+function askHtml(card) {
+  var i = state.cards.indexOf(card);
+  return '<div class="q" id="card' + i + '"><div class="qt"><span class="n">?</span><span class="qx">' + esc(card.text) +
+    (card.about ? '<small style="display:block;color:var(--faint);font-size:11px">about: ' + esc(card.about.slice(0, 80)) + (card.about.length > 80 ? '…' : '') + '</small>' : '') +
+    '</span></div>' + result(card, i) + '</div>';
+}
+
 function render() {
   header();
+  focusBar();
   var body = document.getElementById('body');
-  var h = '<div class="hello"><h4>Hi ' + esc(firstName(state.doc.viewer)) + '.</h4><p>I read the Jira tickets, PRs, Slack threads and Drive docs you can open, and cite every claim.</p></div>';
-  h += paraHtml();
-  if (state.cards.length) h += '<div class="sect">Questions in this doc</div>';
+  var h = '';
+  if (!state.feed.length) {
+    h += '<div class="hello"><h4>Hi ' + esc(firstName(state.doc.viewer)) + '.</h4><p>Ask when you want a second pair of eyes: select a passage and Check it, or ask a question below. I read the Jira tickets, PRs, Slack threads and Drive docs you can open, and cite every claim.</p></div>';
+  }
+  state.feed.slice().reverse().forEach(function (item) {
+    h += item.type === 'check' ? checkHtml(item) : askHtml(item.card);
+  });
+  var doc = state.cards.filter(function (c) { return !c.free; });
+  if (doc.length) h += '<div class="sect">Questions in this doc</div>';
   state.cards.forEach(function (c, i) {
+    if (c.free) return;
     var cls = 'q' + (c.shown ? '' : ' fresh') + (c.result && c.result.status !== 'none' ? ' done' : '') + (state.here === c.text ? ' here' : '');
-    h += '<div class="' + cls + '" id="card' + i + '"><div class="qt" data-ask="' + i + '"><span class="n">' + (c.free ? '?' : i + 1) + '</span><span class="qx">' + esc(c.text) + '</span>' +
+    h += '<div class="' + cls + '" id="card' + i + '"><div class="qt" data-ask="' + i + '"><span class="n">' + (doc.indexOf(c) + 1) + '</span><span class="qx">' + esc(c.text) + '</span>' +
       (!c.result && !c.busy && !c.error ? '<button class="go" data-ask="' + i + '">' + (c.answered ? 'Answer again' : 'Answer') + '</button>' : '') +
       '</div>' + result(c, i) + '</div>';
   });
@@ -246,7 +294,7 @@ function ask(i) {
   if (card.busy) return;
   card.busy = true; card.error = null; card.result = null; card.inserted = false;
   render();
-  run('ask', card.text).then(function (r) {
+  run('ask', card.text, card.about || null).then(function (r) {
     card.busy = false;
     if (r && r.error) card.error = r.error; else card.result = r;
     render();
@@ -286,9 +334,11 @@ function free() {
   var text = input.value.trim();
   if (!text) return;
   input.value = ''; document.getElementById('cbox').classList.remove('live');
-  state.cards.push({text: text, free: true});
+  var card = {text: text, free: true, about: state.focus && state.focus.selected ? state.focus.text : null};
+  state.cards.push(card);
+  state.feed.push({type: 'ask', card: card});
   ask(state.cards.length - 1);
-  setTimeout(function () { var el = document.getElementById('card' + (state.cards.length - 1)); if (el) el.scrollIntoView({behavior: 'smooth'}); }, 50);
+  document.getElementById('body').scrollTop = 0;
 }
 document.getElementById('send').addEventListener('click', free);
 document.getElementById('free').addEventListener('keydown', function (e) { if (e.key === 'Enter') free(); });
@@ -308,34 +358,39 @@ function load() {
 }
 document.getElementById('refresh').addEventListener('click', load);
 
-/* Follow the cursor. A question gets a ring; any other paragraph gets its own card, fetched once
-   the cursor has rested on it for two polls (the writer paused) and kept per paragraph text. */
-function context(p) {
-  var r = state.notes[p.text] = {busy: true};
+/* Check what the writer is pointing at. Results are kept per text, so checking the same passage
+   again shows the earlier result instead of asking again. */
+function check() {
+  var f = state.focus;
+  if (!f) return;
+  state.feed = state.feed.filter(function (it) { return !(it.type === 'check' && it.text === f.text); });
+  state.feed.push({type: 'check', text: f.text, section: f.section});
+  document.getElementById('body').scrollTop = 0;
+  if (state.notes[f.text] && !state.notes[f.text].error) { render(); return; }
+  var r = state.notes[f.text] = {busy: true};
   render();
-  run('askContext', p.text, p.section).then(function (out) {
-    if (out && out.error) { r.busy = false; r.error = out.error; } else { state.notes[p.text] = out; }
+  run('askContext', f.text, f.section).then(function (out) {
+    if (out && out.error) { r.busy = false; r.error = out.error; } else { state.notes[f.text] = out; }
     render();
   }, function (e) { r.busy = false; r.error = (e && e.message) || String(e); render(); });
 }
 
+/* Keep the focus bar in step with the document. Reading the selection is free; Tesseract is only
+   asked when the writer clicks. A question of the doc's own gets a ring. */
 setInterval(function () {
-  run('getCursorParagraph').then(function (p) {
-    var q = p && p.question;
+  run('getFocus').then(function (f) {
+    var key = f ? (f.selected ? 's' : 'p') + f.section + '|' + f.text : '';
+    var old = state.focus ? (state.focus.selected ? 's' : 'p') + state.focus.section + '|' + state.focus.text : '';
+    if (key !== old) { state.focus = f; focusBar(); }
+    var q = f && f.question;
     if (q !== state.here) {
       state.here = q;
-      document.querySelectorAll('.q').forEach(function (el, i) { el.classList.toggle('here', !!q && state.cards[i] && state.cards[i].text === q); });
-      var i = state.cards.findIndex(function (c) { return c.text === q; });
-      if (i >= 0) document.getElementById('card' + i).scrollIntoView({behavior: 'smooth', block: 'nearest'});
+      document.querySelectorAll('.q').forEach(function (el) { el.classList.remove('here'); });
+      var i = state.cards.findIndex(function (c) { return !c.free && c.text === q; });
+      if (i >= 0) { var el = document.getElementById('card' + i); el.classList.add('here'); el.scrollIntoView({behavior: 'smooth', block: 'nearest'}); }
     }
-    if (!p || p.question || p.text.length < 40) return;
-    var rested = state.seen === p.text;
-    state.seen = p.text;
-    if (!rested) return;
-    if (!state.para || state.para.text !== p.text) { state.para = p; render(); }
-    if (!state.notes[p.text]) context(p);
   }, function () {});
-}, 2000);
+}, 1500);
 
 load();
 </script>

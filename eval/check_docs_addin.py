@@ -1,18 +1,22 @@
 """
 check_docs_addin.py - the Docs add-in's answer key, in two parts.
 
-The design doc (docs_addin/demo_doc.json, the demo): "billing-service: verify OIDC tokens directly",
-read paragraph by paragraph as Ishan writes it. Each paragraph that walks into the sandbox's
-history must get the note that history calls for:
+The design doc (docs_addin/demo_doc.json, the demo): "Design: billing-service verifies OIDC tokens
+directly", each paragraph checked as Ishan would check it. The paragraphs that walk into the
+sandbox's history must get the note that history calls for:
 
-    context     the SBX-10 shim belongs to payments; Hooli (CS-2) was hit by the same 401s
-    goals       "standard OIDC claim set": there is none for tenant_id and roles; SBX-4 namespaced them
-    jwks        JWKS fetched once at startup: the OPS-8 staging SEV-2; WEB-3 refreshes every 10 minutes
+    consumers   "the only consumer" of the billing audience: Hooli's webhooks broke too (CS-2)
+    jwks        fetched once at startup: the OPS-8 staging SEV-2 (WEB-3 refreshes every 10 minutes);
+                and calling auth-service directly, when the JWKS is routed through api-gateway
+    claims      top-level tenant_id and roles: SBX-4 namespaced them
+    lookup      300 calls a minute on one key: rate limiter v2 allows 100 by default (Globex, CS-3)
     s2s         a new /oauth/token client: SBX-5 is deprecating it
-    rollout     production the week of Dec 14: the auth cutover (Dec 15) and the key rotation
-    neutral     "Reviewers: comment by Friday": nothing (silence is the check)
-plus a paragraph that agrees with SBX-4 and must not be called a conflict, and the doc's two open
-questions answered with citations.
+    infra       Terraform applied from a laptop: the conventions say CI only
+    rollout     production the week of Dec 14: the auth cutover (Dec 15), the rotation, the shim's users
+and the ones that do not must stay quiet (the header, a rejected alternative, the review note);
+nothing that agrees with a decision may be called a conflict (rejecting a permanent shim, keeping
+the audit trail in auth-service as SBX-20 does), and the two open questions are answered with
+citations. Other paragraphs may get notes or not: a fair reviewer comment is not noise.
 
 The SOC2 auditor questions (the first demo), answered as two people who can read different things:
 
@@ -206,10 +210,6 @@ def _(a, v):
 # -- the design doc, paragraph by paragraph ------------------------------------------------------ #
 
 DOC = json.loads((Path(__file__).parent.parent / "docs_addin" / "demo_doc.json").read_text(encoding="utf-8"))
-# One paragraph not in the doc: it follows SBX-4, so calling it a conflict would be a false alarm.
-AGREE = ("Claims", "billing-service reads the tenant from the namespaced claim "
-         "https://tesseract.example/claims/tenant_id, as decided in SBX-4.")
-
 CONTEXT_CHECKS = []
 
 
@@ -221,14 +221,13 @@ def ccheck(name: str):
 
 
 def paragraphs() -> dict[str, tuple[str | None, str]]:
-    """key -> (section, text) for the doc's keyed paragraphs, in order, plus the agreeing one."""
+    """key -> (section, text) for the doc's keyed paragraphs, in order."""
     out, section = {}, None
     for b in DOC["blocks"]:
-        if b["style"] in ("h2", "h3"):
+        if b["style"] in ("title", "h2", "h3"):     # in Docs the title is a Heading 1, so a section
             section = b["text"]
         elif b.get("key"):
             out[b["key"]] = (section, b["text"])
-    out["agree"] = AGREE
     return out
 
 
@@ -245,18 +244,10 @@ def shown(out: dict) -> str:
     return " | ".join(f"{n['kind']}: {n['title']}" for n in out["notes"]) or "no notes"
 
 
-@ccheck("context: the shim belongs to payments, and Hooli was hit by the same 401s")
+@ccheck("consumers: 'the only consumer' misses Hooli, whose webhooks broke on the same change (CS-2)")
 def _(c):
-    out = c["context"]
-    ok = note_says(out, (), r"payments|Hooli|CS-2") and cites(out, r"SBX-10\b", r"CS-2\b", r"billing", r"Hooli")
-    return ok, f"{shown(out)}; cited {cited(out)}"
-
-
-@ccheck("goals: no standard OIDC claim for tenant and roles; SBX-4 namespaced them")
-def _(c):
-    out = c["goals"]
-    ok = note_says(out, ("conflict", "decided"), r"namespac") and cites(
-        out, r"SBX-4\b", r"Auth OIDC Migration - Design Doc", r"Namespace custom claims", r"custom claims")
+    out = c["consumers"]
+    ok = note_says(out, ("conflict", "incident"), r"Hooli|CS-2") and cites(out, r"CS-2\b", r"Hooli")
     return ok, f"{shown(out)}; cited {cited(out)}"
 
 
@@ -264,7 +255,29 @@ def _(c):
 def _(c):
     out = c["jwks"]
     ok = note_says(out, ("incident", "conflict"), r"refresh|10 min|rotat") and cites(
-        out, r"Postmortem", r"OPS-8\b", r"SEV-2", r"WEB-3\b")
+        out, r"Postmortem", r"OPS-8\b", r"SEV-2", r"WEB-3\b", r"JWKS for 10 minutes", r"#incidents")
+    return ok, f"{shown(out)}; cited {cited(out)}"
+
+
+@ccheck("jwks: going around api-gateway contradicts routing the JWKS through it")
+def _(c):
+    out = c["jwks"]
+    return note_says(out, (), r"gateway"), shown(out)
+
+
+@ccheck("claims: top-level tenant_id and roles contradict SBX-4's namespaced claims")
+def _(c):
+    out = c["claims"]
+    ok = note_says(out, ("conflict", "decided"), r"namespac") and cites(
+        out, r"SBX-4\b", r"Auth OIDC Migration - Design Doc", r"Namespace custom claims", r"custom claims")
+    return ok, f"{shown(out)}; cited {cited(out)}"
+
+
+@ccheck("lookup: 300 calls a minute on one key runs into rate limiter v2 (100 a minute by default)")
+def _(c):
+    out = c["lookup"]
+    ok = note_says(out, ("conflict", "incident"), r"rate|429|100") and cites(
+        out, r"Rate Limiting", r"SBX-9\b", r"CS-3\b", r"429")
     return ok, f"{shown(out)}; cited {cited(out)}"
 
 
@@ -275,20 +288,34 @@ def _(c):
     return ok, f"{shown(out)}; cited {cited(out)}"
 
 
-@ccheck("rollout: the week of Dec 14 runs into the cutover or the key rotation")
+@ccheck("infra: applying Terraform from a laptop breaks the apply-from-CI convention")
+def _(c):
+    out = c["infra"]
+    ok = note_says(out, ("conflict", "decided"), r"\bCI\b|laptop") and cites(out, r"Terraform Conventions")
+    return ok, f"{shown(out)}; cited {cited(out)}"
+
+
+@ccheck("security: keeping the audit trail in auth-service, where SBX-20 puts it, is not a conflict")
+def _(c):
+    out = c["security"]
+    return not notes(out, "conflict"), shown(out)
+
+
+@ccheck("rollout: the week of Dec 14 runs into the cutover, the rotation, or the shim's other users")
 def _(c):
     out = c["rollout"]
-    return note_says(out, (), r"Dec(ember)? 15|cutover|rotat"), shown(out)
+    return note_says(out, (), r"Dec(ember)? 15|cutover|rotat|Hooli|payments"), shown(out)
 
 
-@ccheck("neutral: a paragraph about the review process gets no notes")
+@ccheck("quiet: the doc's header, a rejected alternative and the review note get no notes")
 def _(c):
-    return not c["neutral"]["notes"], shown(c["neutral"])
+    loud = {k: shown(c[k]) for k in ("meta", "alt_payload", "neutral") if c[k]["notes"]}
+    return not loud, str(loud)
 
 
-@ccheck("agree: following SBX-4 is not called a conflict")
+@ccheck("agree: rejecting a permanent shim, as the OIDC design did, is not called a conflict")
 def _(c):
-    return not notes(c["agree"], "conflict"), shown(c["agree"])
+    return not notes(c["alt_shim"], "conflict"), shown(c["alt_shim"])
 
 
 @ccheck("every note cites a source, and none cites a draft, a copy or the 2025 overview")

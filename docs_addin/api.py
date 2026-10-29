@@ -1,9 +1,10 @@
 """
 api.py - the add-in's one endpoint, in front of the graph and the model.
 
-    POST /answer   {"question": "...", "viewer": "hamilton@..."}   header X-Addin-Key
+    POST /answer   {"question": "...", "about": "...", "viewer": "hamilton@..."}   header X-Addin-Key
                    -> answer.py's JSON: status, answer with [n] markers, cited sources, gaps,
-                      who to ask, and what is locked
+                      who to ask, and what is locked; "about" is the passage the question is
+                      about (the writer's selection), when there is one
     POST /context  {"paragraph": "...", "section": "...", "doc": "...", "viewer": "..."}  same key
                    -> up to three notes on the paragraph being written (conflict, incident,
                       decided, owner), cited the same way; none when nothing bears on it
@@ -62,9 +63,9 @@ class App:
                 self._people = (time.time(), directory(self.store, self.ns))
             return self._people[1]
 
-    def ask(self, question: str, viewer: str) -> dict:
-        ctx = gather(self.store, self.ns, viewer, question)
-        out = answer(self.model, question, ctx, self.people(), today=self.today)
+    def ask(self, question: str, viewer: str, about: str | None = None) -> dict:
+        ctx = gather(self.store, self.ns, viewer, f"{question} {about}" if about else question)
+        out = answer(self.model, question, ctx, self.people(), today=self.today, about=about)
         out["viewer"] = {"email": ctx.viewer["email"], "member": ctx.viewer["member"]}
         return out
 
@@ -113,13 +114,14 @@ def handler(app: App):
                 text = str(body.get("question" if path == "/answer" else "paragraph") or "").strip()[:MAX_QUESTION]
                 section = str(body.get("section") or "").strip()[:200] or None
                 doc = str(body.get("doc") or "").strip()[:200] or None
+                about = str(body.get("about") or "").strip()[:MAX_QUESTION] or None
             except (ValueError, AttributeError):
                 return self._send(400, {"error": "expected JSON"})
             if not text or "@" not in viewer:
                 return self._send(400, {"error": "text and viewer are required"})
             started = time.time()
             try:
-                out = app.ask(text, viewer) if path == "/answer" else app.context(text, section, doc, viewer)
+                out = app.ask(text, viewer, about) if path == "/answer" else app.context(text, section, doc, viewer)
             except Exception as e:              # the sidebar shows this; the log has the rest
                 print(f"{path} failed: {type(e).__name__}: {e}", file=sys.stderr)
                 return self._send(502, {"error": f"{type(e).__name__}: {e}"})

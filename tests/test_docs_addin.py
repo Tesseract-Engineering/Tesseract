@@ -87,6 +87,14 @@ def test_ask_matches_a_known_person_or_nobody():
     assert finish({**data, "ask_person": "Someone Else"}, ctx(), PEOPLE)["ask"] is None
 
 
+def test_the_selection_reaches_the_prompt_only_when_there_is_one():
+    plain = prompt("Which claims?", ctx(1), "Ishan Sinha", "2026-10-28")
+    about = prompt("Which claims?", ctx(1), "Ishan Sinha", "2026-10-28", about="read the top-level tenant_id")
+    assert "About this passage" not in plain
+    assert "About this passage of the document they are writing: read the top-level tenant_id" in about
+    assert about.replace("About this passage of the document they are writing: read the top-level tenant_id\n", "") == plain
+
+
 def test_locked_items_reach_the_prompt_as_counts_and_owners_only():
     locked = Locked(count=3, by_source={"github": 3}, owners=[{"name": "Ishan Sinha", "email": "ishan@x.com"}])
     text = prompt("Which claims?", ctx(2, locked), "Hamilton Park", "2026-10-28")
@@ -126,8 +134,8 @@ class FakeApp:
     def __init__(self):
         self.asked = []
 
-    def ask(self, question, viewer):
-        self.asked.append((question, viewer))
+    def ask(self, question, viewer, about=None):
+        self.asked.append((question, viewer) if about is None else (question, viewer, about))
         return {"status": "none", "answer": "", "sources": []}
 
     def context(self, paragraph, section, doc, viewer):
@@ -167,6 +175,13 @@ def test_api_needs_a_question_and_a_viewer(api):
     assert post(url + "/answer", {"viewer": "a@b.c"}, key=app.key)[0] == 400
     code, body = post(url + "/answer", {"question": " q? ", "viewer": "A@B.C"}, key=app.key)
     assert code == 200 and app.asked == [("q?", "a@b.c")] and "seconds" in body
+
+
+def test_a_question_can_be_about_the_selection(api):
+    app, url = api
+    code, _ = post(url + "/answer", {"question": "Is this right?", "about": " fetch the JWKS once ", "viewer": "a@b.c"},
+                   key=app.key)
+    assert code == 200 and app.asked == [("Is this right?", "a@b.c", "fetch the JWKS once")]
 
 
 def test_context_takes_a_paragraph_and_its_section(api):

@@ -1,10 +1,11 @@
 /**
  * Tesseract for Google Docs: the sidebar's server side.
  *
- * Follows the cursor: for the paragraph being written it asks the add-in API
- * (docs_addin/api.py), as the signed-in user, what the writer should know (conflicts, past
- * incidents, decisions, owners). Finds the document's questions and inserts an answer under
- * one when the user clicks Insert. Nothing is written to the document otherwise.
+ * Only when asked: for the text the writer selects (or the paragraph the cursor is in) it asks
+ * the add-in API (docs_addin/api.py), as the signed-in user, what the writer should know
+ * (conflicts, past incidents, decisions, owners), or answers a question about it. Finds the
+ * document's questions and inserts an answer under one when the user clicks Insert. Nothing is
+ * written to the document otherwise.
  *
  * Script Properties (Project Settings > Script Properties):
  *   TESSERACT_API_URL   the API's public URL (the tunnel in front of docs_addin/api.py)
@@ -93,28 +94,56 @@ function section_(body, index) {
   return null;
 }
 
-/**
- * The paragraph the cursor or selection is in: its text, its section, and whether it is one of
- * the questions. Headings and the shaded answers Insert wrote are not paragraphs to comment on.
- */
-function getCursorParagraph() {
-  var doc = DocumentApp.getActiveDocument();
-  var el = null;
-  var cursor = doc.getCursor();
-  if (cursor) el = cursor.getElement();
-  var selection = doc.getSelection();
-  if (!el && selection && selection.getRangeElements().length) el = selection.getRangeElements()[0].getElement();
+/** The paragraph (or list item) an element sits in, or null. */
+function block_(el) {
   while (el && el.getType() !== DocumentApp.ElementType.PARAGRAPH && el.getType() !== DocumentApp.ElementType.LIST_ITEM) {
     el = el.getParent();
   }
-  if (!el) return null;
-  var text = el.asText().getText().trim();
-  var heading = el.getType() === DocumentApp.ElementType.PARAGRAPH ? el.asParagraph().getHeading() : null;
-  var isHeading = heading && heading !== DocumentApp.ParagraphHeading.NORMAL;
-  var shaded = text.length > 0 && el.asText().getBackgroundColor(0) === ANSWER_BG;
-  if (!text || isHeading || shaded) return null;
+  return el;
+}
+
+/** Headings and the shaded answers Insert wrote are not text to check. */
+function checkable_(block) {
+  if (block.getType() === DocumentApp.ElementType.PARAGRAPH &&
+      block.asParagraph().getHeading() !== DocumentApp.ParagraphHeading.NORMAL) return false;
+  var text = block.asText().getText();
+  return text.trim().length > 0 && block.asText().getBackgroundColor(0) !== ANSWER_BG;
+}
+
+/**
+ * What the writer is pointing at: the selected text if there is a selection (across paragraphs,
+ * partial ones trimmed to what is selected), else the paragraph the cursor is in. With its
+ * section, and whether it is one of the document's questions. The sidebar shows it and asks about
+ * it only when the writer clicks; reading it costs nothing.
+ */
+function getFocus() {
+  var doc = DocumentApp.getActiveDocument();
   var body = doc.getBody();
-  return {text: text, section: section_(body, body.getChildIndex(el)), question: question_(text)};
+  var selection = doc.getSelection();
+  var parts = [], first = null;
+  if (selection) {
+    selection.getRangeElements().forEach(function (r) {
+      var el = r.getElement();
+      var block = block_(el);
+      if (!block || !checkable_(block)) return;
+      var text = el.editAsText ? el.asText().getText() : '';
+      if (r.isPartial()) text = text.substring(r.getStartOffset(), r.getEndOffsetInclusive() + 1);
+      text = text.trim();
+      if (!text) return;
+      if (!first) first = block;
+      parts.push(text);
+    });
+  } else if (doc.getCursor()) {
+    var block = block_(doc.getCursor().getElement());
+    if (block && checkable_(block)) {
+      first = block;
+      parts.push(block.asText().getText().trim());
+    }
+  }
+  if (!first) return null;
+  var text = parts.join('\n');
+  return {text: text, selected: !!selection, section: section_(body, body.getChildIndex(first)),
+          question: parts.length === 1 ? question_(text) : null};
 }
 
 /** POST to the API. Returns its JSON, or {error} for the sidebar to show. */
@@ -141,12 +170,12 @@ function call_(path, payload) {
   return body;
 }
 
-/** Answer one of the document's questions. */
-function ask(question) {
-  return call_('/answer', {question: question});
+/** Answer a question: one of the document's, or one typed in the sidebar, about the selection. */
+function ask(question, about) {
+  return call_('/answer', {question: question, about: about || null});
 }
 
-/** What the writer should know about the paragraph they are on. */
+/** What the writer should know about the text they selected. */
 function askContext(paragraph, section) {
   return call_('/context', {paragraph: paragraph, section: section, doc: DocumentApp.getActiveDocument().getName()});
 }

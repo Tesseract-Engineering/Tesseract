@@ -115,8 +115,11 @@ def _sources(ctx: Context, who: str) -> list[str]:
     return parts
 
 
-def prompt(question: str, ctx: Context, viewer_name: str | None, today: str) -> str:
-    parts = [f"Today: {today}", f"Asked by: {viewer_name or ctx.viewer['email']}", f"Question: {question}", ""]
+def prompt(question: str, ctx: Context, viewer_name: str | None, today: str, about: str | None = None) -> str:
+    parts = [f"Today: {today}", f"Asked by: {viewer_name or ctx.viewer['email']}"]
+    if about:
+        parts.append(f"About this passage of the document they are writing: {about}")
+    parts += [f"Question: {question}", ""]
     return "\n".join(parts + _sources(ctx, "asker"))
 
 
@@ -179,9 +182,11 @@ def finish(data: dict, ctx: Context, people: dict[str, str]) -> dict:
     }
 
 
-def answer(model: Model, question: str, ctx: Context, people: dict[str, str], today: str | None = None) -> dict:
+def answer(model: Model, question: str, ctx: Context, people: dict[str, str], today: str | None = None,
+           about: str | None = None) -> dict:
+    """`about` is the passage the asker had selected, when the question is about it."""
     viewer_name = next((n for n, e in people.items() if e == ctx.viewer["email"]), None)
-    done = model.extract(SYSTEM, prompt(question, ctx, viewer_name, today or date.today().isoformat()), SCHEMA)
+    done = model.extract(SYSTEM, prompt(question, ctx, viewer_name, today or date.today().isoformat(), about), SCHEMA)
     if done.data is None:
         raise RuntimeError(f"no answer from {done.model} (stop reason {done.stop_reason})")
     out = finish(done.data, ctx, people)

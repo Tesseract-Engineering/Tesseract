@@ -1,7 +1,7 @@
 <!-- Served by api.py at /dev only: stands in for google.script.run and for the document, so the
      sidebar runs in a plain browser tab against the local API. The demo doc (demo_doc.json) is
-     drawn on the left; clicking a paragraph puts the "cursor" there. ?viewer=<email> picks who
-     is asking. -->
+     drawn on the left; clicking a paragraph puts the "cursor" there, and selecting text with the
+     mouse is a selection. ?viewer=<email> picks who is asking. -->
 <script>
 (function () {
   var DOC = __DEV_DOC__;
@@ -10,7 +10,7 @@
 
   function isQuestion(t) { return t.length >= 15 && /\?(\s|$)/.test(t) ? t : null; }
   function sectionOf(i) {
-    for (var j = i - 1; j >= 0; j--) if (/^h[23]$/.test(DOC.blocks[j].style)) return DOC.blocks[j].text;
+    for (var j = i - 1; j >= 0; j--) if (/^(h[23]|title)$/.test(DOC.blocks[j].style)) return DOC.blocks[j].text;
     return null;
   }
   function post(path, body) {
@@ -24,8 +24,17 @@
       return {title: DOC.title, viewer: viewer, questions: DOC.blocks.filter(function (b) { return b.style === 'p' && isQuestion(b.text); })
         .map(function (b) { return {text: b.text, answered: false}; })};
     },
-    getCursorParagraph: function () { return cursor; },
-    ask: function (question) { return post('/answer', {question: question}); },
+    getFocus: function () {
+      var sel = window.getSelection(), text = sel ? String(sel).trim() : '';
+      var node = sel && sel.anchorNode && (sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentElement);
+      var p = node && node.closest && node.closest('#devdoc p');
+      if (text && p) {
+        var i = Number(p.dataset.i);
+        return {text: text, selected: true, section: sectionOf(i), question: isQuestion(text)};
+      }
+      return cursor;
+    },
+    ask: function (question, about) { return post('/answer', {question: question, about: about}); },
     askContext: function (paragraph, section) { return post('/context', {paragraph: paragraph, section: section, doc: DOC.title}); },
     insertAnswer: function (question, answer, sources) {
       console.log('[dev] insert under', JSON.stringify(question), answer, sources);
@@ -55,10 +64,11 @@
       var el = document.createElement(b.style === 'title' ? 'h1' : b.style === 'p' ? 'p' : b.style);
       el.textContent = b.text;
       if (b.style === 'p') {
+        el.dataset.i = i;
         el.onclick = function () {
           document.querySelectorAll('#devdoc p').forEach(function (x) { x.classList.remove('cur'); });
           el.classList.add('cur');
-          cursor = {text: b.text, section: sectionOf(i), question: isQuestion(b.text)};
+          cursor = {text: b.text, selected: false, section: sectionOf(i), question: isQuestion(b.text)};
         };
       }
       pane.appendChild(el);

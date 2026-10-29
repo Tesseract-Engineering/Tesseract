@@ -1,38 +1,40 @@
 # docs_addin
 
-A Google Docs sidebar that reads the company graph as the person writing. As they move through a design doc it flags, for the paragraph they are on, what that paragraph contradicts, what went wrong the last time someone did it, what was already decided, and who to talk to, every claim cited. It also answers the questions in a document (an open question in a design, an auditor's list), and counts what the reader cannot open without showing it.
+A Google Docs sidebar that checks a document against the company graph when the writer asks. Select a passage of a design doc (or click into a paragraph) and press Check: Tesseract says what it contradicts, what went wrong the last time someone did it, what was already decided, and who to talk to, every claim cited. The writer can also ask a question about the selection, or have the document's own questions answered and inserted. It reads only what the writer can open, counts what they cannot without showing it, and does nothing until asked.
 
 ```
 Google Doc ── Apps Script sidebar (apps_script/) ──HTTPS──▶ api.py ──▶ retrieve.py ──▶ Neo4j (graph/)
-                 the cursor's paragraph, questions, Insert         │          as the viewer: swarm_queries
+                 selection, Check, questions, Insert                │          as the viewer: swarm_queries
                                                                     └──▶ answer.py ──▶ Claude (swarm/model.py)
 ```
 
 | File | What it does |
 |---|---|
-| `retrieve.py` | Finds what bears on a question or paragraph, as one viewer: keyword search over items and over decisions and systems, then one hop along refs. Every read goes through `graph/swarm_queries.py`'s `READABLE`, `EDGE_READABLE` and `LIVE`. Items a readable source links to but the viewer cannot open come back as a count per source and the people who could share them, never by title. |
-| `answer.py` | Two model calls over the same sources, keyed `S1..Sn`. `context`: up to three notes on a paragraph (`conflict`, `incident`, `decided`, `owner`), none when nothing bears on it. `answer`: a cited answer to a question with a status (`answered`, `partial`, `none`), the gaps and who to ask. Code keeps only markers that name a real source, renumbers them `[1]..[n]`, and drops a note that cites nothing. |
+| `retrieve.py` | Finds what bears on a question or passage, as one viewer: keyword search over items and over decisions and systems, then one hop along refs. Every read goes through `graph/swarm_queries.py`'s `READABLE`, `EDGE_READABLE` and `LIVE`. Items a readable source links to but the viewer cannot open come back as a count per source and the people who could share them, never by title. |
+| `answer.py` | Two model calls over the same sources, keyed `S1..Sn`. `context`: up to three notes on a passage (`conflict`, `incident`, `decided`, `owner`), none when nothing bears on it. `answer`: a cited answer to a question, optionally about a selected passage, with a status (`answered`, `partial`, `none`), the gaps and who to ask. Code keeps only markers that name a real source, renumbers them `[1]..[n]`, and drops a note that cites nothing. |
 | `api.py` | `POST /context` and `POST /answer` behind a shared key, `GET /health`, and `GET /dev` (the demo doc and the sidebar in a browser tab, against this API, for development). |
-| `apps_script/` | The add-in: `Code.gs` follows the cursor (paragraph, section, whether it is a question), calls the API as the signed-in user, and inserts an answer under its question; `Sidebar.html` is the pane. |
+| `apps_script/` | The add-in: `Code.gs` reports what the writer is pointing at (the selection, or the cursor's paragraph, with its section), calls the API as the signed-in user, and inserts an answer under its question; `Sidebar.html` is the pane: the focus bar with Check, a feed of checks and questions, the document's questions. |
 | `demo_doc.json` | The demo design doc's text, used by `/dev`, the eval, and to write the Google Doc. |
-| `../eval/check_docs_addin.py` | The answer key: 11 checks on the design doc, 25 on the SOC2 questions for two viewers. |
+| `../eval/check_docs_addin.py` | The answer key: 15 checks on the design doc, 25 on the SOC2 questions for two viewers. |
 
 ## What the demo shows
 
-The doc is "billing-service: verify OIDC tokens directly (retire the SBX-10 shim)" (`demo_doc.json`), written as Ishan. Click into each paragraph and pause; the sidebar's "This paragraph" card fills in.
+The doc is "Design: billing-service verifies OIDC tokens directly" (`demo_doc.json`): a full design doc (summary, background, goals and non-goals, a six-part proposed design, alternatives, security, observability, rollout, testing, open questions), written as Ishan. Most of it is sound. Eight places walk into something the company already knows; select one and Check:
 
-| Paragraph | What the sidebar says | From |
+| Passage | What Tesseract says | From |
 |---|---|---|
-| Context: billing reads `tenant_id`, a shim rewrites the claim | The payments team owns the webhooks and the shim waits on them; Hooli was hit by the same 401s | SBX-10, CS-2, #eng and #customer-success threads |
-| Goals: "read the tenant and roles from the standard OIDC claim set" | **Conflicts**: there is no standard claim for either; SBX-4 namespaced them | SBX-4, SBX-7, PR #4 |
-| Token validation: "fetch the JWKS once at startup" | **Happened before**: web-app did that and 15% of staging logins failed for 47 minutes; **Conflicts**: keys overlap only 24h in a rotation | the OPS-8 postmortem, WEB-3, the rotation runbook |
-| Service-to-service: "get a token from /oauth/token" | **Conflicts**: SBX-5 is deprecating it before the Dec 15 cutover | SBX-5, PR #5, WEB-1 |
-| Rollout: "production the week of December 14" | **Conflicts**: that is the auth cutover week; the last rotation broke staging | sync notes, OPS-8, OPS-1 |
-| Review: "comment by Friday" | Nothing to flag | |
+| 2. "billing-service is the only consumer" of the billing audience | Hooli's webhooks broke on the same claims change (CS-2); removing the shim breaks them too | CS-2, #customer-success |
+| 5.2 "fetch the JWKS once at startup", "call auth-service directly rather than going through api-gateway" | **Happened before**: web-app did that and staging logins failed for 47 minutes; **Conflicts**: the JWKS is routed through the gateway | OPS-8, WEB-3, the gateway routing commit, OPS-2 |
+| 5.3 "read the top-level tenant_id and roles" | **Conflicts**: SBX-4 namespaced them | SBX-4, PR #4 |
+| 5.4 "300 webhooks per minute, all under one API key" | **Conflicts**: rate limiter v2 allows 100 a minute by default; Globex hit 429s | API Rate Limiting v2, CS-3 |
+| 5.5 "a token from /oauth/token" | **Conflicts**: SBX-5 is deprecating it before the Dec 15 cutover | SBX-5, PR #5 |
+| 5.6 "apply the change from their laptop" | **Conflicts**: Terraform is applied from CI only | Terraform Conventions |
+| 9. "production the week of December 14, delete the shim the same day" | **Conflicts**: the auth cutover week; the shim still serves payments and Hooli | sync notes, SBX-10, CS-2 |
+| 4. Non-goal "migrating other services off the legacy token format" | Legacy tokens go away with SBX-5 anyway | SBX-5, SBX-3 |
 
-The two open questions ("an audit record of which tokens billing-service accepted?", "who owns billing-service?") have Answer buttons: the first finds SBX-20's audit log covers issuance only, the second names the payments team. Insert puts an answer under its question, shaded, with a "Sources:" line of links (Docs has no API for suggestions or anchored comments).
+The header, the rejected payload alternative and the review note come back "nothing bears on this". The two open questions have Answer buttons (SBX-20's audit log covers issuance only; the payments team owns billing). Selecting a passage and typing in the ask box asks about that passage ("is this safe during a key rotation?").
 
-The first demo, the SOC2 auditor questions ("SOC2 Responses - Authentication (FY2026)" with the five questions from the planning folder's PDF), still works and is still in the eval. As Hamilton, who cannot read the auth-service repo, its answers come from Jira, Slack and Drive and each says how many linked items are locked and who can share them.
+The first demo, the SOC2 auditor questions ("SOC2 Responses - Authentication (FY2026)"), still works and is still in the eval. As Hamilton, who cannot read the auth-service repo, its answers come from Jira, Slack and Drive and each says how many linked items are locked and who can share them.
 
 ## Run it
 
@@ -81,4 +83,4 @@ The viewer is the email the script reports; the key is what makes that trustwort
 | `ADDIN_TODAY` | the real date | the date the prompts carry; the recordings in `data/replay-addin` were made with `2026-10-28`, so pin that to replay them on a later day |
 | `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD` | as `graph/` | |
 
-One answer or set of notes reads about 6k tokens and writes under 1k, about 10 seconds on `claude-opus-5-5` at medium effort. The sidebar asks for notes once the cursor has rested on a paragraph for two polls (about 4 seconds) and keeps them per paragraph text.
+One answer or check reads about 6k tokens and writes under 1k, about 10 seconds on `claude-opus-5-5` at medium effort. Nothing is sent until the writer clicks Check, Answer or Ask; a check is kept per passage, so checking the same text again is free.
