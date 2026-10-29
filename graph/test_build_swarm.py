@@ -32,8 +32,15 @@ state = load(LocalStore(HERE.parent / "samples" / "run-0"))
 proposals, report = build(state, "kg:test")
 nodes = {p.id: p for p in proposals if isinstance(p, NodeProposal)}
 edges = [p for p in proposals if isinstance(p, EdgeProposal)]
-has = lambda t, s, d: any(e.type == t and e.src_id == s and e.dst_id == d for e in edges)
-one = lambda t, s=None, d=None: next(e for e in edges if e.type == t and s in (None, e.src_id) and d in (None, e.dst_id))
+
+
+def has(t, s, d):
+    return any(e.type == t and e.src_id == s and e.dst_id == d for e in edges)
+
+
+def one(t, s=None, d=None):
+    return next(e for e in edges if e.type == t and s in (None, e.src_id) and d in (None, e.dst_id))
+
 
 check("runs applied in order, identity last", state.runs[-1].endswith("-identity"), state.runs)
 check("ten live items (six from GitHub and Slack, four from Jira)", len(state.items) == 10, len(state.items))
@@ -179,7 +186,7 @@ people, links, review = resolve_people([
     {"source": "jira", "handle": "j9", "name": "John Smith", "email": None},
     {"source": "github", "handle": "jsmith", "name": "John Smith", "email": "john@a.com"},
     {"source": "github", "handle": "dependabot[bot]", "name": "dependabot[bot]", "email": None}])
-check("same email merges", len({l["personId"] for l in links if l["account"]["email"] == "john@a.com"}) == 1)
+check("same email merges", len({link["personId"] for link in links if link["account"]["email"] == "john@a.com"}) == 1)
 check("same name alone does not merge; it becomes a review item",
       len(people) == 3 and any(r["rule"] == "same-normalised-name" for r in review), (people, review))
 check("bots are flagged", any(p["isBot"] for p in people) and sum(p["isBot"] for p in people) == 1)
