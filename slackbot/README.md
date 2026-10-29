@@ -31,6 +31,24 @@ Grant ──▶ Drive shares as the owner, read only, 30 days ──▶ your que
 
 "What do you think of this?" reads the conversation at the moment you ask: the whole thread when asked in one, otherwise the last 8 messages, and only when the question points at something ("this", "that", "above"...). Nothing is stored. The conversation only steers the search and the reading, and is never quoted as a source; a quote taken from it fails the check like any other. The answer says what the records say about the topic (prior decisions, related work, owners), never the bot's own opinion. Messages from bots are left out. A person's message posted through an app carries a `bot_id`, so the check is whether the author is a bot user.
 
+## On a call (Zoom, or any call app)
+
+`python -m slackbot --meeting` also serves **Tesseract Meeting** at http://127.0.0.1:8766, on this PC only. The host opens it next to Zoom and shares that window.
+
+```
+mic (the host)      ─┐                                   ┌▶ live transcript on the page, and data/meetings/<time>.jsonl
+                     ├▶ ElevenLabs Scribe v2 Realtime ──▶│
+speakers (everyone) ─┘    one session per stream         └▶ the last 3 minutes: context for every ask while live
+```
+
+- **Consent first.** Start stays disabled until the host ticks "Everyone on the call has been told and agrees". The page says it is transcribing for as long as it is, and Stop ends it: nothing more goes to ElevenLabs.
+- **Speakers.** Live transcription cannot tell voices apart, so the two streams are the labels: the host's name for the mic, **Others** for the call. **The host wears headphones**, or the mic hears the call too and remote lines appear twice. Loopback records everything the PC plays, so nothing else should play during the call.
+- **The page's ask box** answers for everyone on the call, because everyone sees the shared screen. It quotes only records every participant can read, and only counts the rest ("🔒 2 related items hidden: not everyone here can read them"), never naming them or their owners.
+- **Anyone can ask in Slack while the call is live:** `@Tesseract`, `/tesseract` or a DM. The last 3 minutes of the call are the context, and the answer is private to the asker and uses their own access, as always. Send to thread shares it.
+- Billing: ElevenLabs meters every second sent, silence included, per stream. Loopback sends nothing while the PC is silent.
+
+Settings: `ELEVENLABS_API_KEY` (required), `SLACKBOT_MEETING_PEOPLE` (comma-separated emails of who is on the call; default: everyone in the Slack workspace), `SLACKBOT_MEETING_HOST` (whose search the page runs as; default: the first of them), `SLACKBOT_MEETING_PORT` (8766), `SLACKBOT_MEETING_DIR` (`data/meetings`). Install with `pip install -e '.[slackbot,meeting]'` (Windows: the audio capture is WASAPI).
+
 ## What each step does
 
 - **DM a question.** The answer card quotes what you can read, cites each record (title, source, date, author) and lists the sources. If matching items are restricted, the 🔒 line says how many, what kind ("2 Drive docs") and who owns them. It never shows their titles or text.
