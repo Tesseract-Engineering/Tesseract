@@ -88,3 +88,35 @@ jobs:
           cache-dependency-path: pyproject.toml
       - run: pip install -e '.[dev,swarm,graph]'
       - run: pytest -m neo4j -v
+
+  images:
+    name: images
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      # `docker buildx build --cache-to type=gha` from a shell step needs the runtime token in the environment.
+      - uses: crazy-max/ghaction-github-runtime@v3
+      - name: Validate the compose stack
+        run: docker compose -f swarm/compose.yaml config -q
+      # One job, one loop: branch protection requires a single `images` check however many images there are.
+      # A new component adds its image here (forge plan F9: "forge:forge/Dockerfile", and -f forge/compose.yaml
+      # in the validation step above) and to release.yml.
+      - name: Build every image
+        run: |
+          set -euo pipefail
+          for spec in \
+            "swarm-github:pipelines/github/Dockerfile" \
+            "swarm-slack:pipelines/slack/Dockerfile" \
+            "swarm-drive:pipelines/drive/Dockerfile" \
+            "swarm-jira:pipelines/jira/Dockerfile" \
+            "swarm-identity:pipelines/identity/Dockerfile" \
+            "swarm-sample:pipelines/sample/Dockerfile" \
+            "swarm-graph:swarm/graph.Dockerfile"; do
+            name="${spec%%:*}"; file="${spec#*:}"
+            echo "::group::$name"
+            docker buildx build --file "$file" --tag "$name:ci" \
+              --cache-from "type=gha,scope=$name" --cache-to "type=gha,mode=max,scope=$name" .
+            echo "::endgroup::"
+          done
