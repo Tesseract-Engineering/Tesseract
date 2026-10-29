@@ -200,3 +200,20 @@ def test_dev_routes_are_off_unless_asked_for(api):
     with pytest.raises(urllib.error.HTTPError) as e:
         urllib.request.urlopen(url + "/dev")
     assert e.value.code == 404
+
+
+def test_slack_goes_on_the_people_an_answer_names():
+    from docs_addin.api import App
+    app = App.__new__(App)
+    dhruv = {"user": "U1", "team": "T1", "web": "https://x.slack.com"}
+    app._directory = lambda: ({}, {"Dhruv Pendharkar": dhruv, "Ishan Sinha": {"user": "U2", "team": "T1", "web": None}})
+    out = app.with_slack({
+        "ask": {"name": "Dhruv Pendharkar", "email": "d@x.com", "reason": "r"},
+        "locked": {"count": 1, "by_source": {"github": 1}, "owners": [{"name": "Ishan Sinha", "email": "i@x.com"}]},
+        "notes": [{"kind": "owner", "title": "Talk to Dhruv Pendharkar", "text": "Owns OPS-1, then Ishan Sinha [1]."},
+                  {"kind": "decided", "title": "Refresh every 10 minutes", "text": "WEB-3 [2]."}],
+    })
+    assert out["ask"]["slack"] == dhruv
+    assert out["locked"]["owners"][0]["slack"]["user"] == "U2"
+    assert out["notes"][0]["people"] == [{"name": "Dhruv Pendharkar", "slack": dhruv}]   # the title's person only
+    assert out["notes"][1]["people"] == []

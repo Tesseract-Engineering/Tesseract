@@ -107,6 +107,14 @@ a:hover{text-decoration:underline}
 .check[disabled]{opacity:.45;cursor:default}
 .about{font-size:11px;color:var(--faint);padding:0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .about b{color:var(--brand-ink);font-weight:600}
+.dm{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;margin-top:5px}
+.slk{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:#4a154b;background:#f4ede4;border:1px solid #e8dccf;border-radius:999px;padding:2px 9px;cursor:pointer}
+.slk:hover{background:#efe3d6;text-decoration:none}
+.slk svg{width:11px;height:11px}
+.dm small{font-size:11px;color:var(--faint)}
+.dm small a{color:var(--faint);text-decoration:underline}
+.toast{position:fixed;left:12px;right:12px;bottom:86px;background:#242424;color:#fff;font-size:12px;border-radius:8px;padding:8px 10px;opacity:0;transform:translateY(6px);transition:all .2s;pointer-events:none;z-index:5}
+.toast.on{opacity:1;transform:none}
 </style>
 </head>
 <body>
@@ -118,6 +126,7 @@ a:hover{text-decoration:underline}
 <div class="ctx" id="ctx">Reading the document&hellip;</div>
 <div class="focus" id="focus"></div>
 <div class="body" id="body"></div>
+<div class="toast" id="toast"></div>
 <div class="composer">
   <div class="about" id="about"></div>
   <div class="cbox" id="cbox"><input id="free" placeholder="Ask anything about this doc" autocomplete="off"><button id="send" title="Ask">&#8593;</button></div>
@@ -149,6 +158,37 @@ function firstName(email) {
 function draftLink(to, subject, body) {
   return 'https://mail.google.com/mail/?view=cm&fs=1&to=' + encodeURIComponent(to) +
     '&su=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+}
+
+var SLACK_ICON = '<svg viewBox="0 0 24 24"><path fill="#e01e5a" d="M5 15a2 2 0 1 1-2-2h2zm1 0a2 2 0 1 1 4 0v5a2 2 0 1 1-4 0z"/><path fill="#36c5f0" d="M9 5a2 2 0 1 1 2-2v2zm0 1a2 2 0 1 1 0 4H4a2 2 0 1 1 0-4z"/><path fill="#2eb67d" d="M19 9a2 2 0 1 1 2 2h-2zm-1 0a2 2 0 1 1-4 0V4a2 2 0 1 1 4 0z"/><path fill="#ecb22e" d="M15 19a2 2 0 1 1-2 2v-2zm0-1a2 2 0 1 1 0-4h5a2 2 0 1 1 0 4z"/></svg>';
+var DMS = [];
+
+/* "Message <name> on Slack": copies the drafted message, then opens a DM with them. Slack links
+   cannot carry the text, so the writer pastes it; nothing is sent until they press Send. */
+function slackHtml(person, message) {
+  if (!person || !person.slack) return '';
+  var i = DMS.push({person: person, message: message}) - 1;
+  var sl = person.slack;
+  return '<span class="dm"><a class="slk" data-dm="' + i + '" href="https://app.slack.com/client/' + esc(sl.team) + '/' + esc(sl.user) + '">' +
+    SLACK_ICON + 'Message ' + esc(person.name.split(' ')[0]) + ' on Slack</a>' +
+    '<small><a data-dm="' + i + '" href="slack://user?team=' + esc(sl.team) + '&id=' + esc(sl.user) + '">desktop app</a></small></span>';
+}
+
+function toast(text) {
+  var t = document.getElementById('toast');
+  t.textContent = text; t.classList.add('on');
+  clearTimeout(toast.timer); toast.timer = setTimeout(function () { t.classList.remove('on'); }, 3500);
+}
+
+function copyText(text) {
+  var area = document.createElement('textarea');
+  area.value = text; document.body.appendChild(area); area.select();
+  try { document.execCommand('copy'); } catch (e) {}
+  document.body.removeChild(area);
+}
+
+function docLine() {
+  return state.doc.title + (state.doc.url ? ' (' + state.doc.url + ')' : '');
 }
 
 /* ---- rendering ------------------------------------------------------------------------ */
@@ -191,14 +231,20 @@ function result(card, i) {
         (owner.email ? '<a href="' + esc(draftLink(owner.email, 'Access for: ' + state.doc.title,
           'Hi ' + owner.name.split(' ')[0] + ',\n\nI’m answering "' + card.text + '" in ' + state.doc.title +
           '. A few of the items it links to (' + where + ') aren’t shared with me. Could you share them, or check the answer?\n\nThanks')) +
-          '">Draft a note</a>' : '') : '') + '</span></div>';
+          '">Draft a note</a>' : '') +
+        slackHtml(owner, 'Hi ' + owner.name.split(' ')[0] + ', I’m answering "' + card.text + '" in ' + docLine() +
+          '. A few of the items it links to (' + where + ') aren’t shared with me. Could you share them, or check the answer? Thanks!') : '') +
+      '</span></div>';
   }
   if (r.ask && (!r.locked || !r.locked.owners.length || r.locked.owners[0].email !== r.ask.email)) {
     h += '<div class="box gap"><span>&#128100;</span><span><b>Ask ' + esc(r.ask.name) + '</b>' + (r.ask.reason ? ': ' + esc(r.ask.reason) : '') +
       '. <a href="' + esc(draftLink(r.ask.email, 'Question for ' + state.doc.title,
         'Hi ' + r.ask.name.split(' ')[0] + ',\n\nFor "' + card.text + '" in ' + state.doc.title + ', I couldn’t find:\n' +
         (r.gaps || []).map(function (g) { return '- ' + g; }).join('\n') + '\n\nDo you know, or know where it’s written down?\n\nThanks')) +
-      '">Draft a note</a></span></div>';
+      '">Draft a note</a>' +
+      slackHtml(r.ask, 'Hi ' + r.ask.name.split(' ')[0] + ', I’m working on ' + docLine() + '. For "' + card.text + '" I couldn’t find:\n' +
+        (r.gaps || []).map(function (g) { return '• ' + g; }).join('\n') + '\nDo you know, or know where it’s written down? Thanks!') +
+      '</span></div>';
   }
   if (r.sources.length) h += sourcesHtml(r.sources);
   if (card.inserted) {
@@ -250,7 +296,11 @@ function checkHtml(item) {
   if (!r.notes.length) return h + '<div class="quiet">&#10003; Nothing in the company’s records bears on this.</div></div>';
   r.notes.forEach(function (n) {
     h += '<div class="note ' + esc(n.kind) + '"><div class="nt"><span class="kind k-' + esc(n.kind) + '">' + esc(KIND[n.kind] || n.kind) + '</span>' + esc(n.title) + '</div>' +
-      '<div class="nx">' + answerHtml(n.text, r.sources) + '</div></div>';
+      '<div class="nx">' + answerHtml(n.text, r.sources) + '</div>' +
+      (n.people || []).map(function (p) {
+        return slackHtml(p, 'Hi ' + p.name.split(' ')[0] + ', I’m writing ' + docLine() + '. In ' + (item.section || 'it') +
+          ', I have: "' + item.text + '"\nTesseract flagged: ' + n.title + '. Could you take a look? Thanks!');
+      }).join('') + '</div>';
   });
   return h + sourcesHtml(r.sources) + '</div>';
 }
@@ -264,6 +314,7 @@ function askHtml(card) {
 }
 
 function render() {
+  DMS = [];
   header();
   focusBar();
   var body = document.getElementById('body');
@@ -313,13 +364,17 @@ function insert(i) {
 function copy(i) {
   var r = state.cards[i].result;
   var text = r.answer + '\n\nSources:\n' + r.sources.map(function (s) { return '[' + s.n + '] ' + s.label + (s.url ? ' ' + s.url : ''); }).join('\n');
-  var area = document.createElement('textarea');
-  area.value = text; document.body.appendChild(area); area.select();
-  try { document.execCommand('copy'); } catch (e) {}
-  document.body.removeChild(area);
+  copyText(text);
+  toast('Answer and sources copied.');
 }
 
 document.getElementById('body').addEventListener('click', function (e) {
+  var dm = e.target.closest('[data-dm]');
+  if (dm) {
+    var d = DMS[Number(dm.dataset.dm)];
+    if (d) { copyText(d.message); toast('Message copied. Paste it into the DM with ' + d.person.name + ' and press Send.'); }
+    return;       // the link itself opens Slack
+  }
   var t = e.target.closest('[data-ask],[data-insert],[data-copy],[data-retry]');
   if (!t) return;
   e.preventDefault();

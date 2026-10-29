@@ -36,7 +36,7 @@ from pathlib import Path
 from graph.store import Neo4jStore
 
 from .answer import answer, context, model_from_env
-from .retrieve import directory, gather, paragraph_query
+from .retrieve import directory, gather, paragraph_query, slack_people
 
 HERE = Path(__file__).parent
 MAX_QUESTION = 2000
@@ -54,26 +54,46 @@ class App:
         # The date the prompts say it is. Pinned (ADDIN_TODAY=2026-10-28), recorded answers keep
         # replaying on later days; unset, it is the real date.
         self.today = os.environ.get("ADDIN_TODAY", "").strip() or None
-        self._people: tuple[float, dict[str, str]] | None = None
+        self._people: tuple[float, dict[str, str], dict[str, dict]] | None = None
         self._lock = threading.Lock()
 
-    def people(self) -> dict[str, str]:
+    def _directory(self) -> tuple[dict[str, str], dict[str, dict]]:
         with self._lock:
             if self._people is None or time.time() - self._people[0] > 300:
-                self._people = (time.time(), directory(self.store, self.ns))
-            return self._people[1]
+                self._people = (time.time(), directory(self.store, self.ns), slack_people(self.store, self.ns))
+            return self._people[1], self._people[2]
+
+    def people(self) -> dict[str, str]:
+        return self._directory()[0]
+
+    def with_slack(self, out: dict) -> dict:
+        """Where to message the people an answer names: the person to ask, whoever can share
+        what is locked, and anyone a note names in full. Added after the model, so prompts and
+        recordings do not change."""
+        slack = self._directory()[1]
+        if out.get("ask") and out["ask"]["name"] in slack:
+            out["ask"]["slack"] = slack[out["ask"]["name"]]
+        for owner in out.get("locked", {}).get("owners", []):
+            if owner.get("name") in slack:
+                owner["slack"] = slack[owner["name"]]
+        for note in out.get("notes", []):
+            # The person a note is about is the one in its title ("Dhruv Pendharkar owns infra
+            # Terraform"); someone named in passing in the text ("then Karthik is on call") is not.
+            named = [n for n in slack if n in note["title"]] or [n for n in slack if n in note["text"]]
+            note["people"] = [{"name": n, "slack": slack[n]} for n in named]
+        return out
 
     def ask(self, question: str, viewer: str, about: str | None = None) -> dict:
         ctx = gather(self.store, self.ns, viewer, f"{question} {about}" if about else question)
         out = answer(self.model, question, ctx, self.people(), today=self.today, about=about)
         out["viewer"] = {"email": ctx.viewer["email"], "member": ctx.viewer["member"]}
-        return out
+        return self.with_slack(out)
 
     def context(self, paragraph: str, section: str | None, doc: str | None, viewer: str) -> dict:
         ctx = gather(self.store, self.ns, viewer, paragraph_query(paragraph, section))
         out = context(self.model, paragraph, section, doc, ctx, self.people(), today=self.today)
         out["viewer"] = {"email": ctx.viewer["email"], "member": ctx.viewer["member"]}
-        return out
+        return self.with_slack(out)
 
 
 def handler(app: App):

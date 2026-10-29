@@ -248,3 +248,28 @@ def directory(store: Neo4jStore, ns: str) -> dict[str, str]:
         if name and r["emails"]:
             out[name] = r["emails"][0]
     return out
+
+
+def slack_people(store: Neo4jStore, ns: str) -> dict[str, dict]:
+    """Display name -> where to message them on Slack: user id, workspace id and the workspace's
+    web address, for the sidebar's "Message on Slack". Nobody is messaged from here; the sidebar
+    opens a DM and the writer sends it."""
+    teams = store._run(
+        "MATCH (c:Container {ns: $ns, source: 'slack'}) WHERE c.id STARTS WITH 'slack:' "
+        "RETURN split(c.id, ':')[1] AS team, c.url AS url LIMIT 1", ns=ns)
+    if not teams:
+        return {}
+    team = teams[0]["team"]
+    url = teams[0]["url"] or ""
+    web = url.split("/archives/")[0] if "/archives/" in url else None
+    out = {}
+    for r in store._run(
+            "MATCH (p:Person {ns: $ns})-[:HAS_ACCOUNT]->(s:Account {source: 'slack'}) "
+            "WHERE NOT coalesce(p.isBot, false) "
+            "MATCH (p)-[:HAS_ACCOUNT]->(a:Account) "
+            "RETURN p.name AS person, s.handle AS user, collect(DISTINCT {name: a.name, source: a.source}) AS names",
+            ns=ns):
+        name = display_name(r["person"], r["names"])
+        if name and r["user"]:
+            out[name] = {"user": r["user"], "team": team, "web": web}
+    return out

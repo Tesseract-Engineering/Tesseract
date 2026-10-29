@@ -77,7 +77,7 @@ function getContext() {
     var q = question_(child.asText().getText());
     if (q) questions.push({text: q, answered: answered_(child)});
   }
-  return {title: doc.getName(), viewer: viewer_(), questions: questions};
+  return {title: doc.getName(), url: doc.getUrl(), viewer: viewer_(), questions: questions};
 }
 
 /** The nearest heading above a body child: the section a paragraph sits in, or null. */

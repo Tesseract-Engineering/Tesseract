@@ -21,7 +21,7 @@
 
   var server = {
     getContext: function () {
-      return {title: DOC.title, viewer: viewer, questions: DOC.blocks.filter(function (b) { return b.style === 'p' && isQuestion(b.text); })
+      return {title: DOC.title, url: 'https://docs.google.com/document/d/demo', viewer: viewer, questions: DOC.blocks.filter(function (b) { return b.style === 'p' && isQuestion(b.text); })
         .map(function (b) { return {text: b.text, answered: false}; })};
     },
     getFocus: function () {
