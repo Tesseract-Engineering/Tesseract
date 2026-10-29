@@ -25,6 +25,7 @@ testpaths = ["tests"]
 addopts = "-ra --strict-markers"
 markers = [
     "s3: needs an S3-compatible bucket at S3_ENDPOINT (swarm/compose.yaml); skipped otherwise",
+    "neo4j: needs Neo4j at NEO4J_URI with NEO4J_PASSWORD (swarm/compose.yaml); skipped otherwise",
 ]
 
 [tool.ruff]
