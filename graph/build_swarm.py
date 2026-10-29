@@ -35,7 +35,7 @@ from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 
-from . import weights
+from . import refs, weights
 from .contract import EDGE_TYPES, EdgeProposal, NodeProposal, Provenance, validate
 from .resolve import looks_like_bot, resolve_people
 from .swarm_records import State, current_extractions, load, open_store, resolve_person
@@ -91,6 +91,39 @@ def clean(props: dict) -> dict:
     return out
 
 
+# (source, item kind) -> the ref kind a live provider fetches it as. Commits and Jira projects have none.
+REF_KIND = {("github", "repo"): "repo", ("github", "pull_request"): "pull", ("github", "issue"): "issue",
+            ("github", "document"): "blob", ("jira", "issue"): "issue",
+            ("gdrive", "document"): "file", ("gdrive", "folder"): "folder"}
+SHA40 = re.compile(r"^[0-9a-f]{40}$")
+
+
+def source_ref(item: dict) -> refs.SourceRef | None:
+    """Where a live provider finds this item again (refs.py), or None: index-only sources (Slack),
+    kinds no provider fetches (commits, Jira projects), and links that name a different kind."""
+    want = REF_KIND.get((item["source"], item["kind"]))
+    if want is None:
+        return None
+    ref = refs.from_url(item.get("url") or "")
+    if ref is None and item["source"] == "gdrive":
+        try:
+            ref = refs.SourceRef("gdrive", want, item["id"].split(":", 2)[2])
+        except (IndexError, ValueError):
+            return None
+    if ref is None or (ref.provider, ref.kind) != (item["source"], want):
+        return None
+    if want == "blob":
+        # The link is a permalink at the last commit, or at the branch when there was none: only a
+        # commit SHA pins the ref. The path comes from meta, because the link's path is URL-quoted.
+        meta = item.get("meta") or {}
+        commit = meta.get("last_commit")
+        repo = ref.id.partition(":")[0]
+        path = meta.get("path") or ref.id.partition(":")[2]
+        return refs.SourceRef("github", "blob", f"{repo}:{path}",
+                              commit if isinstance(commit, str) and SHA40.match(commit) else None)
+    return ref
+
+
 def item_props(item: dict) -> dict:
     meta = item.get("meta") or {}
     label = TYPE_OF_KIND[item["kind"]]
@@ -107,6 +140,12 @@ def item_props(item: dict) -> dict:
         if name in props:
             continue
         props[name] = when(value) if key.endswith(("_at", "_date")) and isinstance(value, str) else value
+    ref = source_ref(item)
+    if ref is not None:
+        props.update(ref=ref.uri(), refProvider=ref.provider, refKind=ref.kind)
+        version = item.get("version")
+        if ref.kind == "blob" and isinstance(version, str) and SHA40.match(version):
+            props["contentSha"] = version       # the git blob SHA: a live read can check it is the same text
     return clean(props)
 
 
@@ -207,9 +246,25 @@ def build(state: State, ns: str) -> tuple[list, dict]:
                     etype, src, dst, stype, dtype = "PARTICIPATED_IN", p["id"], iid, "Account", label
                 edge(etype, src, dst, stype, dtype, {"role": role, "weight": weights.role_weight(role)},
                      prov(it["source"], iid, "swarm:field:people", observed=it.get("updated_at")))
-    for iid, refs in pending.items():   # rule 4: kept, resolved when the target arrives
-        item_nodes[iid].props["pendingRefs"] = refs
+    for iid, waiting in pending.items():   # rule 4: kept, resolved when the target arrives
+        item_nodes[iid].props["pendingRefs"] = waiting
     report["counts"]["pending refs"] = sum(len(v) for v in pending.values())
+
+    # ---- source refs: how much of each live source a provider can fetch again ------------- #
+    # no_kind: kinds no provider fetches (commits, Jira projects). mismatch: a fetchable kind whose
+    # link gave no ref of that kind. Sources outside refs.KINDS (Slack) are index-only.
+    report["refs"] = {}
+    for iid, it in state.items.items():
+        if it["source"] not in refs.KINDS:
+            continue
+        cov = report["refs"].setdefault(it["source"], {"items": 0, "with_ref": 0, "mismatch": 0, "no_kind": 0})
+        cov["items"] += 1
+        if "ref" in item_nodes[iid].props:
+            cov["with_ref"] += 1
+        elif (it["source"], it["kind"]) in REF_KIND:
+            cov["mismatch"] += 1
+        else:
+            cov["no_kind"] += 1
 
     # ---- people: identity clusters, then our resolver for identities no cluster lists -- #
     # rule 6: an identity listed only by a cluster that later merged away belongs to the survivor
@@ -420,6 +475,15 @@ def main(argv: list[str] | None = None) -> None:
         print("Refs to items not ingested yet (kept on the node as pendingRefs):")
         for src, rtype, target in report["pending_refs"]:
             print(f"         {src} -{rtype}-> {target}")
+    print("Refs")
+    for source, cov in sorted(report["refs"].items()):
+        notes = [f"{cov['mismatch']} mismatches"] if cov["mismatch"] else []
+        notes += [f"{cov['no_kind']} no live kind"] if cov["no_kind"] else []
+        print(f"  {source:<7} {cov['with_ref']}/{cov['items']} items with a ref"
+              + (f" ({', '.join(notes)})" if notes else ""))
+    index_only = sorted({it["source"] for it in state.items.values()} - set(refs.KINDS))
+    for source in index_only:
+        print(f"  {source}: index only")
     if report["dropped"]:
         print("Dropped")
         for k, v in sorted(report["dropped"].items()):

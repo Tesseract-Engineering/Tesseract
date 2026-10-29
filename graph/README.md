@@ -12,6 +12,7 @@ bucket runs/ ──▶ swarm_records.py ──▶ build_swarm.py ──▶ the d
 |---|---|
 | `swarm_records.py` | Reads runs (the S3 bucket, or a folder holding `runs/`) and applies SWARM.md's reading rules: complete manifests only, newest content and ACL win, tombstones retire items and their extractions, identity clusters followed through `merged_into`, and the current extraction per item (rule 9). |
 | `build_swarm.py` | Turns that state into node and edge proposals. Repos, channels, folders and Jira projects become `Container`s; PRs and issues `Issue`s; threads and docs `Document`s. Roles become `AUTHORED`, `REVIEWED`, `ASSIGNED_TO`...; refs become `CLOSES`, `IMPLEMENTS`, `PART_OF`, `BLOCKS`, `DUPLICATES`, `REFERENCES`. |
+| `refs.py` | Source refs: where a live provider finds an item again, as a `forge://` URI (see "Source refs" below). |
 | `weights.py` | Every number in the graph: ref confidence by `via`, role weight, source authority, noisy-or when sources agree. |
 | `contract.py`, `ingest.py`, `store.py`, `load.py` | The door: what node and edge types may exist (the swarm's ontology), and the only code that writes to Neo4j. |
 | `resolve.py` | Fallback people matching for identities no swarm cluster lists. Merges on exact email only; anything weaker is written as a `ReviewItem`. |
@@ -39,6 +40,37 @@ Inside the compose stack (`docs/SWARM.md`), the `graph` job does the same agains
 Items keep the source's fields as properties (Jira status, PR state, message counts...). `sourceUpdatedAt` is when the source last changed the item; `ingestedAt` is when this build wrote it. People carry `isBot`. Every node and edge records its `source`, `producer` and `confidence`.
 
 Confidence is how sure we are a fact is true: 1.0 for a field the source filled, less for a link spotted in prose (by `via`), and the model's own score for anything extracted. `sourceAuthority` (code over chat) is stored separately on extracted edges, for ranking; it never lowers a confidence. Edges under 0.80 are stored with `decision: "escalate"`, and readers leave them out by default (`swarm_queries.CONFIDENCE_FLOOR`).
+
+## Source refs
+
+A node built from an item that a live provider can fetch again carries a **source ref**, so a live reader (forge, `docs/FORGE.md`) can go from the node to the item without parsing its link:
+
+| Property | Value |
+|---|---|
+| `ref` | the `forge://` URI below |
+| `refProvider`, `refKind` | its parts: `github` / `jira` / `gdrive`, and the kind within that provider |
+| `contentSha` | GitHub docs only: the git blob SHA the text was read from (the swarm item's `version`) |
+
+| Provider | Kind | URI | Link |
+|---|---|---|---|
+| github | blob | `forge://github/blob/acme/api@<sha>:src/auth/session.py` | `https://github.com/acme/api/blob/<sha>/src/auth/session.py` |
+| github | pull, issue | `forge://github/pull/acme/api/412` | `https://github.com/acme/api/pull/412` |
+| github | repo | `forge://github/repo/acme/api` | `https://github.com/acme/api` |
+| jira | issue | `forge://jira/issue/AUTH-42` | `<jira base url>/browse/AUTH-42` |
+| gdrive | file, folder | `forge://gdrive/file/<fileId>` | `https://drive.google.com/file/d/<fileId>/view` |
+
+`build_swarm.source_ref` reads the ref from the item's link (`refs.from_url`), and keeps it only when its kind is the item's: a GitHub issue whose link is a PR gets no ref. A Drive item with no link gets its ref from its id. A GitHub doc's ref pins the commit its permalink was read at (`meta.last_commit`); when the swarm had no commit and linked the branch, the ref has no version. Its path is `meta.path`, not the URL-quoted path in the link.
+
+Slack is index-only: the graph holds its text, but no provider fetches it again. GitHub commits and Jira projects have no live kind, so they get no ref either. Nothing else about a node changes when it has no ref. `ref` is indexed on `Issue`, `Document`, `Commit` and `Container`. Every build prints a **Refs** section after the proposals:
+
+```
+Refs
+  github  3/4 items with a ref (1 no live kind)
+  jira    3/4 items with a ref (1 no live kind)
+  slack: index only
+```
+
+A *mismatch* is an item of a fetchable kind whose link gave no ref of that kind.
 
 ## Permissions
 
