@@ -1,0 +1,66 @@
+name: Stack
+
+# End-to-end smoke test of the swarm's compose stack (docs/TESTING.md, "Running the stack in CI"):
+# sample run -> bucket -> graph job -> Neo4j, on the stack's own locked-down networks. Not a required
+# check: it pulls large images and takes minutes. A nightly failure opens an issue.
+on:
+  push:
+    branches: [this-is-not-prod]
+  schedule:
+    - cron: "17 6 * * *"         # daily, 06:17 UTC
+  workflow_dispatch:
+  pull_request:
+    types: [labeled, synchronize, opened, reopened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  compose:
+    name: compose
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run-stack')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NEO4J_PASSWORD: ci-only-password
+      COMPOSE: docker compose -f swarm/compose.yaml
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start the always-on services
+        run: $COMPOSE up -d --wait storage proxy neo4j
+      - name: Create the bucket
+        run: $COMPOSE run --rm init
+      - name: Write the sample run into the bucket
+        run: $COMPOSE run --rm sample
+      - name: Graph, dry run
+        run: $COMPOSE run --rm graph --dry-run
+      - name: Graph, write
+        run: $COMPOSE run --rm graph
+      - name: The graph holds the sample
+        run: |
+          n=$($COMPOSE exec -T neo4j cypher-shell -u neo4j -p "$NEO4J_PASSWORD" --format plain \
+              "MATCH (n {ns: 'kg:swarm'}) RETURN count(n) AS n" | tail -1)
+          echo "nodes in kg:swarm: $n"
+          test "$n" -gt 0
+      - name: Pipelines cannot reach the internet except through the proxy
+        run: |
+          if $COMPOSE run --rm --entrypoint python sample -c \
+               "import urllib.request; urllib.request.urlopen('https://example.com', timeout=10)"; then
+            echo "example.com was reachable: the egress allowlist is not enforced"; exit 1
+          fi
+      - name: Logs
+        if: always()
+        run: $COMPOSE logs --no-color > stack.log 2>&1 || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: stack-log, path: stack.log, retention-days: 7}
+      - name: Shut down
+        if: always()
+        run: $COMPOSE down -v
+      - name: Open an issue on a nightly failure
+        if: failure() && github.event_name == 'schedule'
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: |
+          gh issue create --label ci --title "Nightly stack run failed ($(date -u +%F))" \
+            --body "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
