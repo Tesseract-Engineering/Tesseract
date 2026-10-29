@@ -1,6 +1,6 @@
 # slackbot
 
-Tesseract in Slack. Ask in a DM, or @mention it in a channel, and it answers from the swarm graph **as you**: every record it reads is checked against your access (`graph/swarm_queries.py`), and every claim quotes one of those records word for word. Matching records you may not read are counted and their owner named, so you can ask for access in one approval.
+Tesseract in Slack. It runs in the Tesseract core's process and reads only through the core (`core/README.md`), which holds the threads it shares with the call page, the Docs sidebar and the ticketing bot. Ask in a DM, or @mention it in a channel, and it answers from the swarm graph **as you**: every record it reads is checked against your access (`graph/swarm_queries.py`), and every claim quotes one of those records word for word. Matching records you may not read are counted and their owner named, so you can ask for access in one approval.
 
 ```
 DM / @mention ──▶ your Slack email ──▶ viewer() ──▶ search (knowledgeSearch, entitySearch)
@@ -28,12 +28,16 @@ Grant ──▶ Drive shares as the owner, read only, 30 days ──▶ your que
 | On a message | ⋯ → Connect to apps → **Ask Tesseract**, optional question | You, in that channel or thread |
 | In a channel it was invited to | `@Tesseract who owns the retrain pipeline?` | You; Send to thread shares it |
 | About a conversation | `@Tesseract what do you think of this?` in a thread, or right under the messages | You |
+| From your thread | `/tesseract draft a review request for my doc` in the channel it should go to | You, until you approve the exact text |
+| From your thread | `/tesseract make a ticket`, or **Make a ticket** on the handoff DM | You; the ticketing bot creates it once you approve the brief |
+
+**Threads.** Whatever thread you are working in (started on the call page, picked in the Docs sidebar, or handed to Slack with Continue in Slack) is context for every ask, never a source. Continue in Slack DMs you the thread. A review request or a ticket is an approval: the card shows the exact text or brief and its hash, only the thread's owner can approve it, and it is logged on the thread when done.
 
 "What do you think of this?" reads the conversation at the moment you ask: the whole thread when asked in one, otherwise the last 8 messages, and only when the question points at something ("this", "that", "above"...). Nothing is stored. The conversation only steers the search and the reading, and is never quoted as a source; a quote taken from it fails the check like any other. The answer says what the records say about the topic (prior decisions, related work, owners), never the bot's own opinion. Messages from bots are left out. A person's message posted through an app carries a `bot_id`, so the check is whether the author is a bot user.
 
 ## On a call (Zoom, or any call app)
 
-`python -m slackbot --meeting` also serves **Tesseract Meeting** at http://127.0.0.1:8766, on this PC only. The host opens it next to Zoom and shares that window.
+`python -m slackbot --meeting` (the same as `python -m core --meeting`) also serves **Tesseract Meeting** at http://127.0.0.1:8766, on this PC only. The host opens it next to Zoom and shares that window.
 
 ```
 mic (the host)      ─┐                                   ┌▶ live transcript on the page, and data/meetings/<time>.jsonl
@@ -43,6 +47,7 @@ speakers (everyone) ─┘    one session per stream         └▶ the last 3 m
 
 - **Consent first.** Start stays disabled until the host ticks "Everyone on the call has been told and agrees". The page says it is transcribing for as long as it is, and Stop ends it: nothing more goes to ElevenLabs.
 - **Speakers.** Live transcription cannot tell voices apart, so the two streams are the labels: the host's name for the mic, **Others** for the call. **The host wears headphones**, or the mic hears the call too and remote lines appear twice. Loopback records everything the PC plays, so nothing else should play during the call.
+- **The thread.** Start a thread names what the call is deciding; its audience is everyone on the call and the host owns it. Suggest from the call proposes decisions and open questions from the last ten minutes for the host to accept or dismiss. Asks add their question and cited records. Continue in Docs makes it the host's thread in the Docs sidebar. Whatever Docs, Slack or the ticketing bot adds shows up on the page as it happens.
 - **The page's ask box** answers for everyone on the call, because everyone sees the shared screen. It quotes only records every participant can read, and only counts the rest ("🔒 2 related items hidden: not everyone here can read them"), never naming them or their owners.
 - **Anyone can ask in Slack while the call is live:** `@Tesseract`, `/tesseract` or a DM. The last 3 minutes of the call are the context, and the answer is private to the asker and uses their own access, as always. Send to thread shares it.
 - Billing: ElevenLabs meters every second sent, silence included, per stream. Loopback sends nothing while the PC is silent.

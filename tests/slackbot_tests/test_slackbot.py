@@ -9,10 +9,10 @@ import pytest
 
 pytest.importorskip("slack_bolt")
 
+from core.answer import Answer, answer, verify  # noqa: E402
+from core.graph import Hit, Who, keywords, lucene  # noqa: E402
+from core.ledger import Ledger, payload_hash  # noqa: E402
 from slackbot import cards  # noqa: E402
-from slackbot.answer import Answer, answer, verify  # noqa: E402
-from slackbot.graph import Hit, Who, keywords, lucene  # noqa: E402
-from slackbot.ledger import Ledger, payload_hash  # noqa: E402
 from swarm.model import Completion  # noqa: E402
 
 ADR = ("# ADR-014: Nightly retraining pipeline\n\nWe retrain the ranking model nightly on Airflow, reading "
@@ -227,6 +227,6 @@ def test_meeting_page_answer_json():
 
 def test_answer_dataclass_cites_each_item_once():
     h = hit("x:1")
-    from slackbot.answer import Claim
+    from core.answer import Claim
     a = Answer("q", "INFO", "h", claims=[Claim("a", h, "quote one here"), Claim("b", h, "quote two here")])
     assert a.cited == [h]

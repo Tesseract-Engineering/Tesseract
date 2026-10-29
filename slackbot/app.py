@@ -6,9 +6,13 @@ app.py - the Slack app (Bolt, Socket Mode: no public URL, runs next to the graph
     Request access          review card: the one approval, over an exact-payload hash
     Send request            the owner gets Grant / Decline in their DM
     Grant                   Drive sharing changed as the owner (drive.py); the asker gets the answer re-read
+    draft a review request  from the person's thread (core/threads.py): the exact text, posted on approval
+    make a ticket           the thread's brief, handed to the ticketing bot on approval
 
 Who someone is comes from Slack: their email (users:read.email) is the viewer graph/swarm_queries.py
-checks every read against. Nothing is posted anywhere a person did not click to post.
+checks every read against. Every read goes through the Tesseract core (core/service.py), which runs
+in this process; the thread a person is working in is context for their asks, never a source.
+Nothing is posted anywhere a person did not click to post.
 """
 
 from __future__ import annotations
@@ -26,13 +30,12 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 from slack_sdk.errors import SlackApiError
 from slack_sdk.webhook import WebhookClient
 
-from graph.store import Neo4jStore
+from core.answer import Answer
+from core.service import REVIEW_INTENT, TICKET_INTENT, Core
+from core.threads import Denied
 
 from . import cards
-from .answer import Answer, answer
 from .drive import Drive, DriveError, serve
-from .graph import Graph
-from .ledger import Ledger
 
 log = logging.getLogger("slackbot")
 
@@ -49,34 +52,20 @@ def clock(dt: datetime | None = None) -> str:
     return (dt or datetime.now()).strftime("%I:%M %p").lstrip("0")
 
 
-def model_from_env():
-    """The swarm's model client, called directly (no batches: someone is waiting) at low effort."""
-    from swarm import model as m
-
-    backend = os.environ.get("SWARM_MODEL_BACKEND", "anthropic")
-    name = os.environ.get("SWARM_MODEL", m.DEFAULT_MODEL)
-    effort = os.environ.get("SLACKBOT_MODEL_EFFORT", "low")
-    if backend == "off":
-        return None
-    if backend == "anthropic":
-        return m.ClaudeApi(name, effort=effort, batch=False)
-    if backend == "bedrock":
-        return m.Bedrock(name, effort=effort)
-    return m.from_env()
-
-
 class Bot:
-    def __init__(self, meeting: bool = False):
-        self.ns = os.environ.get("SLACKBOT_NS", "kg:swarm")
+    def __init__(self, core: Core, meeting: bool = False):
+        self.core = core
         self.days = int(os.environ.get("SLACKBOT_ACCESS_DAYS", "30"))
-        self.graph = Graph(Neo4jStore(), self.ns)
-        self.ledger = Ledger(os.environ.get("SLACKBOT_DB", "data/slackbot/tesseract.db"))
+        self.graph = core.graph          # the core's reads: items for owner cards, viewers
+        self.ledger = core.ledger
         self.drive = Drive(os.environ.get("SLACKBOT_GOOGLE_CLIENT", "data/gdrive/oauth-client.json"),
                            int(os.environ.get("SLACKBOT_OAUTH_PORT", "8765")))
-        self.model = model_from_env()
         self.app = App(token=os.environ["SLACKBOT_BOT_TOKEN"])
         self.client = self.app.client
-        self.bot_user = self.client.auth_test()["user_id"]
+        auth = self.client.auth_test()
+        self.bot_user = auth["user_id"]
+        core.slack = {"team": auth["team_id"], "bot_user": self.bot_user, "url": auth.get("url")}
+        core.subscribe(self.on_core)
         self.answers: OrderedDict[str, dict] = OrderedDict()   # card key -> what its buttons act on
         self.emails: dict[str, str | None] = {}
         self.names: dict[str, str] = {}
@@ -141,12 +130,14 @@ class Bot:
 
     def ask(self, user: str, question: str, granted_extra: list[str] | None = None,
             context: str | None = None) -> Answer:
+        """As the asker. Context, never quoted: what the question pointed at; else, mid-call, the last
+        minutes of the call; and the thread they are working in, if any."""
         email = self.email(user)
-        v = self.graph.viewer(email)
-        granted = sorted(set(self.ledger.granted(email)) | set(granted_extra or []))
         if context is None and self.meeting and self.meeting.live:
             context = self.meeting.transcript.recent()      # asked mid-call: the call is what "this" is
-        return answer(self.graph, v, question, self.model, granted=granted, context=context)
+        working = self.core.working(email)
+        context = "\n\n".join(c for c in (context, working) if c) or None
+        return self.core.answer(email, question, context=context, granted_extra=granted_extra)
 
     # -- a live call (meeting.py) -------------------------------------------------------------- #
 
@@ -166,12 +157,11 @@ class Bot:
             if not cursor:
                 return people
 
-    def meeting_ask(self, question: str) -> Answer:
-        """An ask from the shared screen: read against the last minutes of the call, quoting only what
-        everyone on the call may read, since everyone on the call sees it."""
-        audience = [self.graph.viewer(e) for e in self.people]
-        return answer(self.graph, self.graph.viewer(self.host), question, self.model,
-                      context=self.meeting.transcript.recent(), audience=audience)
+    def meeting_ask(self, question: str, thread: str | None = None) -> Answer:
+        """An ask from the shared screen: read against the last minutes of the call (and the call's
+        thread), quoting only what everyone on the call may read, since everyone on the call sees it."""
+        return self.core.answer(self.host, question, context=self.meeting.transcript.recent(),
+                                thread=thread, audience=self.people)
 
     def shareable(self, channel: str, a: Answer) -> tuple[bool, str | None]:
         if a.status != "INFO":
@@ -206,14 +196,48 @@ class Bot:
                     break
         except SlackApiError:     # a private channel it was not invited to: it cannot see who is there
             return False, "Invite @Tesseract here so it can check who can read the sources"
-        for m in members:
-            email = self.email(m)
-            if email is None:
-                continue              # bots, including this one
-            v = self.graph.viewer(email)
-            if not set(ids) <= self.graph.readable_ids(v, ids, self.ledger.granted(email)):
-                return False, "Someone in this channel can't read every source"
+        emails = [e for e in (self.email(m) for m in members) if e]      # bots, this one included, are None
+        if not self.core.everyone_can_read(emails, ids):
+            return False, "Someone in this channel can't read every source"
         return True, None
+
+    # -- the thread a person is working in (core/threads.py) ----------------------------------- #
+
+    def thread_action(self, user: str, question: str, channel: str) -> list[dict] | None:
+        """"draft a review request for my doc" and "make a ticket" act on the person's thread: each
+        becomes an approval showing the exact payload. None when the question is neither."""
+        review, ticket = REVIEW_INTENT.search(question), TICKET_INTENT.search(question)
+        if not (review or ticket):
+            return None
+        email = self.email(user)
+        t = self.core.threads.active(email)
+        if t is None:
+            return cards.no_thread()
+        try:
+            if review:
+                if channel.startswith("D"):
+                    return cards.notice("Run this in the channel the review request should go to.")
+                return cards.review_draft(self.core.draft_review(t["id"], email, channel), t)
+            return cards.ticket_draft(self.core.propose_ticket(t["id"], email), t)
+        except Denied as e:
+            return cards.notice(str(e))
+
+    def on_core(self, event: dict) -> None:
+        """What the core announces that someone should hear about in Slack: a thread handed to Slack,
+        and a ticket the ticketing bot made."""
+        try:
+            if event["type"] == "handoff" and event["to"] == "slack":
+                user = self.client.users_lookupByEmail(email=event["by"])["user"]["id"]
+                t = self.core.threads.get(event["thread"], event["by"], proposed=False)
+                self.client.chat_postMessage(channel=self.dm(user), text=f"Continuing: {t['title']}",
+                                             blocks=cards.handoff(t, event["from"]))
+            elif event["type"] == "done" and event["approval"]["surface"] == "tickets":
+                a = event["approval"]
+                user = self.client.users_lookupByEmail(email=a["approved_by"])["user"]["id"]
+                self.client.chat_postMessage(channel=self.dm(user), text="Ticket created",
+                                             blocks=cards.ticket_done(a))
+        except Exception:
+            log.exception("could not tell Slack about %s", event.get("type"))
 
     # -- routes -------------------------------------------------------------------------------- #
 
@@ -230,6 +254,10 @@ class Bot:
             user = event["user"]
             if not self.email(user):
                 say("I can't see your email in Slack, so I can't tell what you're allowed to read.")
+                return
+            acted = self.thread_action(user, question, event["channel"])
+            if acted is not None:
+                say(text="Tesseract", blocks=acted)
                 return
             placeholder = say(text="Reading what you can see…")
             a = self.ask(user, question)
@@ -279,6 +307,10 @@ class Bot:
             if not self.email(user):
                 respond(response_type="ephemeral", text="I can't see your email in Slack, so I can't tell what "
                                                         "you're allowed to read.")
+                return
+            acted = self.thread_action(user, question, channel)
+            if acted is not None:
+                respond(response_type="ephemeral", text="Tesseract", blocks=acted)
                 return
             a = self.ask(user, question)
             ok, why = self.shareable(channel, a)
@@ -490,6 +522,68 @@ class Bot:
         def connect_google(ack):
             ack()
 
+        @app.action("approve_post")
+        def approve_post(ack, body, respond):
+            """The thread's owner approves the drafted message by its hash; then it posts, labelled."""
+            ack()
+            aid, h = body["actions"][0]["value"].split("|")
+            user = body["user"]["id"]
+            try:
+                a = self.core.approve(aid, self.email(user) or "", h)
+            except Denied as e:
+                respond(replace_original=False, response_type="ephemeral", text=str(e))
+                return
+            p = a["payload"]
+            try:
+                posted = self.client.chat_postMessage(channel=p["channel"], text=p["text"],
+                                                      blocks=cards.posted_message(p["text"], user, a["hash"]))
+                link = self.client.chat_getPermalink(channel=p["channel"], message_ts=posted["ts"])["permalink"]
+            except SlackApiError as e:
+                self.core.done(aid, "slack", {"text": f"Could not post: {e.response['error']}"}, ok=False)
+                respond(replace_original=False, response_type="ephemeral",
+                        text="I can't post here. Invite @Tesseract to this channel first.")
+                return
+            self.core.done(aid, "slack", {"text": "Review request posted", "url": link})
+            respond(replace_original=True, text="Posted",
+                    blocks=cards.posted(a, link, a["thread_id"]))
+
+        @app.action("approve_ticket")
+        def approve_ticket(ack, body, respond):
+            ack()
+            aid, h = body["actions"][0]["value"].split("|")
+            try:
+                a = self.core.approve(aid, self.email(body["user"]["id"]) or "", h)
+            except Denied as e:
+                respond(replace_original=False, response_type="ephemeral", text=str(e))
+                return
+            respond(replace_original=True, text="Sent to the ticketing bot",
+                    blocks=cards.closed("Sent to the ticketing bot",
+                                        "It creates the issue with this brief, and I'll DM you the link.", a["hash"]))
+
+        @app.action("cancel_approval")
+        def cancel_approval(ack, body, respond):
+            ack()
+            try:
+                a = self.core.cancel(body["actions"][0]["value"], self.email(body["user"]["id"]) or "")
+            except Denied as e:
+                respond(replace_original=False, response_type="ephemeral", text=str(e))
+                return
+            respond(replace_original=True, text="Cancelled", blocks=cards.closed("Cancelled", "Nothing was sent.",
+                                                                                 a["hash"]))
+
+        @app.action("make_ticket")
+        def make_ticket(ack, body, respond):
+            ack()
+            email = self.email(body["user"]["id"]) or ""
+            try:
+                a = self.core.propose_ticket(body["actions"][0]["value"], email)
+                t = self.core.threads.get(a["thread_id"], email, proposed=False)
+            except Denied as e:
+                respond(replace_original=False, response_type="ephemeral", text=str(e))
+                return
+            respond(replace_original=False, response_type="ephemeral", text="Ticket brief",
+                    blocks=cards.ticket_draft(a, t))
+
     # -- granting ------------------------------------------------------------------------------ #
 
     def on_google(self, state: str, code: str) -> str:
@@ -556,7 +650,7 @@ class Bot:
             from .page import serve as serve_page
 
             port = int(os.environ.get("SLACKBOT_MEETING_PORT", "8766"))
-            serve_page(self.meeting, self.meeting_ask, port)
+            serve_page(self.meeting, self.meeting_ask, port, core=self.core, host=self.host, people=self.people)
             log.info("Tesseract Meeting on http://127.0.0.1:%d (host %s, %d people on the call)",
                      port, self.host, len(self.people))
         if self.drive.configured:

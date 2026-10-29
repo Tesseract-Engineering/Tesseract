@@ -28,7 +28,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -e '.[dev,swarm,slackbot]'
-      - run: ruff check tests swarm pipelines samples slackbot
+      - run: pip install -e '.[dev,swarm,slackbot,addin]'
+      - run: ruff check tests swarm pipelines samples slackbot core docs_addin eval
       - run: pytest
 
