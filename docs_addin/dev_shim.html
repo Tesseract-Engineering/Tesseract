@@ -1,0 +1,126 @@
+<!-- Served by api.py at /dev only: stands in for google.script.run and for the document, so the
+     sidebar runs in a plain browser tab against the local API. The demo doc (demo_doc.json) is
+     drawn on the left; clicking a paragraph puts the "cursor" there, and selecting text with the
+     mouse is a selection. ?viewer=<email> picks who is asking. -->
+<script>
+(function () {
+  var DOC = __DEV_DOC__;
+  var viewer = new URLSearchParams(location.search).get('viewer') || 'ishan.tesseract@gmail.com';
+  var cursor = null;
+
+  function isQuestion(t) { return t.length >= 15 && /\?(\s|$)/.test(t) ? t : null; }
+  function sectionOf(i) {
+    for (var j = i - 1; j >= 0; j--) if (/^(h[23]|title)$/.test(DOC.blocks[j].style)) return DOC.blocks[j].text;
+    return null;
+  }
+  function post(path, body) {
+    body.viewer = viewer;
+    return fetch('/dev' + path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)})
+      .then(function (r) { return r.json(); });
+  }
+
+  var server = {
+    getContext: function () {
+      return {title: DOC.title, url: 'https://docs.google.com/document/d/demo', viewer: viewer, questions: DOC.blocks.filter(function (b) { return b.style === 'p' && isQuestion(b.text); })
+        .map(function (b) { return {text: b.text, answered: false}; })};
+    },
+    getFocus: function () {
+      var sel = window.getSelection(), text = sel ? String(sel).trim() : '';
+      var node = sel && sel.anchorNode && (sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentElement);
+      var p = node && node.closest && node.closest('#devdoc p');
+      if (text && p) {
+        var i = Number(p.dataset.i);
+        return {text: text, selected: true, section: sectionOf(i), question: isQuestion(text)};
+      }
+      return cursor;
+    },
+    ask: function (question, about) { return post('/answer', {question: question, about: about}); },
+    askContext: function (paragraph, section) { return post('/context', {paragraph: paragraph, section: section, doc: DOC.title}); },
+    insertAnswer: function (question, answer, sources) {
+      console.log('[dev] insert under', JSON.stringify(question), answer, sources);
+      return true;
+    }
+  };
+  function runner(ok, fail) {
+    var r = {
+      withSuccessHandler: function (f) { return runner(f, fail); },
+      withFailureHandler: function (f) { return runner(ok, f); }
+    };
+    Object.keys(server).forEach(function (name) {
+      r[name] = function () {
+        var args = arguments;
+        Promise.resolve().then(function () { return server[name].apply(null, args); })
+          .then(function (v) { ok && ok(v); }, function (e) { fail && fail(e); });
+      };
+    });
+    return r;
+  }
+  window.google = {script: {run: runner(null, null)}};
+
+  document.addEventListener('DOMContentLoaded', function () {
+    var pane = document.createElement('div');
+    pane.id = 'devdoc';
+    DOC.blocks.forEach(function (b, i) {
+      if (b.style === 'meta' || b.style === 'table') {
+        var t = document.createElement('table');
+        var rows = b.style === 'meta' ? b.rows : [b.header].concat(b.rows);
+        rows.forEach(function (r, ri) {
+          var tr = t.insertRow();
+          r.forEach(function (c, ci) {
+            var td = tr.insertCell(); td.textContent = c;
+            if ((b.style === 'table' && ri === 0) || (b.style === 'meta' && ci === 0)) td.className = 'th';
+          });
+        });
+        pane.appendChild(t);
+        return;
+      }
+      if (b.style === 'figure') {
+        var fig = document.createElement('figure');
+        fig.innerHTML = '<img src="/dev/figures/' + b.src + '"><figcaption></figcaption>';
+        fig.querySelector('figcaption').textContent = b.caption;
+        pane.appendChild(fig);
+        return;
+      }
+      if (b.style === 'bullets') {
+        var ul = document.createElement('ul');
+        b.items.forEach(function (item) {
+          var li = document.createElement('li'); li.textContent = item;
+          li.onclick = function () { cursor = {text: item, selected: false, section: sectionOf(i), question: isQuestion(item)}; };
+          ul.appendChild(li);
+        });
+        pane.appendChild(ul);
+        return;
+      }
+      var el = document.createElement(b.style === 'title' ? 'h1' : b.style === 'p' ? 'p' : b.style);
+      el.textContent = b.text;
+      if (b.style === 'p') {
+        el.dataset.i = i;
+        el.onclick = function () {
+          document.querySelectorAll('#devdoc p').forEach(function (x) { x.classList.remove('cur'); });
+          el.classList.add('cur');
+          cursor = {text: b.text, selected: false, section: sectionOf(i), question: isQuestion(b.text)};
+        };
+      }
+      pane.appendChild(el);
+    });
+    document.documentElement.appendChild(pane);
+  });
+})();
+</script>
+<style>
+html{background:#e9e8e7}
+body{max-width:300px;margin:0 0 0 auto !important;border-left:1px solid #e0e0e0;height:100vh}
+#devdoc{position:fixed;left:0;top:0;bottom:0;right:301px;overflow:auto;background:#fff;padding:40px 56px;font:14px/1.6 Arial,sans-serif;color:#202124;box-sizing:border-box}
+#devdoc h1{font-size:22px;font-weight:400;margin:0 0 12px}
+#devdoc h2{font-size:17px;font-weight:400;margin:22px 0 6px}
+#devdoc h3{font-size:14px;font-weight:700;margin:16px 0 4px;color:#434343}
+#devdoc p{margin:0 0 10px;cursor:text;border-radius:4px;padding:2px 4px;margin-left:-4px}
+#devdoc p:hover{background:#f1f3f4}
+#devdoc p.cur{background:#e8f0fe;box-shadow:inset 2px 0 0 #1a73e8}
+#devdoc table{border-collapse:collapse;width:100%;margin:6px 0 14px;font-size:12.5px}
+#devdoc td{border:1px solid #dadce0;padding:5px 8px;vertical-align:top}
+#devdoc td.th{background:#f1f3f4;font-weight:600}
+#devdoc figure{margin:10px 0 16px;text-align:center}
+#devdoc figure img{max-width:100%}
+#devdoc figcaption{font-size:12px;color:#5f6368;font-style:italic;margin-top:4px}
+</style>
