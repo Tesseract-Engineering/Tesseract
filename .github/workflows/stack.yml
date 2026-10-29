@@ -12,6 +12,11 @@ on:
   pull_request:
     types: [labeled, synchronize, opened, reopened]
 
+# One run per PR or branch: opening a PR with two labels would otherwise start three runs.
+concurrency:
+  group: stack-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   issues: write
@@ -27,6 +32,10 @@ jobs:
       COMPOSE: docker compose -f swarm/compose.yaml
     steps:
       - uses: actions/checkout@v4
+      # The stack bind-mounts ../storage-data and ../neo4j-data. On Linux, a folder Docker creates for a
+      # bind mount belongs to root, and RustFS (not root) then cannot write it: "Permission denied".
+      - name: Create the data folders
+        run: mkdir -p storage-data neo4j-data && chmod 777 storage-data neo4j-data
       - name: Start the always-on services
         run: $COMPOSE up -d --wait storage proxy neo4j
       - name: Create the bucket
