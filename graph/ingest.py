@@ -27,8 +27,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import Iterable
 
-from .contract import (Decision, EdgeProposal, NodeProposal, content_hash, now_iso,
-                      as_row, validate)
+from .contract import Decision, EdgeProposal, NodeProposal, as_row, content_hash, now_iso, validate
 from .store import Neo4jStore
 
 # Thresholds for the default policy. Deliberately crude and inspectable - and
