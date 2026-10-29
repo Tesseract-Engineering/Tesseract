@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<base target="_blank">
+<style>
+:root{
+  --ink:#242424; --muted:#616161; --faint:#8a8886; --pane:#fbfbfa; --card:#fff; --soft:#f1f0ee; --line:#ebeae8;
+  --brand:#8A94FF; --brand2:#B4BBFF; --brand-soft:#EEF0FF; --brand-ink:#5059C9;
+  --good:#1a7f37; --good-soft:#e8f5ea; --lock:#8a6d00; --lock-soft:#fdf6dc; --none:#6b6b6b; --none-soft:#efefef;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--pane);color:var(--ink);font:13px/1.45 "Google Sans",Roboto,-apple-system,system-ui,sans-serif;display:flex;flex-direction:column}
+button{font:inherit}
+a{color:var(--brand-ink);text-decoration:none}
+a:hover{text-decoration:underline}
+.mark{width:18px;height:18px;flex:none;color:var(--brand-ink)}
+.head{height:42px;display:flex;align-items:center;gap:8px;padding:0 8px 0 12px;font-weight:600;font-size:14px;flex:none}
+.head .r{margin-left:auto}
+.icon{width:28px;height:28px;border:0;border-radius:6px;background:transparent;color:var(--muted);cursor:pointer;font-size:15px}
+.icon:hover{background:var(--soft)}
+.ctx{margin:0 12px 2px;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--faint);flex-wrap:wrap}
+.ctx b{font-weight:500;color:var(--muted)}
+.dot{width:3px;height:3px;border-radius:50%;background:var(--faint)}
+.body{padding:10px 12px 8px;display:flex;flex-direction:column;gap:10px;overflow:auto;flex:1}
+.hello h4{font-size:16px;font-weight:600;margin:2px 0 3px}
+.hello p{margin:0;color:var(--muted);font-size:12.5px}
+.q{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 10px;display:flex;flex-direction:column;gap:8px}
+.q.fresh{animation:rise .25s both}
+.q.here{border-color:var(--brand2);box-shadow:0 0 0 3px var(--brand-soft)}
+.q .qt{display:flex;gap:8px;align-items:flex-start;cursor:pointer}
+.q .n{width:20px;height:20px;border-radius:50%;background:var(--soft);color:var(--muted);font-size:11px;font-weight:600;display:grid;place-items:center;flex:none;margin-top:1px}
+.q.done .n{background:var(--good-soft);color:var(--good)}
+.q .qt .qx{flex:1}
+.q .go{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:3px 10px;font-size:12px;cursor:pointer;color:var(--brand-ink);font-weight:600;white-space:nowrap}
+.q .go:hover{background:var(--brand-soft);border-color:var(--brand2)}
+.chip{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:1px 8px;border-radius:999px}
+.chip.answered{background:var(--good-soft);color:var(--good)}
+.chip.partial{background:var(--lock-soft);color:var(--lock)}
+.chip.none{background:var(--none-soft);color:var(--none)}
+.meta{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--faint)}
+.ans{font-size:13px;line-height:1.55;overflow-wrap:anywhere}
+.cite{display:inline-block;min-width:15px;padding:0 3px;margin:0 1px;border-radius:4px;background:var(--brand-soft);color:var(--brand-ink);font-size:10px;font-weight:600;text-align:center;vertical-align:1px;line-height:15px}
+.box{font-size:12px;border-radius:8px;padding:7px 9px;display:flex;gap:7px}
+.box.gap{background:var(--soft);color:var(--muted)}
+.box.gap ul{margin:3px 0 0;padding-left:16px}
+.box.gap b{color:var(--ink);font-weight:600}
+.box.lock{background:var(--lock-soft);color:var(--muted)}
+.box.lock .ic{color:var(--lock)}
+.box b{color:var(--ink);font-weight:600}
+.src summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+.src summary::-webkit-details-marker{display:none}
+.src summary::after{content:"\203A";margin-left:auto;color:var(--faint);transition:transform .15s}
+.src[open] summary::after{transform:rotate(90deg)}
+.src ol{margin:6px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:5px}
+.src li{display:flex;gap:6px;align-items:flex-start;font-size:12px;overflow-wrap:anywhere}
+.src li small{display:block;color:var(--faint);font-size:11px}
+.badge{font-size:9.5px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;border-radius:4px;padding:1px 4px;flex:none;margin-top:1px}
+.b-jira{background:#e9f0fd;color:#0c66e4}.b-github{background:#efefef;color:#24292f}.b-slack{background:#f6eaf5;color:#611f69}.b-gdrive{background:#e8f3ec;color:#137333}
+.acts{display:flex;gap:5px;align-items:center;flex-wrap:wrap}
+.btn{font-size:12px;padding:5px 12px;border-radius:999px;border:1px solid transparent;background:transparent;color:var(--ink);cursor:pointer}
+.btn:hover{background:var(--soft)}
+.btn.p{background:var(--brand);color:#0A0A0B;font-weight:600}
+.btn.p:hover{background:var(--brand2)}
+.btn[disabled]{opacity:.45;cursor:default}
+.btn.q2{color:var(--muted)}
+.fine{font-size:10.5px;color:var(--faint)}
+.ok{display:flex;gap:8px;align-items:center;background:var(--good-soft);border-radius:8px;padding:7px 9px;font-size:12px}
+.ok .ck{width:18px;height:18px;border-radius:50%;background:var(--good);color:#fff;display:grid;place-items:center;font-size:10px;flex:none}
+.err{background:#fff0f0;color:#b42318;border-radius:8px;padding:7px 9px;font-size:12px}
+.think{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--muted)}
+.pulse{width:8px;height:8px;border-radius:50%;background:var(--brand);animation:pulse 1.4s ease-in-out infinite;flex:none}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 var(--brand-soft)}50%{box-shadow:0 0 0 6px var(--brand-soft)}}
+@keyframes rise{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.composer{padding:6px 10px 10px;display:flex;flex-direction:column;gap:5px;flex:none}
+.cbox{display:flex;align-items:center;gap:5px;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:4px 5px 4px 12px}
+.cbox:focus-within{border-color:var(--brand2);box-shadow:0 0 0 3px var(--brand-soft)}
+.cbox input{flex:1;min-width:0;font:inherit;font-size:12.5px;border:0;outline:0;background:transparent;color:var(--ink)}
+.cbox button{width:28px;height:28px;border-radius:50%;border:0;background:var(--soft);color:var(--faint);cursor:pointer;font-size:14px}
+.cbox.live button{background:var(--brand);color:#fff}
+.composer .fine{text-align:center}
+.empty{color:var(--muted);font-size:12.5px;background:var(--card);border:1px dashed var(--line);border-radius:10px;padding:10px}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute"><defs>
+<symbol id="tmark" viewBox="0 0 32 32"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><rect x="3" y="3" width="26" height="26" rx="2"/><rect x="10" y="10" width="12" height="12" rx="1"/><path d="M3 3l7 7M29 3l-7 7M3 29l7-7M29 29l-7-7"/></g></symbol>
+</defs></svg>
+
+<div class="head"><svg class="mark"><use href="#tmark"/></svg>Tesseract<span class="r"><button class="icon" id="refresh" title="Rescan the document">&#8635;</button></span></div>
+<div class="ctx" id="ctx">Reading the document&hellip;</div>
+<div class="body" id="body"></div>
+<div class="composer">
+  <div class="cbox" id="cbox"><input id="free" placeholder="Ask anything about this doc" autocomplete="off"><button id="send" title="Ask">&#8593;</button></div>
+  <div class="fine">Reads only what you can open. Writes only when you click Insert.</div>
+</div>
+
+<script>
+var state = {doc: null, cards: [], here: null};
+var LABEL = {jira: 'Jira', github: 'GitHub', slack: 'Slack', gdrive: 'Drive'};
+var STATUS = {answered: 'Answered', partial: 'Partial', none: 'Nothing found'};
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c];
+  });
+}
+function run(name) {
+  var args = Array.prototype.slice.call(arguments, 1);
+  return new Promise(function (ok, fail) {
+    var r = google.script.run.withSuccessHandler(ok).withFailureHandler(fail);
+    r[name].apply(r, args);
+  });
+}
+function firstName(email) {
+  var who = (email || '').split('@')[0].split(/[._0-9]/)[0];
+  return who ? who.charAt(0).toUpperCase() + who.slice(1) : 'there';
+}
+function draftLink(to, subject, body) {
+  return 'https://mail.google.com/mail/?view=cm&fs=1&to=' + encodeURIComponent(to) +
+    '&su=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+}
+
+/* ---- rendering ------------------------------------------------------------------------ */
+
+function header() {
+  var d = state.doc;
+  var n = state.cards.filter(function (c) { return !c.free; }).length;
+  document.getElementById('ctx').innerHTML = '<b>' + esc(d.title) + '</b><span class="dot"></span>' +
+    n + ' question' + (n === 1 ? '' : 's') + '<span class="dot"></span>as ' + esc(d.viewer || 'unknown');
+}
+
+function answerHtml(text, sources) {
+  return esc(text).replace(/\[(\d+)\]/g, function (m, n) {
+    var s = sources[Number(n) - 1];
+    return s && s.url ? '<a class="cite" href="' + esc(s.url) + '" title="' + esc(s.label) + '">' + n + '</a>'
+                      : '<span class="cite">' + n + '</span>';
+  });
+}
+
+function result(card, i) {
+  var r = card.result;
+  if (card.error) return '<div class="err">' + esc(card.error) + '</div><div class="acts"><button class="btn" data-retry="' + i + '">Try again</button></div>';
+  if (card.busy) return '<div class="think"><span class="pulse"></span>Reading Jira, GitHub, Slack and Drive as you&hellip;</div>';
+  if (!r) return '';
+  var h = '<div class="meta"><span class="chip ' + r.status + '">' + STATUS[r.status] + '</span>' +
+    (r.status !== 'none' ? r.sources.length + ' of ' + r.read + ' sources cited' : 'read ' + r.read + ' sources') +
+    (r.seconds ? '<span class="dot"></span>' + r.seconds + 's' : '') + '</div>';
+  if (r.answer) h += '<div class="ans">' + answerHtml(r.answer, r.sources) + '</div>';
+  else h += '<div class="ans" style="color:var(--muted)">Nothing you can read answers this. Tesseract will not make one up.</div>';
+  if (r.gaps && r.gaps.length) {
+    h += '<div class="box gap"><div><b>Not in anything you can read</b><ul>' +
+      r.gaps.map(function (g) { return '<li>' + esc(g) + '</li>'; }).join('') + '</ul></div></div>';
+  }
+  if (r.locked && r.locked.count) {
+    var where = Object.keys(r.locked.by_source).map(function (k) { return r.locked.by_source[k] + ' ' + (LABEL[k] || k); }).join(', ');
+    var owner = r.locked.owners[0];
+    h += '<div class="box lock"><span class="ic">&#128274;</span><span><b>' + r.locked.count + ' linked item' + (r.locked.count === 1 ? '' : 's') +
+      ' you can’t open</b> (' + esc(where) + '). Not read.' +
+      (owner ? ' ' + esc(owner.name) + ' can share ' + (r.locked.count === 1 ? 'it' : 'them') + '. ' +
+        (owner.email ? '<a href="' + esc(draftLink(owner.email, 'Access for: ' + state.doc.title,
+          'Hi ' + owner.name.split(' ')[0] + ',\n\nI’m answering "' + card.text + '" in ' + state.doc.title +
+          '. A few of the items it links to (' + where + ') aren’t shared with me. Could you share them, or check the answer?\n\nThanks')) +
+          '">Draft a note</a>' : '') : '') + '</span></div>';
+  }
+  if (r.ask && (!r.locked || !r.locked.owners.length || r.locked.owners[0].email !== r.ask.email)) {
+    h += '<div class="box gap"><span>&#128100;</span><span><b>Ask ' + esc(r.ask.name) + '</b>' + (r.ask.reason ? ': ' + esc(r.ask.reason) : '') +
+      '. <a href="' + esc(draftLink(r.ask.email, 'Question for ' + state.doc.title,
+        'Hi ' + r.ask.name.split(' ')[0] + ',\n\nFor "' + card.text + '" in ' + state.doc.title + ', I couldn’t find:\n' +
+        (r.gaps || []).map(function (g) { return '- ' + g; }).join('\n') + '\n\nDo you know, or know where it’s written down?\n\nThanks')) +
+      '">Draft a note</a></span></div>';
+  }
+  if (r.sources.length) {
+    h += '<details class="src"><summary>Sources</summary><ol>' + r.sources.map(function (s) {
+      return '<li><span class="cite">' + s.n + '</span><span class="badge b-' + esc(s.source) + '">' + esc(LABEL[s.source] || s.source) + '</span><span>' +
+        (s.url ? '<a href="' + esc(s.url) + '">' + esc(s.label) + '</a>' : esc(s.label)) +
+        '<small>' + esc([s.updated, (s.people || []).join(', ')].filter(Boolean).join(' · ')) + '</small></span></li>';
+    }).join('') + '</ol></details>';
+  }
+  if (card.inserted) {
+    h += '<div class="ok"><span class="ck">&#10003;</span><span>Inserted under the question, shaded, with source links. Undo with Ctrl/⌘+Z.</span></div>';
+  } else if (!card.free) {
+    h += '<div class="acts"><button class="btn p" data-insert="' + i + '"' + (r.status === 'none' ? ' disabled' : '') + '>Insert</button>' +
+      '<button class="btn" data-copy="' + i + '">Copy</button><button class="btn q2" data-retry="' + i + '">Ask again</button></div>';
+  } else {
+    h += '<div class="acts"><button class="btn" data-copy="' + i + '">Copy</button></div>';
+  }
+  return h;
+}
+
+function render() {
+  header();
+  var body = document.getElementById('body');
+  var h = '<div class="hello"><h4>Hi ' + esc(firstName(state.doc.viewer)) + '.</h4><p>I answer each question from the Jira tickets, PRs, Slack threads and Drive docs you can open, and cite every claim.</p></div>';
+  if (!state.cards.length) h += '<div class="empty">No questions found. Tesseract looks for paragraphs that end in a question mark. You can still ask below.</div>';
+  state.cards.forEach(function (c, i) {
+    var cls = 'q' + (c.shown ? '' : ' fresh') + (c.result && c.result.status !== 'none' ? ' done' : '') + (state.here === c.text ? ' here' : '');
+    h += '<div class="' + cls + '" id="card' + i + '"><div class="qt" data-ask="' + i + '"><span class="n">' + (c.free ? '?' : i + 1) + '</span><span class="qx">' + esc(c.text) + '</span>' +
+      (!c.result && !c.busy && !c.error ? '<button class="go" data-ask="' + i + '">' + (c.answered ? 'Answer again' : 'Answer') + '</button>' : '') +
+      '</div>' + result(c, i) + '</div>';
+  });
+  body.innerHTML = h;
+  state.cards.forEach(function (c) { c.shown = true; });
+}
+
+/* ---- actions -------------------------------------------------------------------------- */
+
+function ask(i) {
+  var card = state.cards[i];
+  if (card.busy) return;
+  card.busy = true; card.error = null; card.result = null; card.inserted = false;
+  render();
+  run('ask', card.text).then(function (r) {
+    card.busy = false;
+    if (r && r.error) card.error = r.error; else card.result = r;
+    render();
+  }, function (e) {
+    card.busy = false; card.error = (e && e.message) || String(e); render();
+  });
+}
+
+function insert(i) {
+  var card = state.cards[i], r = card.result;
+  run('insertAnswer', card.text, r.answer, r.sources).then(function () {
+    card.inserted = true; card.answered = true; render();
+  }, function (e) { card.error = (e && e.message) || String(e); render(); });
+}
+
+function copy(i) {
+  var r = state.cards[i].result;
+  var text = r.answer + '\n\nSources:\n' + r.sources.map(function (s) { return '[' + s.n + '] ' + s.label + (s.url ? ' ' + s.url : ''); }).join('\n');
+  var area = document.createElement('textarea');
+  area.value = text; document.body.appendChild(area); area.select();
+  try { document.execCommand('copy'); } catch (e) {}
+  document.body.removeChild(area);
+}
+
+document.getElementById('body').addEventListener('click', function (e) {
+  var t = e.target.closest('[data-ask],[data-insert],[data-copy],[data-retry]');
+  if (!t) return;
+  e.preventDefault();
+  if (t.dataset.ask != null) { var c = state.cards[Number(t.dataset.ask)]; if (!c.result && !c.busy) ask(Number(t.dataset.ask)); }
+  else if (t.dataset.insert != null) insert(Number(t.dataset.insert));
+  else if (t.dataset.copy != null) copy(Number(t.dataset.copy));
+  else if (t.dataset.retry != null) ask(Number(t.dataset.retry));
+});
+
+function free() {
+  var input = document.getElementById('free');
+  var text = input.value.trim();
+  if (!text) return;
+  input.value = ''; document.getElementById('cbox').classList.remove('live');
+  state.cards.push({text: text, free: true});
+  ask(state.cards.length - 1);
+  setTimeout(function () { var el = document.getElementById('card' + (state.cards.length - 1)); if (el) el.scrollIntoView({behavior: 'smooth'}); }, 50);
+}
+document.getElementById('send').addEventListener('click', free);
+document.getElementById('free').addEventListener('keydown', function (e) { if (e.key === 'Enter') free(); });
+document.getElementById('free').addEventListener('input', function (e) { document.getElementById('cbox').classList.toggle('live', !!e.target.value.trim()); });
+
+function load() {
+  run('getContext').then(function (doc) {
+    var old = {};
+    state.cards.forEach(function (c) { old[c.text] = c; });
+    state.doc = doc;
+    var cards = doc.questions.map(function (q) { var c = old[q.text] || {text: q.text}; c.answered = q.answered; return c; });
+    state.cards = cards.concat(state.cards.filter(function (c) { return c.free; }));
+    render();
+  }, function (e) {
+    document.getElementById('ctx').textContent = 'Could not read the document: ' + ((e && e.message) || e);
+  });
+}
+document.getElementById('refresh').addEventListener('click', load);
+
+/* Follow the cursor: the question it sits in gets a ring, so the pane tracks the document. */
+setInterval(function () {
+  run('getCursorQuestion').then(function (q) {
+    if (q !== state.here) {
+      state.here = q;
+      document.querySelectorAll('.q').forEach(function (el, i) { el.classList.toggle('here', !!q && state.cards[i] && state.cards[i].text === q); });
+      var i = state.cards.findIndex(function (c) { return c.text === q; });
+      if (i >= 0) document.getElementById('card' + i).scrollIntoView({behavior: 'smooth', block: 'nearest'});
+    }
+  }, function () {});
+}, 2500);
+
+load();
+</script>
+</body>
+</html>

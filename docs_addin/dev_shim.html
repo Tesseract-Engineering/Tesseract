@@ -1,0 +1,39 @@
+<!-- Served by api.py at /dev only: stands in for google.script.run, so the sidebar runs in a plain
+     browser tab against the local API. ?viewer=<email> picks who is asking. -->
+<script>
+(function () {
+  var DOC = __DEV_DOC__;
+  var viewer = new URLSearchParams(location.search).get('viewer') || 'hamilton.tesseract@gmail.com';
+  var server = {
+    getContext: function () {
+      return {title: DOC.title, viewer: viewer, questions: DOC.questions.map(function (q) { return {text: q, answered: false}; })};
+    },
+    getCursorQuestion: function () { return null; },
+    ask: function (question) {
+      return fetch('/dev/answer', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                   body: JSON.stringify({question: question, viewer: viewer})})
+        .then(function (r) { return r.json(); });
+    },
+    insertAnswer: function (question, answer, sources) {
+      console.log('[dev] insert under', JSON.stringify(question), answer, sources);
+      return true;
+    }
+  };
+  function runner(ok, fail) {
+    var r = {
+      withSuccessHandler: function (f) { return runner(f, fail); },
+      withFailureHandler: function (f) { return runner(ok, f); }
+    };
+    Object.keys(server).forEach(function (name) {
+      r[name] = function () {
+        var args = arguments;
+        Promise.resolve().then(function () { return server[name].apply(null, args); })
+          .then(function (v) { ok && ok(v); }, function (e) { fail && fail(e); });
+      };
+    });
+    return r;
+  }
+  window.google = {script: {run: runner(null, null)}};
+})();
+</script>
+<style>html{background:#e9e8e7}body{max-width:300px;margin:0 auto;border-left:1px solid #e0e0e0;border-right:1px solid #e0e0e0;height:100vh}</style>
