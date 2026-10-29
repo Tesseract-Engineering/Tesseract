@@ -1,0 +1,18 @@
+# Weekly update PRs against the dev branch. Compose image tags (rustfs, neo4j, squid in
+# swarm/compose.yaml) are not covered by the docker ecosystem: docs/CONTRIBUTING.md says how to check them.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule: {interval: weekly}
+    target-branch: this-is-not-prod
+    groups:
+      python: {patterns: ["*"]}
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule: {interval: weekly}
+    target-branch: this-is-not-prod
+  - package-ecosystem: docker
+    directories: ["/pipelines/*", "/swarm"]
+    schedule: {interval: weekly}
+    target-branch: this-is-not-prod
