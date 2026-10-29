@@ -66,7 +66,7 @@ def model_from_env():
 
 
 class Bot:
-    def __init__(self):
+    def __init__(self, meeting: bool = False):
         self.ns = os.environ.get("SLACKBOT_NS", "kg:swarm")
         self.days = int(os.environ.get("SLACKBOT_ACCESS_DAYS", "30"))
         self.graph = Graph(Neo4jStore(), self.ns)
@@ -82,6 +82,17 @@ class Bot:
         self.names: dict[str, str] = {}
         self.pending: dict[str, dict] = {}     # Ask Tesseract modals waiting for their question
         self.lock = threading.Lock()
+        self.meeting = None
+        if meeting:
+            from .meeting import Meeting
+
+            self.people = self.meeting_people()
+            self.host = os.environ.get("SLACKBOT_MEETING_HOST", "").lower() or self.people[0]
+            try:
+                host_name = self.name(self.client.users_lookupByEmail(email=self.host)["user"]["id"])
+            except SlackApiError:
+                host_name = self.host.split("@")[0]
+            self.meeting = Meeting(host_name, os.environ.get("SLACKBOT_MEETING_DIR", "data/meetings"))
         self._routes()
 
     # -- who is asking ------------------------------------------------------------------------- #
@@ -133,7 +144,34 @@ class Bot:
         email = self.email(user)
         v = self.graph.viewer(email)
         granted = sorted(set(self.ledger.granted(email)) | set(granted_extra or []))
+        if context is None and self.meeting and self.meeting.live:
+            context = self.meeting.transcript.recent()      # asked mid-call: the call is what "this" is
         return answer(self.graph, v, question, self.model, granted=granted, context=context)
+
+    # -- a live call (meeting.py) -------------------------------------------------------------- #
+
+    def meeting_people(self) -> list[str]:
+        """Who is on the call: SLACKBOT_MEETING_PEOPLE, or every person in the workspace."""
+        named = [e.strip().lower() for e in os.environ.get("SLACKBOT_MEETING_PEOPLE", "").split(",") if e.strip()]
+        if named:
+            return named
+        people, cursor = [], None
+        while True:
+            page = self.client.users_list(cursor=cursor, limit=200)
+            for u in page["members"]:
+                email = (u.get("profile", {}).get("email") or "").lower()
+                if email and not u.get("is_bot") and not u.get("deleted") and u.get("id") != "USLACKBOT":
+                    people.append(email)
+            cursor = page.get("response_metadata", {}).get("next_cursor")
+            if not cursor:
+                return people
+
+    def meeting_ask(self, question: str) -> Answer:
+        """An ask from the shared screen: read against the last minutes of the call, quoting only what
+        everyone on the call may read, since everyone on the call sees it."""
+        audience = [self.graph.viewer(e) for e in self.people]
+        return answer(self.graph, self.graph.viewer(self.host), question, self.model,
+                      context=self.meeting.transcript.recent(), audience=audience)
 
     def shareable(self, channel: str, a: Answer) -> tuple[bool, str | None]:
         if a.status != "INFO":
@@ -514,6 +552,13 @@ class Bot:
             self.client.chat_postMessage(channel=r.dm_channel, text=intro)
 
     def run(self):
+        if self.meeting:
+            from .page import serve as serve_page
+
+            port = int(os.environ.get("SLACKBOT_MEETING_PORT", "8766"))
+            serve_page(self.meeting, self.meeting_ask, port)
+            log.info("Tesseract Meeting on http://127.0.0.1:%d (host %s, %d people on the call)",
+                     port, self.host, len(self.people))
         if self.drive.configured:
             serve(self.drive, self.on_google)
             log.info("Google sign-in callback on %s", self.drive.redirect)

@@ -30,6 +30,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(prog="python -m slackbot")
     ap.add_argument("--env", type=Path, default=Path(".env"))
     ap.add_argument("--ask", nargs=2, metavar=("EMAIL", "QUESTION"))
+    ap.add_argument("--meeting", action="store_true",
+                    help="also serve the Tesseract Meeting page (live transcript and asks) on this PC")
     args = ap.parse_args()
     load_env(args.env)
     os.environ.setdefault("NEO4J_PASSWORD", "neo4j-local-dev")     # swarm/compose.yaml's default
@@ -60,7 +62,7 @@ def main() -> None:
 
     from .app import Bot
 
-    Bot().run()
+    Bot(meeting=args.meeting).run()
 
 
 if __name__ == "__main__":
