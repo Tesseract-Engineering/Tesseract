@@ -34,10 +34,13 @@ function viewer_() {
   return (override || Session.getActiveUser().getEmail() || '').toLowerCase();
 }
 
-/** A paragraph's text as a question, or null: ends in "?", long enough to mean something. */
+/**
+ * A paragraph's text as a question, or null: it asks something (a "?" ending a sentence, so
+ * "How often? Provide evidence of the last rotation." counts) and is long enough to mean something.
+ */
 function question_(text) {
   var t = (text || '').trim().replace(/^(\d+|[a-z])[.)]\s+/i, '');
-  return t.length >= 15 && /\?$/.test(t) ? t : null;
+  return t.length >= 15 && /\?(\s|$)/.test(t) ? t : null;
 }
 
 /** The body paragraph (or list item) holding this question, or null. */

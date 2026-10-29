@@ -193,7 +193,7 @@ function render() {
   header();
   var body = document.getElementById('body');
   var h = '<div class="hello"><h4>Hi ' + esc(firstName(state.doc.viewer)) + '.</h4><p>I answer each question from the Jira tickets, PRs, Slack threads and Drive docs you can open, and cite every claim.</p></div>';
-  if (!state.cards.length) h += '<div class="empty">No questions found. Tesseract looks for paragraphs that end in a question mark. You can still ask below.</div>';
+  if (!state.cards.length) h += '<div class="empty">No questions found. Tesseract looks for paragraphs that ask something (with a question mark). You can still ask below.</div>';
   state.cards.forEach(function (c, i) {
     var cls = 'q' + (c.shown ? '' : ' fresh') + (c.result && c.result.status !== 'none' ? ' done' : '') + (state.here === c.text ? ' here' : '');
     h += '<div class="' + cls + '" id="card' + i + '"><div class="qt" data-ask="' + i + '"><span class="n">' + (c.free ? '?' : i + 1) + '</span><span class="qx">' + esc(c.text) + '</span>' +
