@@ -18,7 +18,7 @@ RUN python -c "import tomllib; print('\n'.join(tomllib.load(open('pyproject.toml
  && useradd --system --uid 10001 swarm
 COPY ontology.yaml ./
 COPY swarm/ swarm/
-COPY pipelines/slakc/main.py pipelines/slack/main.py
+COPY pipelines/slack/main.py pipelines/slack/main.py
 USER swarm
 
 ENTRYPOINT ["python", "pipelines/slack/main.py"]
