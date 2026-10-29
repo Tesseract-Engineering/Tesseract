@@ -43,7 +43,7 @@ def one(t, s=None, d=None):
 
 
 check("runs applied in order, identity last", state.runs[-1].endswith("-identity"), state.runs)
-check("ten live items (six from GitHub and Slack, four from Jira)", len(state.items) == 11, len(state.items))
+check("ten live items (six from GitHub and Slack, four from Jira)", len(state.items) == 10, len(state.items))
 check("tombstone and acl_update for never-ingested ids are no-ops (rule 4)",
       state.counts["tombstone for an unknown id (no-op)"] == 1 and state.counts["acl_update for an unknown id (no-op)"] == 1)
 check("nothing the door would refuse", not any(k.startswith("door would refuse") for k in report["dropped"]),
