@@ -109,6 +109,17 @@ def handler(app: App):
         def do_GET(self) -> None:
             if self.path == "/health":
                 return self._send(200, {"ok": True, "ns": app.ns})
+            name = self.path.split("?")[0].removeprefix("/dev/figures/")
+            if app.dev and self.path.startswith("/dev/figures/") and name.endswith(".png") and "/" not in name:
+                path = HERE / "figures" / name
+                if path.is_file():
+                    data = path.read_bytes()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "image/png")
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
+                    return
             if self.path.split("?")[0] == "/dev" and app.dev:
                 page = (HERE / "apps_script" / "Sidebar.html").read_text(encoding="utf-8")
                 shim = (HERE / "dev_shim.html").read_text(encoding="utf-8")

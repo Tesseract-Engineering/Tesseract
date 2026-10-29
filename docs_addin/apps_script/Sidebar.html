@@ -94,6 +94,8 @@ a:hover{text-decoration:underline}
 .k-decided{background:var(--brand-soft);color:var(--brand-ink)}
 .k-owner{background:#efefef;color:#424242}
 .quiet{font-size:12px;color:var(--muted);display:flex;gap:7px;align-items:center}
+.empty-state{font-size:12px;color:var(--faint);text-align:center;padding:24px 8px}
+.empty-state b{color:var(--muted)}
 .sect{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin:4px 0 -4px}
 .focus{margin:6px 12px 0;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 9px;display:flex;flex-direction:column;gap:6px;flex:none}
 .focus.on{border-color:var(--brand2);box-shadow:0 0 0 3px var(--brand-soft)}
@@ -194,9 +196,7 @@ function docLine() {
 
 function header() {
   var d = state.doc;
-  var n = state.cards.filter(function (c) { return !c.free; }).length;
-  document.getElementById('ctx').innerHTML = '<b>' + esc(d.title) + '</b><span class="dot"></span>' +
-    n + ' question' + (n === 1 ? '' : 's') + '<span class="dot"></span>as ' + esc(d.viewer || 'unknown');
+  document.getElementById('ctx').innerHTML = '<b>' + esc(d.title) + '</b><span class="dot"></span>as ' + esc(d.viewer || 'unknown');
 }
 
 function answerHtml(text, sources) {
@@ -248,7 +248,7 @@ function result(card, i) {
   if (r.sources.length) h += sourcesHtml(r.sources);
   if (card.inserted) {
     h += '<div class="ok"><span class="ck">&#10003;</span><span>Inserted under the question, shaded, with source links. Undo with Ctrl/⌘+Z.</span></div>';
-  } else if (!card.free) {
+  } else if (card.doc) {
     h += '<div class="acts"><button class="btn p" data-insert="' + i + '"' + (r.status === 'none' ? ' disabled' : '') + '>Insert</button>' +
       '<button class="btn" data-copy="' + i + '">Copy</button><button class="btn q2" data-retry="' + i + '">Ask again</button></div>';
   } else {
@@ -274,11 +274,14 @@ function focusBar() {
     el.innerHTML = '<div class="hint">Select text, or click into a paragraph, then <b>Check</b> it against Jira, GitHub, Slack and Drive.</div>';
   } else {
     var done = state.notes[f.text] && !state.notes[f.text].busy && !state.notes[f.text].error;
-    el.innerHTML = '<div class="row"><div class="what"><b>' + (f.selected ? 'Selected' : 'This paragraph') +
+    var asked = f.question && state.cards.some(function (c) { return c.doc && c.text === f.text && (c.busy || c.result); });
+    el.innerHTML = '<div class="row"><div class="what"><b>' + (f.question ? 'Question in the doc' : f.selected ? 'Selected' : 'This paragraph') +
       (f.section ? ' · ' + esc(f.section) : '') + '</b><span>' + esc(f.text) + '</span></div>' +
-      '<button class="check" id="checkbtn"' + (state.notes[f.text] && state.notes[f.text].busy ? ' disabled' : '') + '>' +
-      (done ? 'Checked &#10003;' : 'Check') + '</button></div>';
-    document.getElementById('checkbtn').onclick = check;
+      (f.question
+        ? '<button class="check" id="checkbtn"' + (asked ? ' disabled' : '') + '>' + (asked ? 'Answered &#10003;' : 'Answer') + '</button></div>'
+        : '<button class="check" id="checkbtn"' + (state.notes[f.text] && state.notes[f.text].busy ? ' disabled' : '') + '>' +
+          (done ? 'Checked &#10003;' : 'Check') + '</button></div>');
+    document.getElementById('checkbtn').onclick = f.question ? answerQuestion : check;
   }
   var about = document.getElementById('about');
   about.innerHTML = f && f.selected ? 'Asking about <b>the selection</b>: ' + esc(f.text) : '';
@@ -307,7 +310,7 @@ function checkHtml(item) {
 /* A question typed in the sidebar, in the feed. */
 function askHtml(card) {
   var i = state.cards.indexOf(card);
-  return '<div class="q" id="card' + i + '"><div class="qt"><span class="n">?</span><span class="qx">' + esc(card.text) +
+  return '<div class="q" id="card' + i + '"><div class="qt"><span class="n">' + (card.doc ? '&#8984;' : '?') + '</span><span class="qx">' + esc(card.text) +
     (card.about ? '<small style="display:block;color:var(--faint);font-size:11px">about: ' + esc(card.about.slice(0, 80)) + (card.about.length > 80 ? '…' : '') + '</small>' : '') +
     '</span></div>' + result(card, i) + '</div>';
 }
@@ -319,22 +322,18 @@ function render() {
   var body = document.getElementById('body');
   var h = '';
   if (!state.feed.length) {
-    h += '<div class="hello"><h4>Hi ' + esc(firstName(state.doc.viewer)) + '.</h4><p>Ask when you want a second pair of eyes: select a passage and Check it, or ask a question below. I read the Jira tickets, PRs, Slack threads and Drive docs you can open, and cite every claim.</p></div>';
+    h += '<div class="empty-state">Select a passage and <b>Check</b> it, or ask a question below.</div>';
   }
-  state.feed.slice().reverse().forEach(function (item) {
+  state.feed.forEach(function (item) {
     h += item.type === 'check' ? checkHtml(item) : askHtml(item.card);
   });
-  var doc = state.cards.filter(function (c) { return !c.free; });
-  if (doc.length) h += '<div class="sect">Questions in this doc</div>';
-  state.cards.forEach(function (c, i) {
-    if (c.free) return;
-    var cls = 'q' + (c.shown ? '' : ' fresh') + (c.result && c.result.status !== 'none' ? ' done' : '') + (state.here === c.text ? ' here' : '');
-    h += '<div class="' + cls + '" id="card' + i + '"><div class="qt" data-ask="' + i + '"><span class="n">' + (doc.indexOf(c) + 1) + '</span><span class="qx">' + esc(c.text) + '</span>' +
-      (!c.result && !c.busy && !c.error ? '<button class="go" data-ask="' + i + '">' + (c.answered ? 'Answer again' : 'Answer') + '</button>' : '') +
-      '</div>' + result(c, i) + '</div>';
-  });
   body.innerHTML = h;
-  state.cards.forEach(function (c) { c.shown = true; });
+}
+
+/* New items go at the bottom, as in a conversation; keep the newest in view. */
+function toBottom() {
+  var body = document.getElementById('body');
+  body.scrollTop = body.scrollHeight;
 }
 
 /* ---- actions -------------------------------------------------------------------------- */
@@ -343,13 +342,14 @@ function ask(i) {
   var card = state.cards[i];
   if (card.busy) return;
   card.busy = true; card.error = null; card.result = null; card.inserted = false;
-  render();
+  render(); toBottom();
+  var last = state.feed.length && state.feed[state.feed.length - 1].card === card;
   run('ask', card.text, card.about || null).then(function (r) {
     card.busy = false;
     if (r && r.error) card.error = r.error; else card.result = r;
-    render();
+    render(); if (last) toBottom();
   }, function (e) {
-    card.busy = false; card.error = (e && e.message) || String(e); render();
+    card.busy = false; card.error = (e && e.message) || String(e); render(); if (last) toBottom();
   });
 }
 
@@ -374,11 +374,10 @@ document.getElementById('body').addEventListener('click', function (e) {
     if (d) { copyText(d.message); toast('Message copied. Paste it into the DM with ' + d.person.name + ' and press Send.'); }
     return;       // the link itself opens Slack
   }
-  var t = e.target.closest('[data-ask],[data-insert],[data-copy],[data-retry]');
+  var t = e.target.closest('[data-insert],[data-copy],[data-retry]');
   if (!t) return;
   e.preventDefault();
-  if (t.dataset.ask != null) { var c = state.cards[Number(t.dataset.ask)]; if (!c.result && !c.busy) ask(Number(t.dataset.ask)); }
-  else if (t.dataset.insert != null) insert(Number(t.dataset.insert));
+  if (t.dataset.insert != null) insert(Number(t.dataset.insert));
   else if (t.dataset.copy != null) copy(Number(t.dataset.copy));
   else if (t.dataset.retry != null) ask(Number(t.dataset.retry));
 });
@@ -392,7 +391,16 @@ function free() {
   state.cards.push(card);
   state.feed.push({type: 'ask', card: card});
   ask(state.cards.length - 1);
-  document.getElementById('body').scrollTop = 0;
+}
+
+/* The cursor is on one of the doc's own questions: answer it, with Insert to put the answer under it. */
+function answerQuestion() {
+  var f = state.focus;
+  if (!f || !f.question) return;
+  var card = {text: f.question, doc: true};
+  state.cards.push(card);
+  state.feed.push({type: 'ask', card: card});
+  ask(state.cards.length - 1);
 }
 document.getElementById('send').addEventListener('click', free);
 document.getElementById('free').addEventListener('keydown', function (e) { if (e.key === 'Enter') free(); });
@@ -400,11 +408,7 @@ document.getElementById('free').addEventListener('input', function (e) { documen
 
 function load() {
   run('getContext').then(function (doc) {
-    var old = {};
-    state.cards.forEach(function (c) { old[c.text] = c; });
     state.doc = doc;
-    var cards = doc.questions.map(function (q) { var c = old[q.text] || {text: q.text}; c.answered = q.answered; return c; });
-    state.cards = cards.concat(state.cards.filter(function (c) { return c.free; }));
     render();
   }, function (e) {
     document.getElementById('ctx').textContent = 'Could not read the document: ' + ((e && e.message) || e);
@@ -419,30 +423,22 @@ function check() {
   if (!f) return;
   state.feed = state.feed.filter(function (it) { return !(it.type === 'check' && it.text === f.text); });
   state.feed.push({type: 'check', text: f.text, section: f.section});
-  document.getElementById('body').scrollTop = 0;
-  if (state.notes[f.text] && !state.notes[f.text].error) { render(); return; }
+  if (state.notes[f.text] && !state.notes[f.text].error) { render(); toBottom(); return; }
   var r = state.notes[f.text] = {busy: true};
-  render();
+  render(); toBottom();
   run('askContext', f.text, f.section).then(function (out) {
     if (out && out.error) { r.busy = false; r.error = out.error; } else { state.notes[f.text] = out; }
-    render();
-  }, function (e) { r.busy = false; r.error = (e && e.message) || String(e); render(); });
+    render(); toBottom();
+  }, function (e) { r.busy = false; r.error = (e && e.message) || String(e); render(); toBottom(); });
 }
 
 /* Keep the focus bar in step with the document. Reading the selection is free; Tesseract is only
-   asked when the writer clicks. A question of the doc's own gets a ring. */
+   asked when the writer clicks. */
 setInterval(function () {
   run('getFocus').then(function (f) {
     var key = f ? (f.selected ? 's' : 'p') + f.section + '|' + f.text : '';
     var old = state.focus ? (state.focus.selected ? 's' : 'p') + state.focus.section + '|' + state.focus.text : '';
     if (key !== old) { state.focus = f; focusBar(); }
-    var q = f && f.question;
-    if (q !== state.here) {
-      state.here = q;
-      document.querySelectorAll('.q').forEach(function (el) { el.classList.remove('here'); });
-      var i = state.cards.findIndex(function (c) { return !c.free && c.text === q; });
-      if (i >= 0) { var el = document.getElementById('card' + i); el.classList.add('here'); el.scrollIntoView({behavior: 'smooth', block: 'nearest'}); }
-    }
   }, function () {});
 }, 1500);
 

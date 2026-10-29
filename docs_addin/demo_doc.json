@@ -2,55 +2,114 @@
   "title": "Design: billing-service verifies OIDC tokens directly",
   "blocks": [
     {"style": "title", "text": "Design: billing-service verifies OIDC tokens directly"},
-    {"style": "p", "key": "meta", "text": "Author: Ishan Sinha. Reviewers: Karthik Valluri, Dhruv Pendharkar. Status: Draft for review. Last updated: October 28, 2026. Tracking: SBX-10."},
+    {"style": "meta", "rows": [
+      ["Author", "Ishan Sinha (Platform)"],
+      ["Reviewers", "Karthik Valluri, Dhruv Pendharkar"],
+      ["Approver", "Hamilton Park"],
+      ["Status", "In review"],
+      ["Last updated", "October 28, 2026"],
+      ["Tracking", "SBX-10 (compatibility shim), SBX-1 (OIDC migration)"]
+    ]},
 
     {"style": "h2", "text": "1. Summary"},
     {"style": "p", "key": "summary", "text": "billing-service authenticates incoming billing webhooks by reading tenant_id from the bearer token. Since auth-service moved custom claims under a namespace, a compatibility shim in auth-service has rewritten the claim back for the billing webhook audience. This document proposes that billing-service verify OIDC ID tokens itself and read the namespaced claims, so the shim can be deleted."},
 
     {"style": "h2", "text": "2. Background"},
+    {"style": "h3", "text": "2.1 How billing webhooks are authenticated today"},
     {"style": "p", "key": "background", "text": "auth-service is migrating from custom OAuth2 tokens to OpenID Connect. As part of that work, tenant_id and roles moved into namespaced claims. billing-service still expects a top-level tenant_id, so its webhooks started returning 401 in staging, and SBX-10 added a shim that maps the namespaced claim back to tenant_id for the billing webhook audience only."},
+    {"style": "figure", "src": "fig1-current.png", "width": 620, "caption": "Figure 1. Today, auth-service rewrites the namespaced claim for the billing audience (SBX-10)."},
+    {"style": "h3", "text": "2.2 Consumers of the billing audience"},
     {"style": "p", "key": "consumers", "text": "billing-service is the only consumer of tokens issued for the billing webhook audience, so once it reads the namespaced claim the shim has no remaining users and can be removed in the same release."},
 
-    {"style": "h2", "text": "3. Goals"},
-    {"style": "p", "key": "goals", "text": "Verify OIDC ID tokens in billing-service without relying on auth-service at request time. Remove the SBX-10 shim. Keep webhook processing latency within the current p99. No customer-visible change."},
-    {"style": "h2", "text": "4. Non-goals"},
+    {"style": "h2", "text": "3. Goals and non-goals"},
+    {"style": "h3", "text": "3.1 Goals"},
+    {"style": "bullets", "items": [
+      "Verify OIDC ID tokens in billing-service without calling auth-service on the request path.",
+      "Delete the SBX-10 compatibility shim from auth-service.",
+      "Keep p99 webhook processing latency at or below today's.",
+      "No change visible to customers or to the webhook payload."
+    ]},
+    {"style": "h3", "text": "3.2 Non-goals"},
     {"style": "p", "key": "nongoals", "text": "Changing the webhook payload format, migrating other services off the legacy token format, and moving billing-service to a different datastore are out of scope."},
 
-    {"style": "h2", "text": "5. Proposed design"},
-    {"style": "h3", "text": "5.1 Request flow"},
+    {"style": "h2", "text": "4. Proposed design"},
+    {"style": "h3", "text": "4.1 Overview"},
+    {"style": "p", "key": "overview", "text": "billing-service gains a token verifier in front of its webhook handler. The verifier holds auth-service's signing keys in memory, checks every token locally, and resolves the tenant before an event is queued. Figure 2 shows the components and Figure 3 a single request."},
+    {"style": "figure", "src": "fig2-proposed.png", "width": 620, "caption": "Figure 2. Proposed: billing-service verifies tokens itself and the shim is removed."},
+    {"style": "h3", "text": "4.2 Request flow"},
     {"style": "p", "key": "flow", "text": "Each webhook request carries a bearer token. billing-service validates the signature against auth-service's published keys, checks the issuer, audience and expiry, resolves the tenant, and only then enqueues the event for processing. Requests that fail validation are rejected with 401 and are not retried."},
-    {"style": "h3", "text": "5.2 Signing keys"},
+    {"style": "figure", "src": "fig3-sequence.png", "width": 620, "caption": "Figure 3. Verifying and enqueueing one webhook."},
+    {"style": "h3", "text": "4.3 Signing keys"},
     {"style": "p", "key": "jwks", "text": "billing-service will fetch auth-service's JWKS once at startup and cache the keys in memory for the life of the process. To keep the dependency simple, it will call auth-service's internal /.well-known/jwks.json endpoint directly rather than going through api-gateway."},
-    {"style": "h3", "text": "5.3 Claims"},
+    {"style": "h3", "text": "4.4 Claims"},
     {"style": "p", "key": "claims", "text": "billing-service will read the tenant from the top-level tenant_id claim and the caller's permissions from the top-level roles claim, which keeps the handler code unchanged."},
-    {"style": "h3", "text": "5.4 Tenant resolution"},
+    {"style": "h3", "text": "4.5 Tenant resolution"},
     {"style": "p", "key": "lookup", "text": "To attach plan and account details, billing-service will call auth-service's public tenant lookup API once per webhook. At peak we process roughly 300 webhooks per minute, all under billing-service's single API key."},
-    {"style": "h3", "text": "5.5 Service-to-service authentication"},
+    {"style": "h3", "text": "4.6 Service-to-service authentication"},
     {"style": "p", "key": "s2s", "text": "To call the tenant lookup API, billing-service will obtain its own access token from auth-service's /oauth/token endpoint using the client credentials grant, and refresh it every hour."},
-    {"style": "h3", "text": "5.6 Infrastructure"},
+    {"style": "h3", "text": "4.7 Infrastructure"},
     {"style": "p", "key": "infra", "text": "The new configuration (issuer URL, audience, cache settings) ships as Terraform in the infra repo. To unblock the rollout, the on-call engineer will apply the change from their laptop the day before launch."},
+    {"style": "h3", "text": "4.8 Failure modes"},
+    {"style": "table", "header": ["Failure", "Behavior", "Mitigation"], "rows": [
+      ["auth-service unavailable", "Tokens still verify from the keys in memory; tenant lookups fail", "Retry lookups with backoff; events wait in the queue for up to 15 minutes"],
+      ["Token signed with an unknown key id", "Rejected with 401", "Alert on the unknown-kid rate (section 7)"],
+      ["Tenant lookup rejected", "Webhook processing stalls", "Cache tenant details for 5 minutes"],
+      ["Clock skew between services", "Valid tokens rejected as expired", "Allow 60 seconds of leeway on exp and nbf"]
+    ]},
 
-    {"style": "h2", "text": "6. Alternatives considered"},
+    {"style": "h2", "text": "5. Alternatives considered"},
+    {"style": "table", "header": ["Option", "Summary", "Decision"], "rows": [
+      ["A. Keep the shim permanently", "auth-service keeps rewriting the claim for the billing audience", "Rejected"],
+      ["B. Tenant in the webhook payload", "Senders add the tenant to the payload; the token only authenticates", "Rejected"],
+      ["C. Verify tokens in billing-service", "This document", "Chosen"]
+    ]},
     {"style": "p", "key": "alt_shim", "text": "Keep the shim permanently. Rejected: it means auth-service keeps issuing a second, non-standard token shape for one audience, which the OIDC migration is meant to eliminate."},
     {"style": "p", "key": "alt_payload", "text": "Put the tenant in the webhook payload instead of the token. Rejected: the payload is not signed by auth-service, so billing-service could not trust it without a second verification step."},
 
-    {"style": "h2", "text": "7. Security and compliance"},
+    {"style": "h2", "text": "6. Security, privacy and compliance"},
     {"style": "p", "key": "security", "text": "billing-service will log validation failures with the token's issuer and audience, but no token contents. We do not plan to record which tokens billing-service accepted; the audit trail lives in auth-service."},
 
-    {"style": "h2", "text": "8. Observability"},
+    {"style": "h2", "text": "7. Observability"},
     {"style": "p", "key": "observability", "text": "We will add a dashboard for webhook 401s by reason (bad signature, wrong audience, expired, unknown key id) and page the payments on-call if the 401 rate exceeds 1% for ten minutes."},
+    {"style": "table", "header": ["Signal", "Type", "Alert"], "rows": [
+      ["webhook_auth_failures_total{reason}", "Counter", "Page payments on-call above 1% of requests for 10 minutes"],
+      ["jwks_keys_loaded", "Gauge", "None"],
+      ["tenant_lookup_latency_seconds", "Histogram", "Warn when p99 exceeds 250 ms"],
+      ["tenant_lookup_errors_total{code}", "Counter", "Warn on any 429"]
+    ]},
 
-    {"style": "h2", "text": "9. Rollout"},
+    {"style": "h2", "text": "8. Rollout plan"},
     {"style": "p", "key": "rollout", "text": "Ship behind a flag in staging first, then switch production over the week of December 14 and delete the shim the same day."},
+    {"style": "table", "header": ["Phase", "Scope", "Exit criteria", "Target"], "rows": [
+      ["1. Shadow", "Staging; verify alongside the shim and log disagreements", "No disagreements for 3 days", "Dec 1"],
+      ["2. Staging", "Staging; the new path serves", "A day of replayed webhooks matches", "Dec 8"],
+      ["3. Production", "All tenants, behind billing_oidc_verify", "401 rate unchanged for 48 hours", "Week of Dec 14"],
+      ["4. Cleanup", "Delete the shim from auth-service", "No tokens issued in the old shape", "Dec 14"]
+    ]},
+    {"style": "figure", "src": "fig4-rollout.png", "width": 620, "caption": "Figure 4. Rollout timeline."},
 
-    {"style": "h2", "text": "10. Testing"},
+    {"style": "h2", "text": "9. Testing"},
     {"style": "p", "key": "testing", "text": "Unit tests cover each validation failure. In staging we will replay a day of recorded webhooks against the new path and compare outcomes with the shim path before switching production."},
+
+    {"style": "h2", "text": "10. Risks and mitigations"},
+    {"style": "table", "header": ["Risk", "Likelihood", "Impact", "Mitigation"], "rows": [
+      ["The new path rejects tokens the shim accepted", "Medium", "High", "The shadow phase compares both paths before anything serves"],
+      ["Tenant lookups add latency", "Medium", "Medium", "Cache tenant details; alert on p99"],
+      ["Rollback needed after the switch", "Low", "High", "Turn off billing_oidc_verify; the shim stays deployable until phase 4"]
+    ]},
 
     {"style": "h2", "text": "11. Open questions"},
     {"style": "p", "key": "q_audit", "text": "Do we need an audit record of which tokens billing-service accepted?"},
     {"style": "p", "key": "q_owner", "text": "Who owns billing-service once the shim is gone?"},
 
     {"style": "h2", "text": "12. Review"},
-    {"style": "p", "key": "neutral", "text": "Reviewers: please leave comments by Friday so we can finalize the plan at the next sync."}
+    {"style": "p", "key": "neutral", "text": "Reviewers: please leave comments by Friday so we can finalize the plan at the next sync."},
+
+    {"style": "h2", "text": "Appendix A. Glossary"},
+    {"style": "bullets", "items": [
+      "JWKS: the JSON Web Key Set auth-service publishes, the public keys its tokens are signed with.",
+      "kid: the key id in a token's header, naming the JWKS key that signed it.",
+      "Audience (aud): the service a token is issued for; billing webhooks use the billing audience."
+    ]}
   ]
 }

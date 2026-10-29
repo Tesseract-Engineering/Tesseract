@@ -13,7 +13,7 @@ sandbox's history must get the note that history calls for:
     s2s         a new /oauth/token client: SBX-5 is deprecating it
     infra       Terraform applied from a laptop: the conventions say CI only
     rollout     production the week of Dec 14: the auth cutover (Dec 15), the rotation, the shim's users
-and the ones that do not must stay quiet (the header, a rejected alternative, the review note);
+and the ones that do not must stay quiet (a rejected alternative, the review note);
 nothing that agrees with a decision may be called a conflict (rejecting a permanent shim, keeping
 the audit trail in auth-service as SBX-20 does), and the two open questions are answered with
 citations. Other paragraphs may get notes or not: a fair reviewer comment is not noise.
@@ -307,9 +307,9 @@ def _(c):
     return note_says(out, (), r"Dec(ember)? 15|cutover|rotat|Hooli|payments"), shown(out)
 
 
-@ccheck("quiet: the doc's header, a rejected alternative and the review note get no notes")
+@ccheck("quiet: a rejected alternative and the review note get no notes")
 def _(c):
-    loud = {k: shown(c[k]) for k in ("meta", "alt_payload", "neutral") if c[k]["notes"]}
+    loud = {k: shown(c[k]) for k in ("alt_payload", "neutral") if c[k]["notes"]}
     return not loud, str(loud)
 
 

@@ -142,8 +142,14 @@ function getFocus() {
   }
   if (!first) return null;
   var text = parts.join('\n');
-  return {text: text, selected: !!selection, section: section_(body, body.getChildIndex(first)),
+  return {text: text, selected: !!selection, section: section_(body, body.getChildIndex(top_(first))),
           question: parts.length === 1 ? question_(text) : null};
+}
+
+/** The body's own child an element sits in: a paragraph inside a table cell belongs to its table. */
+function top_(el) {
+  while (el.getParent() && el.getParent().getType() !== DocumentApp.ElementType.BODY_SECTION) el = el.getParent();
+  return el;
 }
 
 /** POST to the API. Returns its JSON, or {error} for the sidebar to show. */
