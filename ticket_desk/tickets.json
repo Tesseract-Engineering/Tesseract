@@ -1,0 +1,345 @@
+{
+  "_about": "Seed tickets for the Ticket Desk demo. Customers of the Tesseract platform file them against the Platform team (auth-service, the API gateway, exports). Each maps to history in the sandbox graph (kg:sandbox), or deliberately to none. `expected` is read only by eval/check_ticket_desk.py, never by the agent: the sources a good answer finds, by Jira key, GitHub ref or Drive title; `accept` lists other classifications a careful reader could defend; `stale` lists docs that are out of date and must be flagged as such if cited. `known_fix` lists the past resolutions, by the customer's own action, that a 'fix that worked before' card must cite; a new ticket must have no such card.",
+  "tickets": [
+    {
+      "id": "TD-101",
+      "customer": "Initech",
+      "reporter": {
+        "name": "Peter Gibbons",
+        "email": "peter@initech.example"
+      },
+      "service": "auth-service",
+      "severity": "high",
+      "created_at": "2026-10-29T16:12:00Z",
+      "subject": "401 'unknown signing key' for ~10 minutes after your key rotation",
+      "body": "Hi team,\n\nThis morning around 10:05 PT every call our backend made with freshly issued ID tokens failed with 401 and the error `invalid_token: no key for kid 'k2'`. It cleared up on its own at about 10:15 without us changing anything. Tokens issued before 10:05 kept working the whole time.\n\nWe saw your status note that you were rotating signing keys today. Is this expected, and will it happen again on the next rotation? Our API calls go through your token validation (we use your hosted validator, not our own JWKS cache).\n\nThanks,\nPeter",
+      "expected": {
+        "kind": "near_repeat",
+        "fix": true,
+        "sources": [
+          "OPS-8",
+          "OPS-1",
+          "WEB-3",
+          "OPS-3",
+          "github:auth-service#7",
+          "Postmortem - Staging 401s after key rotation dry run.docx",
+          "API Gateway Key Rotation Runbook.docx"
+        ],
+        "owners": [
+          "Dhruv Pendharkar",
+          "Ishan Sinha"
+        ]
+      }
+    },
+    {
+      "id": "TD-102",
+      "customer": "Vandelay Industries",
+      "reporter": {
+        "name": "Art Vandelay",
+        "email": "art@vandelay.example"
+      },
+      "service": "auth-service",
+      "severity": "high",
+      "created_at": "2026-10-28T19:40:00Z",
+      "subject": "Webhook receiver rejects your tokens: tenant_id is missing",
+      "body": "Since sometime last week our webhook receiver has been rejecting the tokens you send with every webhook. Our code reads `tenant_id` from the token to route the event and that field is just gone now. Nothing changed on our side. Did you change the token format? We need this fixed quickly, events are piling up in our dead-letter queue.",
+      "expected": {
+        "kind": "repeat",
+        "fix": false,
+        "sources": [
+          "SBX-10",
+          "CS-2",
+          "SBX-4",
+          "github:auth-service#4"
+        ],
+        "owners": [
+          "Ishan Sinha"
+        ]
+      }
+    },
+    {
+      "id": "TD-103",
+      "customer": "Pied Piper",
+      "reporter": {
+        "name": "Jared Dunn",
+        "email": "jared@piedpiper.example"
+      },
+      "service": "auth-service",
+      "severity": "high",
+      "created_at": "2026-10-28T15:05:00Z",
+      "subject": "Okta SSO users stuck in a login loop",
+      "body": "Our users who sign in through Okta get bounced back and forth between Okta and your login page forever. Users with passwords are fine. We set up the Okta integration a while ago using your old setup guide and haven't touched it since. Can you help?",
+      "expected": {
+        "kind": "repeat",
+        "fix": false,
+        "sources": [
+          "CS-6",
+          "SBX-4",
+          "SBX-7"
+        ],
+        "owners": [
+          "Ishan Sinha"
+        ],
+        "known_fix": [
+          "CS-6"
+        ]
+      }
+    },
+    {
+      "id": "TD-104",
+      "customer": "Soylent",
+      "reporter": {
+        "name": "Sol Roth",
+        "email": "sol@soylent.example"
+      },
+      "service": "public API",
+      "severity": "medium",
+      "created_at": "2026-10-27T21:30:00Z",
+      "subject": "HTTP 429 Too Many Requests on the public API",
+      "body": "Our nightly sync started failing with 429 Too Many Requests a couple of weeks ago. It sends roughly 300 requests a minute for about twenty minutes. It ran for months without problems. Did you lower our limits?",
+      "expected": {
+        "kind": "repeat",
+        "fix": false,
+        "sources": [
+          "CS-3",
+          "API Rate Limiting v2 - Design.docx"
+        ],
+        "owners": [
+          "Karthik Valluri"
+        ],
+        "known_fix": [
+          "CS-3",
+          "API Rate Limiting v2 - Design.docx"
+        ]
+      }
+    },
+    {
+      "id": "TD-105",
+      "customer": "Umbrella",
+      "reporter": {
+        "name": "Alice Abernathy",
+        "email": "alice@umbrella.example"
+      },
+      "service": "exports",
+      "severity": "medium",
+      "created_at": "2026-10-29T09:15:00Z",
+      "subject": "Monthly CSV export link returns 410 Gone",
+      "body": "Our finance team pulls a CSV every month from /api/v1/export.csv using the signed link from your help center (the data exports FAQ). This month it returns 410 Gone. How do we get our monthly export now?",
+      "expected": {
+        "kind": "repeat",
+        "fix": false,
+        "sources": [
+          "WEB-8",
+          "CS-4",
+          "Export Migration Note.docx"
+        ],
+        "stale": [
+          "Customer FAQ - Data Exports.docx"
+        ],
+        "owners": [
+          "Karthik Valluri",
+          "Hamilton Park"
+        ]
+      }
+    },
+    {
+      "id": "TD-106",
+      "customer": "Cyberdyne",
+      "reporter": {
+        "name": "Miles Dyson",
+        "email": "miles@cyberdyne.example"
+      },
+      "service": "API gateway",
+      "severity": "medium",
+      "created_at": "2026-10-28T11:20:00Z",
+      "subject": "OIDC discovery document blocked in production, works in staging",
+      "body": "Our OIDC client library can't start in production: GET https://api.tesseract.example/.well-known/openid-configuration returns 403 from your gateway. The same request against staging returns the discovery document fine. Is the production endpoint live yet?",
+      "expected": {
+        "kind": "repeat",
+        "fix": false,
+        "sources": [
+          "OPS-7",
+          "OPS-2",
+          "github:infra#1"
+        ],
+        "owners": [
+          "Dhruv Pendharkar"
+        ]
+      }
+    },
+    {
+      "id": "TD-107",
+      "customer": "Hooli",
+      "reporter": {
+        "name": "Gavin Belson",
+        "email": "gavin@hooli.example"
+      },
+      "service": "auth-service",
+      "severity": "medium",
+      "created_at": "2026-10-29T13:02:00Z",
+      "subject": "Email claim missing from ID tokens for some users",
+      "body": "Some of our users get ID tokens without an `email` claim, so our app can't create their profile. Others are fine. We remember you had a bug where Okta stripped claims from tokens; is this the same thing coming back? The affected users were all created last month through our automated provisioning integration, if that matters.",
+      "expected": {
+        "kind": "near_repeat",
+        "fix": false,
+        "sources": [
+          "SBX-13"
+        ],
+        "looks_like": [
+          "SBX-7"
+        ],
+        "owners": [
+          "Ishan Sinha"
+        ],
+        "accept": [
+          "repeat"
+        ]
+      }
+    },
+    {
+      "id": "TD-108",
+      "customer": "Massive Dynamic",
+      "reporter": {
+        "name": "Nina Sharp",
+        "email": "nina@massivedynamic.example"
+      },
+      "service": "auth-service",
+      "severity": "low",
+      "created_at": "2026-10-27T17:45:00Z",
+      "subject": "Is /oauth/token going away? Saw Deprecation and Sunset headers",
+      "body": "One of our engineers saw `Deprecation` and `Sunset` response headers on /oauth/token in your staging environment. Our integration uses it with the password grant. Is it being shut off, and when? What should we move to?",
+      "expected": {
+        "kind": "near_repeat",
+        "accept": [
+          "new"
+        ],
+        "fix": false,
+        "sources": [
+          "SBX-5",
+          "github:auth-service#5",
+          "github:auth-service#2",
+          "Write the OIDC migration guide for API clients"
+        ],
+        "owners": [
+          "Ishan Sinha"
+        ]
+      }
+    },
+    {
+      "id": "TD-109",
+      "customer": "Wayne Enterprises",
+      "reporter": {
+        "name": "Lucius Fox",
+        "email": "lucius@wayne.example"
+      },
+      "service": "web-app",
+      "severity": "medium",
+      "created_at": "2026-10-29T18:30:00Z",
+      "subject": "Admin dashboard takes 6+ seconds to load",
+      "body": "Our admin dashboard has been very slow since we added about 3,000 users last week (we have around 12,000 now). It takes 6 seconds or more to load. Other pages are fine. We're on the current version of the web app.",
+      "expected": {
+        "kind": "near_repeat",
+        "accept": [
+          "repeat"
+        ],
+        "fix": false,
+        "sources": [
+          "WEB-14"
+        ],
+        "owners": [
+          "Karthik Valluri",
+          "Dhruv Pendharkar"
+        ]
+      }
+    },
+    {
+      "id": "TD-110",
+      "customer": "Aperture Science",
+      "reporter": {
+        "name": "Caroline Reyes",
+        "email": "caroline@aperture.example"
+      },
+      "service": "auth-service",
+      "severity": "low",
+      "created_at": "2026-10-28T20:10:00Z",
+      "subject": "PKCE support for our mobile app",
+      "body": "We're building a native mobile app and our security review requires the authorization code flow with PKCE. Does your OIDC authorization endpoint support PKCE (S256)? If not, is it planned?",
+      "expected": {
+        "kind": "new",
+        "fix": false,
+        "sources": [],
+        "owners": [
+          "Ishan Sinha"
+        ]
+      }
+    },
+    {
+      "id": "TD-111",
+      "customer": "Gringotts",
+      "reporter": {
+        "name": "Griphook Barr",
+        "email": "griphook@gringotts.example"
+      },
+      "service": "auth-service",
+      "severity": "high",
+      "created_at": "2026-10-29T10:40:00Z",
+      "subject": "Tokens keep working after a user is deprovisioned",
+      "body": "When we deprovision an employee, their existing access tokens keep working until they expire. For us that is a compliance problem. Is there a way to revoke a user's tokens immediately?",
+      "expected": {
+        "kind": "new",
+        "fix": false,
+        "sources": [],
+        "owners": [
+          "Ishan Sinha"
+        ]
+      }
+    },
+    {
+      "id": "TD-112",
+      "customer": "Tyrell Corp",
+      "reporter": {
+        "name": "Rachael Tyrell",
+        "email": "rachael@tyrell.example"
+      },
+      "service": "public API",
+      "severity": "low",
+      "created_at": "2026-10-27T14:00:00Z",
+      "subject": "Feature request: restrict API keys to an IP allowlist",
+      "body": "Our security team wants each of our API keys to work only from our office and data-center IP ranges. Can we configure an IP allowlist per key?",
+      "expected": {
+        "kind": "new",
+        "fix": false,
+        "sources": [],
+        "owners": [
+          "Karthik Valluri"
+        ]
+      }
+    },
+    {
+      "id": "TD-113",
+      "customer": "Hooli",
+      "reporter": {
+        "name": "Nelson Bighetti",
+        "email": "nelson@hooli.example"
+      },
+      "service": "auth-service",
+      "severity": "high",
+      "created_at": "2026-10-29T19:20:00Z",
+      "subject": "Billing webhooks returning 401 again since your latest release",
+      "body": "Hi,\n\nSince yesterday afternoon every billing webhook you send to our endpoint fails with 401 on our side, so invoices are not being reconciled. This is the same thing that happened to us earlier this month: back then your team said it was caused by a token change on your end, patched it, and it went away. Nothing has changed in our webhook handler since then.\n\nDid the fix get rolled back in your latest release? We'd like this treated as urgent, our finance close is this week.\n\nNelson\nHooli Billing Engineering",
+      "expected": {
+        "kind": "repeat",
+        "fix": true,
+        "sources": [
+          "CS-2",
+          "SBX-10",
+          "SBX-4",
+          "github:auth-service#4"
+        ],
+        "owners": [
+          "Ishan Sinha"
+        ]
+      }
+    }
+  ]
+}

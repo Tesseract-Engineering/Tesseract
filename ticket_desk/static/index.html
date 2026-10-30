@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tesseract Support</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root {
+  --bg: #f4f5f7; --panel: #fff; --ink: #172b4d; --ink2: #44546f; --muted: #626f86; --faint: #8590a2;
+  --line: #dcdfe4; --line2: #ebecf0; --hover: #f1f2f4; --sel: #e9f2ff;
+  --brand: #4c4bdb; --brand-d: #3a39b8; --brand-l: #eeeefd;
+  --good: #1f845a; --good-l: #dcfff1; --bad: #c9372c; --bad-l: #ffeceb; --warn: #a54800; --warn-l: #fff7d6;
+  --note: #fff7d6; --note-line: #f5cd47;
+  --slack: #6f2f8f; --jira: #0c66e4; --github: #22272b; --gdrive: #1f845a; --swarm: #a54800; --none: #626f86;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --shadow: 0 1px 1px rgba(9,30,66,.13), 0 0 1px rgba(9,30,66,.2);
+  --shadow-lg: 0 8px 24px rgba(9,30,66,.18), 0 0 1px rgba(9,30,66,.3);
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif; color: var(--ink); background: var(--bg); }
+a { color: var(--jira); text-decoration: none; } a:hover { text-decoration: underline; }
+button, select, input, textarea { font: inherit; color: inherit; }
+code { font-family: var(--mono); font-size: 12px; background: var(--line2); padding: 0 4px; border-radius: 3px; }
+kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: #fff; color: var(--muted); }
+
+/* ---------- top bar ---------- */
+.top { height: 52px; display: flex; align-items: center; gap: 14px; padding: 0 16px; background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 20; }
+.logo { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; color: var(--ink); cursor: pointer; }
+.logo .mark { width: 26px; height: 26px; border-radius: 6px; background: linear-gradient(135deg, #4c4bdb, #8b5cf6); display: grid; place-items: center; color: #fff; font-size: 14px; }
+.logo span.sub { font-weight: 500; color: var(--muted); }
+.search { flex: 0 1 420px; margin-left: 24px; position: relative; }
+.search input { width: 100%; height: 34px; border: 1px solid var(--line); border-radius: 6px; padding: 0 34px 0 32px; background: var(--bg); outline: none; }
+.search input:focus { background: #fff; border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand); }
+.search .ic { position: absolute; left: 10px; top: 8px; color: var(--faint); }
+.search kbd { position: absolute; right: 8px; top: 8px; }
+.top .grow { flex: 1; }
+.gate { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--warn); background: var(--warn-l); border-radius: 999px; padding: 4px 10px; white-space: nowrap; }
+.avatar { width: 28px; height: 28px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 11.5px; font-weight: 700; color: #fff; flex: none; }
+.avatar.sm { width: 22px; height: 22px; font-size: 10px; }
+.avatar.tess { background: linear-gradient(135deg, #4c4bdb, #8b5cf6); }
+
+/* ---------- shell ---------- */
+.shell { display: grid; grid-template-columns: 232px 1fr; height: calc(100vh - 52px); }
+nav.side { background: var(--panel); border-right: 1px solid var(--line); padding: 14px 10px; overflow-y: auto; }
+nav.side h6 { margin: 14px 8px 6px; font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+nav.side a { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 5px; color: var(--ink2); font-weight: 500; }
+nav.side a:hover { background: var(--hover); text-decoration: none; }
+nav.side a.on { background: var(--sel); color: var(--jira); }
+nav.side a .count { margin-left: auto; font-size: 12px; color: var(--muted); background: var(--line2); border-radius: 999px; padding: 0 7px; min-width: 22px; text-align: center; }
+nav.side a.on .count { background: #cce0ff; color: var(--jira); }
+nav.side .help { margin: 18px 8px 0; font-size: 12px; color: var(--muted); line-height: 1.9; }
+.view { overflow-y: auto; min-width: 0; }
+
+/* ---------- queue ---------- */
+.qhead { padding: 20px 24px 12px; display: flex; align-items: flex-end; gap: 12px; }
+.qhead h1 { margin: 0; font-size: 22px; font-weight: 650; }
+.qhead .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+.qhead .grow { flex: 1; }
+.filters { display: flex; gap: 8px; padding: 0 24px 12px; flex-wrap: wrap; }
+.pill { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 3px 11px; font-size: 13px; cursor: pointer; color: var(--ink2); font-weight: 500; }
+.pill:hover { background: var(--hover); }
+.pill.on { background: var(--sel); border-color: #85b8ff; color: var(--jira); }
+table.q { width: calc(100% - 48px); margin: 0 24px 40px; border-collapse: separate; border-spacing: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+table.q th { text-align: left; font-size: 12px; font-weight: 650; color: var(--muted); padding: 9px 10px; border-bottom: 1px solid var(--line); background: #fafbfc; white-space: nowrap; cursor: pointer; user-select: none; }
+table.q th:hover { color: var(--ink); }
+table.q th .arr { font-size: 10px; margin-left: 3px; }
+table.q td { padding: 9px 10px; border-bottom: 1px solid var(--line2); vertical-align: middle; }
+table.q tr:last-child td { border-bottom: 0; }
+table.q tbody tr { cursor: pointer; }
+table.q tbody tr:hover { background: var(--hover); }
+table.q tbody tr.kb { background: var(--sel); box-shadow: inset 3px 0 0 var(--jira); }
+.key { font-weight: 600; color: var(--jira); white-space: nowrap; }
+.subj { font-weight: 550; }
+.subj small { display: block; font-weight: 400; color: var(--muted); font-size: 12.5px; }
+.empty { padding: 50px; text-align: center; color: var(--muted); }
+
+/* ---------- chips ---------- */
+.lozenge { display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; padding: 1px 6px; border-radius: 3px; white-space: nowrap; }
+.st-Open { background: var(--line2); color: var(--ink2); }
+.st-In-progress { background: #cce0ff; color: #0055cc; }
+.st-Waiting-on-customer { background: #f8e6a0; color: #7f5f01; }
+.st-Resolved { background: #baf3db; color: #216e4e; }
+.prio { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.prio i { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; }
+.prio.high i { border-bottom: 8px solid var(--bad); } .prio.medium i { border-bottom: 8px solid #e2b203; } .prio.low i { border-top: 8px solid #579dff; }
+.tchip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.tchip.repeat { background: var(--good-l); color: var(--good); }
+.tchip.near_repeat { background: var(--warn-l); color: var(--warn); }
+.tchip.new { background: var(--brand-l); color: var(--brand); }
+.tchip.wait { background: var(--line2); color: var(--muted); }
+.tchip.err { background: var(--bad-l); color: var(--bad); }
+.tchip .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.sla { font-size: 12px; font-weight: 600; white-space: nowrap; }
+.sla.breached { color: var(--bad); } .sla.due { color: var(--warn); } .sla.met { color: var(--good); }
+.needs { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #e2b203; margin-left: 6px; vertical-align: 1px; }
+
+/* ---------- buttons ---------- */
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 5px; border: 0; background: var(--line2); color: var(--ink2); font-weight: 600; cursor: pointer; white-space: nowrap; }
+.btn:hover { background: #dcdfe4; }
+.btn.primary { background: var(--brand); color: #fff; } .btn.primary:hover { background: var(--brand-d); }
+.btn.good { background: var(--good); color: #fff; } .btn.good:hover { background: #216e4e; }
+.btn.subtle { background: transparent; } .btn.subtle:hover { background: var(--hover); }
+.btn.danger { background: transparent; color: var(--bad); } .btn.danger:hover { background: var(--bad-l); }
+.btn.sm { height: 26px; padding: 0 9px; font-size: 13px; }
+.btn:disabled { opacity: .55; cursor: not-allowed; }
+select.field { height: 32px; border: 1px solid var(--line); border-radius: 5px; background: #fff; padding: 0 8px; font-weight: 500; cursor: pointer; }
+.switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; font-weight: 600; color: var(--ink2); font-size: 13px; }
+.switch input { display: none; }
+.switch .tr { width: 32px; height: 18px; border-radius: 9px; background: #8590a2; position: relative; transition: .15s; }
+.switch .tr::after { content: ""; position: absolute; width: 14px; height: 14px; border-radius: 50%; background: #fff; top: 2px; left: 2px; transition: .15s; }
+.switch input:checked + .tr { background: #e2b203; } .switch input:checked + .tr::after { left: 16px; }
+
+/* ---------- request view ---------- */
+.req { display: grid; grid-template-columns: minmax(0, 1fr) 360px; min-height: 100%; }
+.req .main { padding: 18px 28px 80px; min-width: 0; }
+.req aside { border-left: 1px solid var(--line); background: var(--panel); padding: 16px 18px 60px; }
+.crumbs { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+.crumbs a { color: var(--muted); }
+h1.title { font-size: 22px; font-weight: 650; margin: 6px 0 10px; line-height: 1.3; }
+.bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding-bottom: 14px; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
+.bar .grow { flex: 1; }
+
+.msg { display: grid; grid-template-columns: 32px 1fr; gap: 12px; margin-bottom: 16px; }
+.msg .bubble { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; box-shadow: var(--shadow); min-width: 0; }
+.msg .who { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; font-size: 13px; margin-bottom: 6px; }
+.msg .who b { font-weight: 650; }
+.msg .who span { color: var(--muted); }
+.msg .body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg.note .bubble { background: var(--note); border-color: var(--note-line); }
+.msg.out .bubble { border-left: 3px solid var(--brand); }
+.event { display: flex; align-items: center; gap: 8px; margin: 0 0 14px 44px; font-size: 13px; color: var(--muted); }
+.event .ln { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
+.event.good .ln { background: var(--good); }
+
+.composer { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); margin-top: 6px; }
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); padding: 0 8px; }
+.tab { padding: 10px 12px 8px; font-weight: 600; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; display: flex; align-items: center; gap: 6px; }
+.tab:hover { color: var(--ink); }
+.tab.on { color: var(--brand); border-bottom-color: var(--brand); }
+.tab .badge { font-size: 11px; background: #e2b203; color: #3d2e00; border-radius: 999px; padding: 0 6px; }
+.tab .badge.ok { background: var(--good-l); color: var(--good); }
+.drafted { display: flex; align-items: center; gap: 8px; padding: 9px 14px; background: linear-gradient(90deg, var(--brand-l), #fff); border-bottom: 1px solid var(--line2); font-size: 13px; color: var(--ink2); }
+.drafted b { color: var(--brand); }
+.drafted .grow { flex: 1; }
+.cbody { padding: 14px 16px; }
+.cbody p { margin: 0 0 10px; }
+.cbody .subjline { font-weight: 650; margin-bottom: 10px; }
+.cfoot { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line2); background: #fafbfc; border-radius: 0 0 8px 8px; flex-wrap: wrap; }
+.cfoot .grow { flex: 1; }
+.cfoot .hint { font-size: 12.5px; color: var(--muted); }
+textarea.edit { width: 100%; min-height: 220px; border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; resize: vertical; outline: none; line-height: 1.5; }
+textarea.edit:focus { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand); }
+input.text { width: 100%; height: 34px; border: 1px solid var(--line); border-radius: 6px; padding: 0 10px; font-weight: 600; outline: none; }
+input.text:focus { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand); }
+.outcome { display: flex; align-items: center; gap: 8px; color: var(--good); font-weight: 600; }
+.lbl { font-size: 11.5px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 14px 0 6px; }
+ul.list { margin: 0 0 6px 18px; padding: 0; } ul.list li { margin-bottom: 5px; }
+
+.cite { display: inline-block; min-width: 17px; height: 17px; line-height: 17px; text-align: center; font-size: 10.5px; font-weight: 700; padding: 0 4px; margin: 0 1px; border-radius: 4px; background: var(--brand-l); color: var(--brand); cursor: pointer; vertical-align: 1px; }
+.cite:hover, .cite.hot { background: var(--brand); color: #fff; }
+
+.working { display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 14px; box-shadow: var(--shadow); }
+.working .txt { flex: 1; min-width: 0; }
+.working .txt b { color: var(--brand); }
+.working .txt div { font-size: 12.5px; color: var(--muted); font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.spin { width: 16px; height: 16px; border: 2px solid #cfcff8; border-top-color: var(--brand); border-radius: 50%; animation: spin .8s linear infinite; flex: none; }
+.spin.sm { width: 12px; height: 12px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.skel { height: 12px; border-radius: 4px; background: linear-gradient(90deg, var(--line2), #f7f8f9, var(--line2)); background-size: 200% 100%; animation: sh 1.4s infinite; margin-bottom: 9px; }
+@keyframes sh { to { background-position: -200% 0; } }
+
+/* timeline */
+.tl { font-size: 13px; }
+.step { display: grid; grid-template-columns: 22px 1fr; gap: 8px; padding: 7px 0; border-top: 1px dashed var(--line2); }
+.step:first-child { border-top: 0; }
+.step .n { font-family: var(--mono); font-size: 11px; color: var(--faint); padding-top: 1px; text-align: right; }
+.step .tool { font-family: var(--mono); font-size: 12.5px; font-weight: 650; }
+.step .args { font-family: var(--mono); font-size: 12px; color: var(--ink2); overflow-wrap: anywhere; }
+.step .res { color: var(--muted); font-size: 12.5px; margin-top: 2px; overflow-wrap: anywhere; }
+.step > div { min-width: 0; }
+.nodes { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+.nd { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; border-radius: 4px; padding: 1px 6px; background: var(--line2); color: var(--ink2); cursor: pointer; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.nd:hover { background: #dcdfe4; }
+.sdot { width: 8px; height: 8px; border-radius: 2px; flex: none; display: inline-block; }
+.s-slack { background: var(--slack); } .s-jira { background: var(--jira); } .s-github { background: var(--github); } .s-gdrive { background: var(--gdrive); } .s-swarm { background: var(--swarm); } .s-none { background: var(--none); }
+
+/* compare */
+.compare { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 6px; }
+.cmp { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); min-width: 0; }
+.cmp header { padding: 10px 14px; border-bottom: 1px solid var(--line2); display: flex; align-items: center; gap: 8px; }
+.cmp header b { font-size: 14px; }
+.cmp header span { font-size: 12px; color: var(--muted); }
+.cmp.base header b { color: var(--warn); }
+.cmp .cbody { font-size: 13.5px; }
+.score { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid var(--line2); }
+.score div { padding: 8px 12px; border-right: 1px solid var(--line2); }
+.score div:last-child { border-right: 0; }
+.score b { display: block; font-size: 18px; line-height: 1.2; }
+.score span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+
+/* sidebar */
+.card { margin-bottom: 18px; }
+.card > h3 { margin: 0 0 8px; font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; display: flex; align-items: center; gap: 6px; }
+.card > h3 .grow { flex: 1; }
+dl.details { display: grid; grid-template-columns: 118px 1fr; gap: 8px 10px; margin: 0; font-size: 13.5px; }
+dl.details dt { color: var(--muted); }
+dl.details dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.tess { border: 1px solid #d7d7fb; background: linear-gradient(180deg, var(--brand-l), #fff 70px); border-radius: 8px; padding: 12px 14px; }
+.tess .head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.tess .head b { font-size: 14px; }
+.tess p { margin: 0 0 8px; font-size: 13.5px; }
+.person { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; border-top: 1px solid var(--line2); font-size: 13px; }
+.person:first-of-type { border-top: 0; }
+.person .why { color: var(--muted); font-size: 12.5px; }
+.link { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-radius: 4px; cursor: pointer; font-size: 13px; }
+.link:hover { background: var(--hover); }
+.link .k { font-weight: 600; color: var(--jira); white-space: nowrap; }
+.link .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.link .s { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.link .num { flex: none; }
+.num { display: inline-grid; place-items: center; min-width: 18px; height: 18px; font-size: 10.5px; font-weight: 700; border-radius: 4px; background: var(--brand-l); color: var(--brand); }
+details.fold summary { cursor: pointer; font-size: 13px; color: var(--ink2); font-weight: 600; list-style: none; display: flex; align-items: center; gap: 6px; }
+details.fold summary::-webkit-details-marker { display: none; }
+details.fold summary::before { content: "▸"; color: var(--faint); font-size: 11px; }
+details.fold[open] summary::before { content: "▾"; }
+
+/* drawer */
+.scrim { position: fixed; inset: 52px 0 0 0; background: rgba(9,30,66,.25); z-index: 30; }
+.drawer { position: fixed; top: 52px; right: 0; bottom: 0; width: 460px; max-width: 100%; background: var(--panel); box-shadow: var(--shadow-lg); z-index: 31; display: flex; flex-direction: column; }
+.drawer header { padding: 14px 18px; border-bottom: 1px solid var(--line); display: flex; gap: 10px; align-items: flex-start; }
+.drawer header h2 { font-size: 16px; margin: 4px 0 0; line-height: 1.35; }
+.drawer .dbody { padding: 14px 18px; overflow-y: auto; flex: 1; }
+.drawer .full { white-space: pre-wrap; font-size: 13px; background: var(--bg); border: 1px solid var(--line2); border-radius: 6px; padding: 10px 12px; overflow-wrap: anywhere; }
+.srclabel { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: var(--ink2); }
+
+/* code fix */
+pre.diff { font-family: var(--mono); font-size: 12px; line-height: 1.5; background: #161a1d; color: #c7d1db; padding: 10px 12px; border-radius: 6px; overflow-x: auto; margin: 6px 0 0; }
+pre.diff .a { color: #7ee2b8; background: rgba(31,132,90,.18); display: block; } pre.diff .d { color: #ffb8b2; background: rgba(201,55,44,.18); display: block; } pre.diff .h { color: #85b8ff; }
+.file { border: 1px solid var(--line); border-radius: 6px; margin-bottom: 8px; }
+.file summary { padding: 7px 10px; font-family: var(--mono); font-size: 12.5px; background: #fafbfc; border-radius: 6px; }
+.file .stat { margin-left: auto; font-size: 12px; } .file .stat .p { color: var(--good); } .file .stat .m { color: var(--bad); }
+.file pre.diff { border-radius: 0 0 6px 6px; margin: 0; }
+.tests { display: flex; gap: 10px; flex-wrap: wrap; }
+.tests div { flex: 1; min-width: 200px; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 12.5px; }
+.tests b { display: block; }
+.ok { color: var(--good); } .fail { color: var(--bad); }
+
+/* known fix */
+.kfix { background: var(--panel); border: 1px solid #b3dfc9; border-left: 4px solid var(--good); border-radius: 8px; box-shadow: var(--shadow); margin: 0 0 14px; }
+.kfix header { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line2); flex-wrap: wrap; }
+.kfix header b { color: var(--good); font-size: 14px; }
+.kfix header .from { color: var(--ink2); font-size: 13px; }
+.kfix .kbody { padding: 10px 14px 12px; }
+.kfix ol { margin: 0 0 8px 20px; padding: 0; } .kfix li { margin-bottom: 4px; }
+.kfix pre { font-family: var(--mono); font-size: 12.5px; background: var(--bg); border: 1px solid var(--line2); border-radius: 6px; padding: 8px 10px; margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.kfix .kfoot { display: flex; gap: 8px; align-items: center; padding: 8px 14px; border-top: 1px solid var(--line2); background: #fafbfc; border-radius: 0 0 8px 8px; }
+.kfix .kfoot .hint { margin-left: auto; font-size: 12.5px; color: var(--muted); }
+
+/* toasts */
+.toasts { position: fixed; left: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 50; }
+.toast { background: #172b4d; color: #fff; padding: 10px 14px; border-radius: 6px; box-shadow: var(--shadow-lg); max-width: 460px; font-size: 13.5px; display: flex; gap: 10px; align-items: flex-start; animation: up .15s ease-out; }
+.toast.bad { background: var(--bad); }
+.toast.good { background: #216e4e; }
+@keyframes up { from { transform: translateY(8px); opacity: 0; } }
+.activity .row { display: grid; grid-template-columns: 160px 90px 1fr; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--line2); font-size: 13.5px; }
+.activity .row:last-child { border-bottom: 0; }
+.box { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; margin: 0 24px 40px; }
+@media (max-width: 1200px) { .req { grid-template-columns: 1fr; } .req aside { border-left: 0; border-top: 1px solid var(--line); } .compare { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="top">
+  <div class="logo" onclick="go('#/queue/open')"><div class="mark">◆</div>Tesseract <span class="sub">Support</span></div>
+  <div class="search"><span class="ic">⌕</span><input id="q" placeholder="Search tickets, customers, keys" autocomplete="off"><kbd>/</kbd></div>
+  <div class="grow"></div>
+  <div class="gate" title="Tesseract drafts; a person approves. Replies, notes and PRs only leave on Approve.">🔒 Approval-gated</div>
+  <div id="me"></div>
+</div>
+<div class="shell">
+  <nav class="side" id="nav"></nav>
+  <div class="view" id="view"></div>
+</div>
+<div id="drawer"></div>
+<div class="toasts" id="toasts"></div>
+<script>
+"use strict";
+// ======================================================================
+// state and plumbing
+// ======================================================================
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const COLORS = ["#0c66e4", "#1f845a", "#a54800", "#6f2f8f", "#c9372c", "#206a83", "#7f5f01", "#4c4bdb"];
+const initials = n => String(n || "?").split(/[\s.@]+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join("");
+const color = n => COLORS[[...String(n)].reduce((a, c) => a + c.charCodeAt(0), 0) % COLORS.length];
+const avatar = (n, cls = "") => `<span class="avatar ${cls}" style="background:${color(n)}" title="${esc(n)}">${esc(initials(n))}</span>`;
+
+let S = null;                       // server state
+const live = {};                    // "tid:mode" -> {events, done, es, tries}
+const ui = {
+  route: {}, sort: {k: "created", dir: -1}, kb: 0, query: "",
+  tab: {}, editing: {}, drafts: {}, compare: false, drawer: null, busy: {}, openTl: new Set(),
+};
+
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} : {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+  let data = {};
+  try { data = await r.json(); } catch (_) {}
+  if (!r.ok) throw new Error(data.error || `${r.status} ${r.statusText}`);
+  return data;
+}
+
+function toast(msg, kind = "") {
+  const t = document.createElement("div");
+  t.className = "toast " + kind;
+  t.textContent = msg;
+  $("#toasts").append(t);
+  setTimeout(() => t.remove(), kind === "bad" ? 9000 : 4500);
+}
+
+let refreshing = null;
+async function refresh() {
+  if (refreshing) return refreshing;
+  refreshing = (async () => {
+    try { S = await api("/api/state"); render(); }
+    catch (e) { toast("Lost contact with the desk server: " + e.message, "bad"); }
+    finally { refreshing = null; }
+  })();
+  return refreshing;
+}
+// Safety net: if an event stream drops, the desk still catches up.
+setInterval(() => { if (S && anyRunning()) refresh(); }, 8000);
+function anyRunning() { return Object.values(live).some(l => !l.done); }
+
+// ======================================================================
+// derived ticket data
+// ======================================================================
+const ticket = id => S.tickets.find(t => t.id === id);
+const run = (id, mode) => S.runs[id]?.[mode];
+const result = (id, mode = "graph") => run(id, mode)?.result;
+function proposals(id) { return Object.values(S.proposals).filter(p => p.ticket === id); }
+function current(id, kind) {
+  return proposals(id).filter(p => p.kind === kind && p.status !== "superseded").sort((a, b) => a.created < b.created ? 1 : -1)[0];
+}
+const pendingCount = id => proposals(id).filter(p => p.status === "pending").length;
+const SLA_HOURS = {high: 4, medium: 8, low: 24};
+function sla(t) {
+  const created = new Date(t.created_at), due = new Date(+created + SLA_HOURS[t.severity] * 3600e3);
+  const reply = S.outbox.filter(m => m.ticket === t.id).map(m => new Date(m.at)).sort((a, b) => a - b)[0];
+  if (reply) return {cls: "met", text: reply <= due ? "Met" : "Met late"};
+  const left = due - Date.now();
+  if (left < 0) return {cls: "breached", text: "Breached " + ago(due)};
+  return {cls: left < 3600e3 ? "due" : "", text: "Due in " + dur(left)};
+}
+function dur(ms) { const h = ms / 3600e3; return h >= 24 ? Math.round(h / 24) + "d" : h >= 1 ? Math.round(h) + "h" : Math.max(1, Math.round(ms / 60e3)) + "m"; }
+function ago(d) { return dur(Date.now() - new Date(d)) + " ago"; }
+function when(d) { return new Date(d).toLocaleString(undefined, {month: "short", day: "numeric", hour: "numeric", minute: "2-digit"}); }
+
+function tessState(id) {
+  const g = run(id, "graph"), l = live[`${id}:graph`];
+  if (l && !l.done) return {cls: "wait", text: "Investigating", spin: true};
+  if (g?.error) return {cls: "err", text: "Failed"};
+  const r = g?.result;
+  if (!r) return {cls: "wait", text: "Not run"};
+  const k = r.answer.triage.classification;
+  return {cls: k, text: {repeat: "Repeat", near_repeat: "Near-repeat", new: "New issue"}[k]};
+}
+const tchip = s => `<span class="tchip ${s.cls}">${s.spin ? `<span class="spin sm"></span>` : `<span class="dot"></span>`}${esc(s.text)}</span>`;
+const lozenge = st => `<span class="lozenge st-${esc(st.replace(/ /g, "-"))}">${esc(st)}</span>`;
+const prio = p => `<span class="prio ${esc(p)}"><i></i>${esc(p[0].toUpperCase() + p.slice(1))}</span>`;
+
+function srcLabel(n) {
+  const L = n.labels || [];
+  if (n.source === "slack") return "Slack";
+  if (n.source === "jira") return n.key || "Jira";
+  if (n.source === "gdrive") return "Drive";
+  if (n.source === "github") return L.includes("Commit") ? "Commit" : n.kind === "pull_request" ? "Pull request" : n.kind === "issue" ? "GitHub issue" : "Repo doc";
+  return L[0] || "Graph";
+}
+const APP = {slack: "Slack", jira: "Jira", gdrive: "Drive", github: "GitHub"};
+const srcKind = n => n.source === "slack" ? "Slack thread" : n.source === "gdrive" ? "Drive document" : n.source === "jira" ? "Jira issue" : srcLabel(n);
+const sdot = n => `<span class="sdot s-${esc(n.source || "none")}"></span>`;
+function prKey(n) { const m = (n.url || "").match(/github\.com\/[^/]+\/([^/]+)\/(pull|issues)\/(\d+)/); return m ? `${m[1]}#${m[3]}` : null; }
+const shortKey = n => n.key || prKey(n) || srcLabel(n);
+
+// ======================================================================
+// routing
+// ======================================================================
+function go(hash) { if (location.hash !== hash) location.hash = hash; else route(); }
+window.addEventListener("hashchange", route);
+function route() {
+  const [, kind, arg] = (location.hash || "#/queue/open").split("/");
+  ui.route = kind === "t" ? {kind: "ticket", id: arg} : kind === "activity" ? {kind: "activity"} : {kind: "queue", view: arg || "open"};
+  ui.drawer = null;
+  if (ui.route.kind === "ticket" && S) openTicket(ui.route.id);
+  render();
+  $("#view").scrollTop = 0;
+}
+
+const VIEWS = [
+  ["open", "All open", t => t.status !== "Resolved"],
+  ["approval", "Needs approval", t => pendingCount(t.id) > 0],
+  ["mine", "Assigned to me", t => t.assignee === S.approver && t.status !== "Resolved"],
+  ["waiting", "Waiting on customer", t => t.status === "Waiting on customer"],
+  ["resolved", "Resolved", t => t.status === "Resolved"],
+  ["all", "All tickets", () => true],
+];
+
+function render() {
+  if (!S) return;
+  $("#me").innerHTML = avatar(S.approver);
+  renderNav();
+  if (ui.route.kind === "ticket" && ticket(ui.route.id)) renderTicket();
+  else if (ui.route.kind === "activity") renderActivity();
+  else renderQueue();
+  renderDrawer();
+}
+
+function renderNav() {
+  const cur = ui.route.kind === "queue" ? ui.route.view : ui.route.kind;
+  $("#nav").innerHTML = `<h6>Queues</h6>` + VIEWS.map(([k, name, f]) =>
+    `<a href="#/queue/${k}" class="${cur === k ? "on" : ""}">${esc(name)}<span class="count">${S.tickets.filter(f).length}</span></a>`).join("") +
+    `<h6>Desk</h6><a href="#/activity" class="${cur === "activity" ? "on" : ""}">Activity &amp; outbox<span class="count">${S.log.length}</span></a>
+    <div class="help"><kbd>/</kbd> search · <kbd>j</kbd><kbd>k</kbd> move · <kbd>↵</kbd> open<br><kbd>esc</kbd> back · <kbd>c</kbd> compare</div>`;
+}
+
+// ======================================================================
+// queue
+// ======================================================================
+const COLS = [
+  ["key", "Key", t => t.id], ["summary", "Summary", t => t.subject], ["requester", "Requester", t => t.reporter.name],
+  ["priority", "Priority", t => ({high: 0, medium: 1, low: 2})[t.severity]], ["status", "Status", t => S.statuses.indexOf(t.status)],
+  ["tess", "Tesseract", t => tessState(t.id).text], ["assignee", "Assignee", t => t.assignee],
+  ["sla", "First response", t => new Date(t.created_at) - 0 + SLA_HOURS[t.severity] * 3600e3], ["created", "Created", t => t.created_at],
+];
+
+function queueRows() {
+  const view = VIEWS.find(v => v[0] === ui.route.view) || VIEWS[0];
+  const q = ui.query.trim().toLowerCase();
+  let rows = S.tickets.filter(view[2]);
+  if (q) rows = rows.filter(t => [t.id, t.subject, t.customer, t.reporter.name, t.reporter.email, t.service, t.body].join(" ").toLowerCase().includes(q));
+  const col = COLS.find(c => c[0] === ui.sort.k);
+  rows.sort((a, b) => { const x = col[2](a), y = col[2](b); return (x < y ? -1 : x > y ? 1 : 0) * ui.sort.dir; });
+  return {view, rows};
+}
+
+function renderQueue() {
+  const {view, rows} = queueRows();
+  ui.kb = Math.min(ui.kb, Math.max(rows.length - 1, 0));
+  const head = COLS.map(([k, name]) => `<th data-sort="${k}">${esc(name)}${ui.sort.k === k ? `<span class="arr">${ui.sort.dir > 0 ? "▲" : "▼"}</span>` : ""}</th>`).join("");
+  const body = rows.map((t, i) => {
+    const s = sla(t);
+    return `<tr data-open="${esc(t.id)}" class="${i === ui.kb ? "kb" : ""}">
+      <td class="key">${esc(t.id)}${pendingCount(t.id) ? `<span class="needs" title="Drafts waiting for approval"></span>` : ""}</td>
+      <td class="subj">${esc(t.subject)}<small>${esc(t.customer)} · ${esc(t.service)}</small></td>
+      <td><span style="display:inline-flex;gap:7px;align-items:center">${avatar(t.reporter.name, "sm")}${esc(t.reporter.name)}</span></td>
+      <td>${prio(t.severity)}</td><td>${lozenge(t.status)}</td><td>${tchip(tessState(t.id))}</td>
+      <td><span style="display:inline-flex;gap:7px;align-items:center">${avatar(t.assignee, "sm")}${esc(t.assignee.split(" ")[0])}</span></td>
+      <td><span class="sla ${s.cls}">${esc(s.text)}</span></td><td style="white-space:nowrap;color:var(--muted)">${esc(ago(t.created_at))}</td></tr>`;
+  }).join("");
+  const pend = S.tickets.reduce((a, t) => a + pendingCount(t.id), 0);
+  $("#view").innerHTML = `<div class="qhead"><div><h1>${esc(view[1])}</h1>
+      <div class="sub">${rows.length} ticket${rows.length === 1 ? "" : "s"}${ui.query ? ` matching “${esc(ui.query)}”` : ""} · ${pend} Tesseract draft${pend === 1 ? "" : "s"} awaiting approval</div></div>
+      <div class="grow"></div><button class="btn" data-act="runall">Run Tesseract on open tickets</button></div>
+    <div class="filters">${VIEWS.slice(0, 5).map(([k, n]) => `<span class="pill ${ui.route.view === k ? "on" : ""}" data-go="#/queue/${k}">${esc(n)}</span>`).join("")}</div>
+    ${rows.length ? `<table class="q"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>` : `<div class="box empty">No tickets here.</div>`}`;
+}
+
+// ======================================================================
+// activity
+// ======================================================================
+function renderActivity() {
+  const log = S.log.slice().reverse();
+  const out = S.outbox.slice().reverse();
+  $("#view").innerHTML = `<div class="qhead"><div><h1>Activity &amp; outbox</h1><div class="sub">Everything that left the desk, and who approved it.</div></div></div>
+    <div class="lbl" style="margin:0 24px 6px">Outbox (${out.length})</div>
+    <div class="box">${out.length ? out.map(m => `<div class="msg" style="padding:12px 14px;margin:0;border-bottom:1px solid var(--line2)">${avatar(m.approved_by)}
+      <div><div class="who"><b>${esc(m.subject)}</b><span>to ${esc(m.to)} · ${esc(when(m.at))} · approved by ${esc(m.approved_by)} · <a href="#/t/${esc(m.ticket)}">${esc(m.ticket)}</a></span></div>
+      <div class="body" style="color:var(--ink2)">${esc(m.body)}</div></div></div>`).join("") : `<div class="empty">Nothing sent yet. Replies appear here once approved.</div>`}</div>
+    <div class="lbl" style="margin:0 24px 6px">Action log (${log.length})</div>
+    <div class="box activity">${log.length ? log.map(l => `<div class="row"><span style="color:var(--muted)">${esc(when(l.at))}</span><a href="#/t/${esc(l.ticket)}" class="key">${esc(l.ticket)}</a><span>${esc(l.what)}</span></div>`).join("") : `<div class="empty">No actions yet.</div>`}</div>`;
+}
+
+// ======================================================================
+// runs and live events
+// ======================================================================
+function follow(id, mode) {
+  const key = `${id}:${mode}`;
+  const prev = live[key];
+  if (prev && (prev.es || prev.done)) return;
+  const st = live[key] = {events: [], done: false, es: null, tries: prev?.tries || 0};
+  const es = st.es = new EventSource(`/api/tickets/${encodeURIComponent(id)}/stream/${mode}`);
+  es.onmessage = m => {
+    const e = JSON.parse(m.data);
+    st.events.push(e);
+    if (e.type === "result" || e.type === "error") { st.done = true; refresh(); if (e.type === "error") toast(`${id}: ${e.text}`, "bad"); }
+    else if (ui.route.id === id) render();
+  };
+  es.addEventListener("end", () => { st.done = true; es.close(); st.es = null; if (ui.route.id === id) render(); });
+  es.onerror = () => {
+    es.close(); st.es = null;
+    if (st.done) return;
+    // The server replays a run from its first event, so reconnecting starts clean.
+    if (++st.tries <= 5) setTimeout(() => { delete live[key]; live[key] = {tries: st.tries}; follow(id, mode); }, 1000 * st.tries);
+  };
+}
+
+async function start(id, mode, fresh = false) {
+  try {
+    if (fresh) { live[`${id}:${mode}`]?.es?.close(); delete live[`${id}:${mode}`]; }
+    await api(`/api/tickets/${encodeURIComponent(id)}/run`, {mode, fresh});
+    follow(id, mode);
+    render();
+  } catch (e) { toast(`Could not start Tesseract on ${id}: ${e.message}`, "bad"); }
+}
+
+function openTicket(id) {
+  if (!ticket(id)) return;
+  start(id, "graph");
+  if (ui.compare) start(id, "baseline");
+  if (S.runs[id]?.fix) follow(id, "fix");
+}
+
+// ======================================================================
+// citations
+// ======================================================================
+function citeOrder(...answers) {
+  const order = [];
+  const walk = o => {
+    if (Array.isArray(o)) o.forEach(walk);
+    else if (o && typeof o === "object") {
+      (o.sources || []).forEach(s => { if (!order.includes(s)) order.push(s); });
+      for (const [k, v] of Object.entries(o)) if (k !== "sources") walk(v);
+    }
+  };
+  answers.forEach(walk);
+  return order;
+}
+const cites = (src, order) => (src || []).map(s => `<span class="cite ${ui.drawer === s ? "hot" : ""}" data-src="${esc(s)}" title="${esc(s)}">${order.indexOf(s) + 1}</span>`).join("");
+const claim = (c, order) => `${esc(c.text)} ${cites(c.sources, order)}`;
+
+// ======================================================================
+// ticket view
+// ======================================================================
+function renderTicket() {
+  const t = ticket(ui.route.id), id = t.id;
+  const gres = result(id), fixP = current(id, "fix");
+  const order = gres ? citeOrder(gres.answer, fixP?.content.description) : [];
+  const viewName = (VIEWS.find(v => v[0] === (ui.lastView || "open")) || VIEWS[0])[1];
+  $("#view").innerHTML = `<div class="req"><div class="main">
+      <div class="crumbs"><a href="#/queue/${esc(ui.lastView || "open")}">${esc(viewName)}</a><span>/</span><span class="key">${esc(id)}</span></div>
+      <h1 class="title">${esc(t.subject)}</h1>
+      <div class="bar">
+        <select class="field" data-field="status">${S.statuses.map(s => `<option ${s === t.status ? "selected" : ""}>${esc(s)}</option>`).join("")}</select>
+        <select class="field" data-field="assignee" title="Assignee">${S.people.map(p => `<option ${p === t.assignee ? "selected" : ""}>${esc(p)}</option>`).join("")}</select>
+        <div class="grow"></div>
+        <label class="switch" title="Run the same ticket without the company graph (c)"><input type="checkbox" id="cmp" ${ui.compare ? "checked" : ""}><span class="tr"></span>Compare without graph</label>
+        <button class="btn" data-act="rerun" title="Work the ticket again, live">↻ Re-run Tesseract</button>
+      </div>
+      ${thread(t)}
+      ${working(id)}
+      ${!ui.compare && gres ? knownFix(t, gres.answer, order) : ""}
+      ${ui.compare ? compare(t) : composer(t, gres, order)}
+    </div>
+    <aside>${sidebar(t, gres, order)}</aside></div>`;
+  for (const [pid, text] of Object.entries(ui.drafts)) { const el = document.getElementById("ed-" + pid); if (el) el.value = text; }
+}
+
+function thread(t) {
+  const items = [];
+  items.push({at: t.created_at, html: `<div class="msg">${avatar(t.reporter.name)}<div class="bubble">
+    <div class="who"><b>${esc(t.reporter.name)}</b><span>${esc(t.customer)} · ${esc(t.reporter.email)} · ${esc(when(t.created_at))}</span></div>
+    <div class="body">${esc(t.body)}</div></div></div>`});
+  for (const m of S.outbox.filter(m => m.ticket === t.id)) {
+    items.push({at: m.at, html: `<div class="msg out">${avatar(m.approved_by)}<div class="bubble">
+      <div class="who"><b>${esc(m.approved_by)}</b><span>replied by email to ${esc(m.to)} · ${esc(when(m.at))} · drafted by Tesseract</span></div>
+      <div class="body">${esc(m.body)}</div></div></div>`});
+  }
+  for (const p of proposals(t.id)) {
+    if (p.kind === "triage" && p.status === "approved") {
+      const text = p.content.edited_text || triageText(p.content);
+      items.push({at: p.decided, html: `<div class="msg note">${avatar(p.decided_by)}<div class="bubble">
+        <div class="who"><b>${esc(p.decided_by)}</b><span>internal note · ${esc(when(p.decided))} · drafted by Tesseract</span></div>
+        <div class="body">${esc(text)}</div></div></div>`});
+    }
+    if (p.kind === "fix" && p.status === "approved") {
+      items.push({at: p.decided, html: `<div class="event good"><span class="ln"></span>${esc(p.decided_by)} opened draft PR <a href="${esc(p.pr_url)}" target="_blank" rel="noopener">${esc(p.pr_url)}</a> · ${esc(when(p.decided))}</div>`});
+    }
+    if (p.status === "rejected") {
+      items.push({at: p.decided, html: `<div class="event"><span class="ln"></span>${esc(p.decided_by)} discarded Tesseract's ${p.kind === "reply" ? "reply" : p.kind === "triage" ? "internal note" : "fix"} draft · ${esc(when(p.decided))}</div>`});
+    }
+  }
+  return items.sort((a, b) => a.at < b.at ? -1 : 1).map(i => i.html).join("");
+}
+
+function working(id) {
+  const l = live[`${id}:graph`];
+  if (!l || l.done) {
+    const g = run(id, "graph");
+    return g?.error ? `<div class="working" style="border-color:var(--bad)"><div class="txt"><b style="color:var(--bad)">Tesseract failed on this ticket.</b><div>${esc(g.error)}</div></div><button class="btn sm" data-act="rerun">Try again</button></div>` : "";
+  }
+  const calls = l.events.filter(e => e.type === "tool_call");
+  const last = calls[calls.length - 1];
+  const t = l.events.length ? l.events[l.events.length - 1].t : 0;
+  const what = last ? `${last.name}(${Object.values(last.input || {})[0] ? JSON.stringify(Object.values(last.input)[0]).slice(0, 90) : ""})` : "Starting…";
+  const nodes = new Set(l.events.flatMap(e => (e.nodes || []).map(n => n.id))).size;
+  return `<div class="working"><span class="spin"></span><div class="txt"><b>Tesseract is investigating</b> · ${calls.length} graph call${calls.length === 1 ? "" : "s"} · ${nodes} nodes · ${t}s<div>${esc(what)}</div></div>
+    <button class="btn sm subtle" data-act="showtl">${ui.openTl.has(id) ? "Hide" : "Show"} steps</button></div>${ui.openTl.has(id) ? `<div class="composer" style="padding:6px 14px;margin:-6px 0 14px">${timeline(`${id}:graph`)}</div>` : ""}`;
+}
+
+function timeline(key) {
+  const l = live[key];
+  if (!l) return `<div class="empty" style="padding:12px">No steps recorded.</div>`;
+  const rows = [];
+  let n = 0;
+  for (const e of l.events) {
+    if (e.type === "tool_call") {
+      n += 1;
+      const args = Object.entries(e.input || {}).filter(([k]) => k !== "content").map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(" ");
+      rows.push({n: e.n ?? n, html: `<span class="tool">${esc(e.name)}</span> <span class="args">${esc(args.slice(0, 220))}</span>`, res: null});
+    } else if (e.type === "tool_result") {
+      const r = rows.slice().reverse().find(r => r.res === null);
+      const nodes = (e.nodes || []).slice(0, 8).map(nd => `<span class="nd" data-src="${esc(nd.id)}" title="${esc(srcKind(nd) + ": " + (nd.title || ""))}">${sdot(nd)}${esc(shortKey(nd))} · ${esc((nd.title || "").slice(0, 46))}</span>`).join("");
+      const res = `<div class="res" style="${e.is_error ? "color:var(--bad)" : ""}">→ ${esc(e.summary || "")}</div>${nodes ? `<div class="nodes">${nodes}${(e.nodes || []).length > 8 ? `<span class="nd">+${e.nodes.length - 8}</span>` : ""}</div>` : ""}`;
+      if (r) r.res = res; else rows.push({n: "", html: "", res});
+    } else if (e.type === "status" || e.type === "note") {
+      rows.push({n: "", html: `<span style="color:var(--muted)">${esc(e.text)}</span>`, res: ""});
+    } else if (e.type === "error") {
+      rows.push({n: "!", html: `<span class="fail">${esc(e.text)}</span>`, res: ""});
+    }
+  }
+  return `<div class="tl">${rows.map(r => `<div class="step"><div class="n">${esc(r.n)}</div><div>${r.html}${r.res || ""}</div></div>`).join("")}</div>`;
+}
+
+// ---------- known fix ----------
+function knownFixText(k) {
+  return k.steps.map((x, i) => `${i + 1}. ${x}`).join("\n") + (k.snippet ? `\n\n${k.snippet}` : "");
+}
+function knownFix(t, a, order, compact = false) {
+  const k = a.known_fix;
+  if (!k || !k.found) return "";
+  const reply = current(t.id, "reply");
+  const canInsert = !compact && reply && reply.status === "pending";
+  return `<div class="kfix"><header><b>↺ Fix that worked before</b><span class="from">${esc(k.resolved_before)}</span>${cites(k.sources, order)}</header>
+    <div class="kbody">${k.steps.length ? `<ol>${k.steps.map(x => `<li>${esc(x)}</li>`).join("")}</ol>` : ""}${k.snippet ? `<pre>${esc(k.snippet)}</pre>` : ""}</div>
+    ${compact ? "" : `<div class="kfoot"><button class="btn sm" data-act="copyfix">Copy</button>
+      ${canInsert ? `<button class="btn sm primary" data-act="insertfix" data-p="${esc(reply.id)}">Insert into reply</button>` : ""}
+      <span class="hint">Ready to paste to ${esc(t.reporter.name.split(" ")[0])}</span></div>`}</div>`;
+}
+
+// ---------- composer ----------
+function composer(t, gres, order) {
+  const id = t.id;
+  if (!gres) {
+    return `<div class="composer"><div class="drafted"><span class="spin sm"></span><span><b>Tesseract</b> is drafting a reply from the company graph…</span></div>
+      <div class="cbody"><div class="skel" style="width:40%"></div><div class="skel"></div><div class="skel" style="width:92%"></div><div class="skel" style="width:70%"></div></div></div>`;
+  }
+  const a = gres.answer;
+  const reply = current(id, "reply"), triage = current(id, "triage"), fixP = current(id, "fix");
+  const tabs = [["reply", "Reply to customer", reply], ["note", "Internal note", triage], ["fix", "Code fix", fixP]];
+  const tab = ui.tab[id] || (reply?.status === "pending" ? "reply" : triage?.status === "pending" ? "note" : fixP?.status === "pending" ? "fix" : "reply");
+  const badge = p => !p ? "" : p.status === "pending" ? `<span class="badge">Draft</span>` : p.status === "approved" ? `<span class="badge ok">✓</span>` : "";
+  const fixBadge = a.fix.warranted && !fixP ? `<span class="badge" style="background:var(--brand-l);color:var(--brand)">Suggested</span>` : badge(fixP);
+  let body;
+  if (tab === "reply") body = replyTab(t, a, order, reply);
+  else if (tab === "note") body = noteTab(t, a, order, triage);
+  else body = fixTab(t, a, order, fixP);
+  return `<div class="composer"><div class="tabs">${tabs.map(([k, name, p]) => `<div class="tab ${tab === k ? "on" : ""}" data-tab="${k}">${esc(name)}${k === "fix" ? fixBadge : badge(p)}</div>`).join("")}</div>${body}</div>`;
+}
+
+function draftedBar(a, order, extra = "") {
+  const k = a.triage.classification;
+  return `<div class="drafted"><span class="avatar sm tess">◆</span><span>Drafted by <b>Tesseract</b> from ${order.length} graph source${order.length === 1 ? "" : "s"}</span>
+    ${tchip(tessState(ui.route.id))}<span style="color:var(--muted)">confidence ${esc(a.triage.confidence)}</span><span class="grow"></span>${extra}</div>`;
+}
+
+function decided(p, what) {
+  if (p.status === "approved") return `<div class="cfoot"><span class="outcome">✓ ${esc(p.outcome || "Approved")}</span><span class="grow"></span><span class="hint">${esc(p.decided_by)} · ${esc(when(p.decided))}${p.edited ? " · edited" : ""}</span></div>`;
+  if (p.status === "rejected") return `<div class="cfoot"><span class="hint">Draft discarded by ${esc(p.decided_by)}. Re-run Tesseract for a new ${what}.</span></div>`;
+  return "";
+}
+
+function editor(p, text, approveLabel) {
+  if (!(p.id in ui.drafts)) ui.drafts[p.id] = text;
+  return `<div class="cbody"><textarea class="edit" id="ed-${esc(p.id)}" data-draft="${esc(p.id)}"></textarea></div>
+    <div class="cfoot"><button class="btn good" data-act="approve" data-p="${esc(p.id)}" data-edited="1" ${ui.busy[p.id] ? "disabled" : ""}>${esc(approveLabel)}</button>
+    <button class="btn subtle" data-act="cancel" data-p="${esc(p.id)}">Cancel</button><span class="grow"></span>
+    <span class="hint">Citations are dropped from an edited message.</span></div>`;
+}
+
+function pendingFoot(p, approveLabel, hint) {
+  return `<div class="cfoot"><button class="btn good" data-act="approve" data-p="${esc(p.id)}" ${ui.busy[p.id] ? "disabled" : ""}>${ui.busy[p.id] ? `<span class="spin sm"></span>` : ""}${esc(approveLabel)}</button>
+    <button class="btn" data-act="edit" data-p="${esc(p.id)}">Edit</button><button class="btn danger" data-act="reject" data-p="${esc(p.id)}">Discard</button>
+    <span class="grow"></span><span class="hint">${esc(hint)}</span></div>`;
+}
+
+function replyTab(t, a, order, p) {
+  const text = a.reply.paragraphs.map(x => x.text).join("\n\n");
+  if (p && p.status === "pending" && ui.editing[p.id]) return draftedBar(a, order) + editor(p, text, "Approve & send edited");
+  const sentText = p && p.status === "approved" ? S.outbox.find(m => m.ticket === t.id)?.body : null;
+  return draftedBar(a, order) + `<div class="cbody"><div class="subjline">${esc(a.reply.subject)} <span style="font-weight:400;color:var(--muted)">→ ${esc(t.reporter.email)}</span></div>
+    ${p?.edited && sentText ? `<p style="white-space:pre-wrap">${esc(sentText)}</p>` : a.reply.paragraphs.map(x => `<p>${claim(x, order)}</p>`).join("")}</div>` +
+    (!p ? "" : p.status === "pending" ? pendingFoot(p, "Approve & send", `Sends to ${t.reporter.email} on approval`) : decided(p, "reply"));
+}
+
+function triageText(tri) {
+  return [`[${tri.classification.replace("_", "-")}] ${tri.summary}`, `Root cause: ${tri.root_cause.text}`,
+    "What happened before:\n" + tri.history.map(h => "- " + h.text).join("\n"),
+    "Who to ping:\n" + tri.owners.map(o => `- ${o.name}: ${o.why}`).join("\n"),
+    "Next steps:\n" + tri.next_steps.map(s => "- " + s.text).join("\n"), `Confidence: ${tri.confidence}`].join("\n\n");
+}
+
+function noteTab(t, a, order, p) {
+  const tri = a.triage;
+  if (p && p.status === "pending" && ui.editing[p.id]) return draftedBar(a, order) + editor(p, triageText(tri), "Approve note");
+  return draftedBar(a, order) + `<div class="cbody" style="background:#fffdf0">
+    <p><b>${esc(tri.summary)}</b></p>
+    <div class="lbl">Likely root cause</div><p>${claim(tri.root_cause, order)}</p>
+    <div class="lbl">What happened before</div><ul class="list">${tri.history.map(h => `<li>${claim(h, order)}</li>`).join("") || "<li>Nothing in the graph.</li>"}</ul>
+    <div class="lbl">Who to ping</div><ul class="list">${tri.owners.map(o => `<li><b>${esc(o.name)}</b>: ${esc(o.why)} ${cites(o.sources, order)}</li>`).join("") || "<li>No one identified.</li>"}</ul>
+    <div class="lbl">Next steps</div><ul class="list">${tri.next_steps.map(s => `<li>${claim(s, order)}</li>`).join("")}</ul></div>` +
+    (!p ? "" : p.status === "pending" ? pendingFoot(p, "Approve note", "Internal only: the customer never sees it") : decided(p, "note"));
+}
+
+function diffFiles(d) {
+  const files = [];
+  let cur = null;
+  for (const line of d.split("\n")) {
+    if (line.startsWith("diff --git")) { cur = {name: line.split(" b/").pop(), lines: [], add: 0, del: 0}; files.push(cur); continue; }
+    if (!cur) continue;
+    if (/^(index |--- |\+\+\+ |new file mode)/.test(line)) continue;
+    if (line.startsWith("+")) cur.add++; else if (line.startsWith("-")) cur.del++;
+    cur.lines.push(line);
+  }
+  return files.map((f, i) => `<details class="file" ${i < 2 ? "open" : ""}><summary style="display:flex;gap:8px"><span>${esc(f.name)}</span>
+    <span class="stat"><span class="p">+${f.add}</span> <span class="m">−${f.del}</span></span></summary>
+    <pre class="diff">${f.lines.map(l => `<span class="${l.startsWith("+") ? "a" : l.startsWith("-") ? "d" : l.startsWith("@@") ? "h" : ""}">${esc(l) || " "}</span>`).join("\n")}</pre></details>`).join("");
+}
+
+function fixTab(t, a, order, p) {
+  const id = t.id, f = a.fix, l = live[`${id}:fix`];
+  const plan = `<div class="cbody"><div class="lbl" style="margin-top:0">Tesseract's plan</div><p>${claim(f.plan, order)}</p></div>`;
+  if (!f.warranted) return draftedBar(a, order) + plan + `<div class="cfoot"><span class="hint">No code change: this ticket is configuration, ops work or a feature request.</span></div>`;
+  const running = l && !l.done;
+  if (!p || running) {
+    return draftedBar(a, order) + plan + (running || (l && l.events.length) ? `<div class="cbody" style="padding-top:0"><div class="lbl" style="margin-top:0">${running ? `<span class="spin sm" style="display:inline-block;vertical-align:-2px"></span> Working on a branch` : "Last attempt"}</div>${timeline(`${id}:fix`)}</div>` : "") +
+      `<div class="cfoot"><button class="btn primary" data-act="fix" ${running ? "disabled" : ""}>${running ? "Generating…" : l?.done ? "Try again" : "Generate fix"}</button>
+      <span class="grow"></span><span class="hint">Clones ${esc(f.repo || "auth-service")}, changes it on a branch and runs the tests. Nothing is pushed.</span></div>`;
+  }
+  const fx = p.content;
+  return draftedBar(a, order, `<span class="hint" style="color:var(--muted)">${esc(fx.repo)} · <code>${esc(fx.branch)}</code></span>`) + `<div class="cbody">
+    ${p.status === "pending" ? `<div class="lbl" style="margin-top:0">Pull request title</div><input class="text" id="pr-title" value="${esc(fx.title)}">` : `<p><b>${esc(fx.title)}</b></p>`}
+    <div class="lbl">Description</div>${fx.description.map(x => `<p>${claim(x, order)}</p>`).join("")}
+    <div class="lbl">Tests</div><div class="tests">
+      <div><b class="${fx.tests.before_passed ? "ok" : "fail"}">main: ${fx.tests.before_passed ? "passing" : "failing"}</b>${esc(fx.tests.before.split("\n").pop())}</div>
+      <div><b class="ok">with this change: passing</b>${esc(fx.tests.after.split("\n").pop())}</div></div>
+    <div class="lbl">Changes</div>${diffFiles(fx.diff)}</div>` +
+    (p.status === "pending" ? `<div class="cfoot"><button class="btn good" data-act="approve" data-p="${esc(p.id)}" data-pr="1" ${ui.busy[p.id] ? "disabled" : ""}>${ui.busy[p.id] ? `<span class="spin sm"></span> Pushing…` : "Approve: push & open draft PR"}</button>
+      <button class="btn" data-act="fix">Regenerate</button><button class="btn danger" data-act="reject" data-p="${esc(p.id)}">Discard</button><span class="grow"></span>
+      ${p.last_error ? `<span class="hint fail" title="${esc(p.last_error)}">Last attempt failed: ${esc(p.last_error.slice(0, 90))}</span>` : `<span class="hint">Draft PR on ${esc(fx.repo)}, for review</span>`}</div>`
+      : decided(p, "fix"));
+}
+
+// ---------- compare ----------
+function compare(t) {
+  const id = t.id;
+  const col = mode => {
+    const res = result(id, mode), l = live[`${id}:${mode}`], graph = mode === "graph";
+    const head = `<header><b>${graph ? "◆ With company graph" : "Without graph (baseline)"}</b><span>${graph ? "forge MCP tools on" : "same model and prompt, no tools"}</span></header>`;
+    if (!res) {
+      const err = run(id, mode)?.error;
+      return `<div class="cmp ${graph ? "" : "base"}">${head}<div class="cbody">${err ? `<span class="fail">${esc(err)}</span>` : `<div style="display:flex;gap:8px;align-items:center;color:var(--muted)"><span class="spin sm"></span>${graph ? "Searching the graph" : "Answering from the ticket alone"}…</div><div class="skel" style="margin-top:12px"></div><div class="skel" style="width:80%"></div>`}</div></div>`;
+    }
+    const a = res.answer, order = citeOrder(a);
+    const nodes = graph ? new Set((res.calls || []).flatMap(c => c.nodes)).size : 0;
+    const secs = l?.events.length ? l.events[l.events.length - 1].t : null;
+    return `<div class="cmp ${graph ? "" : "base"}">${head}
+      <div class="score"><div><b>${tchip(tessState(id).cls && graph ? tessState(id) : {cls: a.triage.classification, text: a.triage.classification.replace("_", "-")})}</b><span>classified</span></div>
+        <div><b>${order.length}</b><span>sources cited</span></div><div><b>${nodes}</b><span>graph nodes read</span></div><div><b>${a.triage.owners.length}</b><span>people named</span></div></div>
+      <div class="cbody">${graph ? knownFix(t, a, order, true) : `<div class="lbl" style="margin-top:0">Fix that worked before</div><p style="color:var(--muted)">No record of earlier resolutions.</p>`}<div class="lbl" style="margin-top:0">Reply to customer</div>${a.reply.paragraphs.map(x => `<p>${claim(x, order)}</p>`).join("")}
+        <div class="lbl">Root cause</div><p>${claim(a.triage.root_cause, order)}</p>
+        <div class="lbl">Who to ping</div><ul class="list">${a.triage.owners.map(o => `<li><b>${esc(o.name)}</b>: ${esc(o.why)}</li>`).join("") || "<li>No one named.</li>"}</ul>
+        <div class="lbl">Code fix</div><p>${a.fix.warranted ? `Yes, in ${esc(a.fix.repo || "a repo")}: ` : "No: "}${esc(a.fix.plan.text)}</p>
+        ${secs != null ? `<div class="hint" style="color:var(--muted);font-size:12px">${secs}s</div>` : ""}</div></div>`;
+  };
+  return `<div class="compare">${col("graph")}${col("baseline")}</div>
+    <div style="margin-top:10px;color:var(--muted);font-size:12.5px">The baseline is for comparison only and is never proposed. Turn off <b>Compare</b> to review and approve Tesseract's drafts.</div>`;
+}
+
+// ---------- sidebar ----------
+function sidebar(t, gres, order) {
+  const s = sla(t);
+  let html = `<div class="card"><h3>Details</h3><dl class="details">
+    <dt>Status</dt><dd>${lozenge(t.status)}</dd>
+    <dt>Assignee</dt><dd><span style="display:inline-flex;gap:6px;align-items:center">${avatar(t.assignee, "sm")}${esc(t.assignee)}</span></dd>
+    <dt>Priority</dt><dd>${prio(t.severity)}</dd>
+    <dt>Requester</dt><dd>${esc(t.reporter.name)}<br><span style="color:var(--muted);font-size:12.5px">${esc(t.reporter.email)}</span></dd>
+    <dt>Organization</dt><dd>${esc(t.customer)}</dd>
+    <dt>Service</dt><dd>${esc(t.service)}</dd>
+    <dt>Created</dt><dd>${esc(when(t.created_at))}</dd>
+    <dt>First response</dt><dd><span class="sla ${s.cls}">${esc(s.text)}</span> <span style="color:var(--muted);font-size:12px">(${SLA_HOURS[t.severity]}h target)</span></dd>
+  </dl></div>`;
+  if (!gres) {
+    const err = run(t.id, "graph")?.error;
+    return html + `<div class="card tess"><div class="head"><span class="avatar sm tess">◆</span><b>Tesseract</b></div>${err ? `<p class="fail">${esc(err)}</p>` : `<div class="skel"></div><div class="skel" style="width:80%"></div><div class="skel" style="width:60%"></div>`}</div>`;
+  }
+  const a = gres.answer, tri = a.triage;
+  const fixP = current(t.id, "fix");
+  const nodes = {...gres.sources, ...(fixP ? fixP.sources : {})};
+  html += `<div class="card tess"><div class="head"><span class="avatar sm tess">◆</span><b>Tesseract</b><span class="grow"></span>${tchip(tessState(t.id))}</div>
+    <p>${esc(tri.summary)}</p><div class="lbl" style="margin-top:6px">Likely root cause</div><p>${claim(tri.root_cause, order)}</p></div>`;
+  html += `<div class="card"><h3>People to ping</h3>${tri.owners.map(o => `<div class="person">${avatar(o.name, "sm")}<div><b>${esc(o.name)}</b> ${cites(o.sources, order)}<div class="why">${esc(o.why)}</div></div></div>`).join("") || `<div style="color:var(--muted)">No one identified.</div>`}</div>`;
+  const linked = order.filter(i => nodes[i] && (nodes[i].source === "jira" || nodes[i].source === "github"));
+  if (linked.length) {
+    html += `<div class="card"><h3>Linked history</h3>${linked.map(i => { const n = nodes[i]; return `<div class="link" data-src="${esc(i)}">${sdot(n)}<span class="k">${esc(shortKey(n))}</span><span class="t" title="${esc(n.title)}">${esc(n.title)}</span>${n.status ? `<span class="s">${esc(n.status)}</span>` : ""}</div>`; }).join("")}</div>`;
+  }
+  html += `<div class="card"><h3>Sources<span class="grow"></span><span style="text-transform:none;letter-spacing:0;font-weight:500">${order.length} cited, all from forge</span></h3>
+    ${order.map((i, k) => { const n = nodes[i] || {id: i, title: i}; return `<div class="link" data-src="${esc(i)}"><span class="num">${k + 1}</span>${sdot(n)}<span class="t" title="${esc(n.title)}">${esc(n.title)}</span><span class="s">${esc(srcLabel(n))}</span></div>`; }).join("")}</div>`;
+  const l = live[`${t.id}:graph`];
+  const calls = (gres.calls || []).length, nread = new Set((gres.calls || []).flatMap(c => c.nodes)).size;
+  const secs = l?.events.length ? l.events[l.events.length - 1].t : null;
+  html += `<div class="card"><details class="fold" ${ui.openTl.has(t.id) ? "open" : ""} data-tl="${esc(t.id)}"><summary>Investigation · ${calls} graph calls · ${nread} nodes${secs != null ? ` · ${secs}s` : ""}</summary>
+    <div style="margin-top:8px">${timeline(`${t.id}:graph`)}</div></details>${gres.dropped ? `<div style="color:var(--muted);font-size:12px;margin-top:6px">${gres.dropped} citation(s) to nodes no tool returned were removed.</div>` : ""}</div>`;
+  return html;
+}
+
+// ======================================================================
+// source drawer
+// ======================================================================
+function findNode(id) {
+  const tid = ui.route.id;
+  const g = result(tid), fixP = current(tid, "fix");
+  const all = {...(g?.sources || {}), ...(fixP?.sources || {})};
+  if (all[id]) return all[id];
+  for (const l of Object.values(live)) for (const e of l.events || []) for (const n of e.nodes || []) if (n.id === id) return n;
+  return {id, title: id};
+}
+
+function renderDrawer() {
+  const id = ui.drawer;
+  if (!id || ui.route.kind !== "ticket") { $("#drawer").innerHTML = ""; return; }
+  const n = findNode(id), g = result(ui.route.id), fixP = current(ui.route.id, "fix");
+  const calls = (g?.calls || []);
+  const by = (n.found_by || []).map(k => calls.find(c => c.n === k)).filter(Boolean)
+    .map(c => `<li><code>#${c.n} ${esc(c.name)}</code> ${esc(JSON.stringify(Object.values(c.input || {})[0] ?? "").slice(0, 70))}</li>`).join("");
+  const used = [];
+  if (g) {
+    const a = g.answer;
+    a.reply.paragraphs.forEach((p, i) => { if (p.sources.includes(id)) used.push(`Reply ¶${i + 1}`); });
+    if (a.triage.root_cause.sources.includes(id)) used.push("Root cause");
+    if (a.triage.history.some(h => h.sources.includes(id))) used.push("History");
+    if (a.triage.owners.some(o => o.sources.includes(id))) used.push("People to ping");
+    if (a.triage.next_steps.some(s => s.sources.includes(id))) used.push("Next steps");
+    if (a.fix.plan.sources.includes(id)) used.push("Fix plan");
+    if (a.known_fix?.sources?.includes(id)) used.push("Fix that worked before");
+  }
+  if (fixP?.content.description.some(d => d.sources.includes(id))) used.push("Pull request");
+  $("#drawer").innerHTML = `<div class="scrim" data-act="close"></div><div class="drawer">
+    <header><div style="flex:1;min-width:0"><span class="srclabel">${sdot(n)}${esc(srcKind(n))}${n.key ? ` · ${esc(n.key)}` : ""}${n.status ? ` · ${esc(n.status)}` : ""}</span><h2>${esc(n.title)}</h2></div>
+      <button class="btn subtle sm" data-act="close" title="Close (esc)">✕</button></header>
+    <div class="dbody">
+      ${n.url ? `<a class="btn primary sm" href="${esc(n.url)}" target="_blank" rel="noopener" style="text-decoration:none">Open in ${esc(APP[n.source] || "source")} ↗</a>` : ""}
+      <dl class="details" style="margin-top:14px">
+        ${n.updated ? `<dt>Last updated</dt><dd>${esc(when(n.updated))}</dd>` : ""}
+        <dt>Used in</dt><dd>${esc(used.join(", ") || "Not cited")}</dd>
+        <dt>Graph node</dt><dd><code style="font-size:11px">${esc(id)}</code></dd>
+      </dl>
+      ${by ? `<div class="lbl">Found by</div><ul class="list" style="font-size:13px;overflow-wrap:anywhere">${by}</ul>` : ""}
+      <div class="lbl">Content, read through forge</div><div class="full" id="full"><div class="skel"></div><div class="skel" style="width:85%"></div><div class="skel" style="width:60%"></div></div>
+    </div></div>`;
+  loadFull(id);
+}
+
+const fullCache = {};
+async function loadFull(id) {
+  const show = text => { const el = $("#full"); if (el && ui.drawer === id) el.textContent = text; };
+  if (fullCache[id]) return show(fullCache[id]);
+  try {
+    const d = await api("/api/node?id=" + encodeURIComponent(id));
+    const e = d.entity || {};
+    fullCache[id] = (e.text || e.body || e.name || "(no text)") + (e.textTruncated ? "\n\n[… first 2,000 characters; open the source for the rest]" : "");
+    show(fullCache[id]);
+  } catch (err) { show("Could not load this node: " + err.message); }
+}
+
+function openSource(id) { ui.drawer = ui.drawer === id ? null : id; render(); }
+
+// ======================================================================
+// actions
+// ======================================================================
+document.addEventListener("click", async ev => {
+  const src = ev.target.closest("[data-src]");
+  if (src && !ev.target.closest("a")) { openSource(src.dataset.src); return; }
+  const row = ev.target.closest("tr[data-open]");
+  if (row) { go("#/t/" + row.dataset.open); return; }
+  const g = ev.target.closest("[data-go]");
+  if (g) { go(g.dataset.go); return; }
+  const th = ev.target.closest("th[data-sort]");
+  if (th) { const k = th.dataset.sort; ui.sort = {k, dir: ui.sort.k === k ? -ui.sort.dir : 1}; render(); return; }
+  const tab = ev.target.closest("[data-tab]");
+  if (tab) { ui.tab[ui.route.id] = tab.dataset.tab; render(); return; }
+  const b = ev.target.closest("[data-act]");
+  if (!b) return;
+  const act = b.dataset.act, pid = b.dataset.p, id = ui.route.id;
+  if (act === "close") { ui.drawer = null; render(); return; }
+  if (act === "showtl") { ui.openTl.has(id) ? ui.openTl.delete(id) : ui.openTl.add(id); render(); return; }
+  if (act === "rerun") { await start(id, "graph", true); if (ui.compare) await start(id, "baseline", true); toast(`Tesseract is working ${id} again`); return; }
+  if (act === "runall") {
+    const todo = S.tickets.filter(t => t.status !== "Resolved" && !run(t.id, "graph"));
+    for (const t of todo) await start(t.id, "graph");
+    toast(todo.length ? `Tesseract started on ${todo.length} ticket${todo.length === 1 ? "" : "s"}` : "Every open ticket already has a Tesseract run");
+    return;
+  }
+  if (act === "fix") {
+    try { live[`${id}:fix`]?.es?.close(); delete live[`${id}:fix`]; await api(`/api/tickets/${encodeURIComponent(id)}/fix`, {}); follow(id, "fix"); ui.tab[id] = "fix"; render(); }
+    catch (e) { toast(e.message, "bad"); }
+    return;
+  }
+  if (act === "copyfix") {
+    const k = result(id)?.answer.known_fix;
+    try { await navigator.clipboard.writeText(knownFixText(k)); toast("Copied the fix steps"); }
+    catch (e) { toast("Could not copy: " + e.message, "bad"); }
+    return;
+  }
+  if (act === "insertfix") {
+    const k = result(id).answer.known_fix, p = current(id, "reply");
+    const base = ui.drafts[pid] ?? result(id).answer.reply.paragraphs.map(x => x.text).join("\n\n");
+    ui.drafts[pid] = base + "\n\nHere is what fixed this before:\n" + knownFixText(k);
+    ui.editing[pid] = true; ui.tab[id] = "reply"; render();
+    const el = document.getElementById("ed-" + pid); if (el) { el.focus(); el.scrollIntoView({block: "center"}); }
+    toast("Added the fix to the reply. Review it, then approve.");
+    return;
+  }
+  if (act === "edit") { ui.editing[pid] = true; render(); document.getElementById("ed-" + pid)?.focus(); return; }
+  if (act === "cancel") { delete ui.editing[pid]; delete ui.drafts[pid]; render(); return; }
+  if (act === "approve" || act === "reject") {
+    if (ui.busy[pid]) return;
+    let content;
+    if (b.dataset.edited) content = ui.drafts[pid];
+    if (b.dataset.pr) content = $("#pr-title")?.value;
+    if (act === "approve" && b.dataset.edited && !String(content || "").trim()) { toast("The message is empty.", "bad"); return; }
+    ui.busy[pid] = true; render();
+    try {
+      const p = await api(`/api/proposals/${encodeURIComponent(pid)}`, {action: act, content});
+      delete ui.editing[pid]; delete ui.drafts[pid];
+      toast(act === "reject" ? "Draft discarded" : p.outcome || "Approved", act === "reject" ? "" : "good");
+    } catch (e) { toast(e.message, "bad"); }
+    finally { delete ui.busy[pid]; await refresh(); }
+  }
+});
+
+document.addEventListener("input", ev => {
+  if (ev.target.dataset?.draft) ui.drafts[ev.target.dataset.draft] = ev.target.value;
+  if (ev.target.id === "q") { ui.query = ev.target.value; ui.kb = 0; if (ui.route.kind !== "queue") go("#/queue/all"); else render(); }
+});
+
+document.addEventListener("change", async ev => {
+  if (ev.target.id === "cmp") {
+    ui.compare = ev.target.checked;
+    if (ui.compare && ui.route.id) await start(ui.route.id, "baseline");
+    render(); return;
+  }
+  const f = ev.target.dataset?.field;
+  if (f) {
+    try { await api(`/api/tickets/${encodeURIComponent(ui.route.id)}`, {[f]: ev.target.value}); toast(`${f === "status" ? "Status" : "Assignee"}: ${ev.target.value}`); }
+    catch (e) { toast(e.message, "bad"); }
+    await refresh();
+  }
+});
+
+document.addEventListener("toggle", ev => {
+  const d = ev.target;
+  if (d.dataset?.tl) d.open ? ui.openTl.add(d.dataset.tl) : ui.openTl.delete(d.dataset.tl);
+}, true);
+
+document.addEventListener("keydown", ev => {
+  const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName);
+  if (ev.key === "Escape") {
+    if (typing) { document.activeElement.blur(); return; }
+    if (ui.drawer) { ui.drawer = null; render(); return; }
+    if (ui.route.kind === "ticket") { go(`#/queue/${ui.lastView || "open"}`); return; }
+  }
+  if (typing || ev.metaKey || ev.ctrlKey || ev.altKey) return;
+  if (ev.key === "/") { ev.preventDefault(); $("#q").focus(); return; }
+  if (ui.route.kind === "queue") {
+    const {rows} = queueRows();
+    if (ev.key === "j" || ev.key === "ArrowDown") { ui.kb = Math.min(ui.kb + 1, rows.length - 1); render(); ev.preventDefault(); }
+    if (ev.key === "k" || ev.key === "ArrowUp") { ui.kb = Math.max(ui.kb - 1, 0); render(); ev.preventDefault(); }
+    if (ev.key === "Enter" && rows[ui.kb]) go("#/t/" + rows[ui.kb].id);
+  } else if (ui.route.kind === "ticket" && ev.key === "c") {
+    const el = $("#cmp"); if (el) { el.checked = !el.checked; el.dispatchEvent(new Event("change", {bubbles: true})); }
+  }
+});
+
+window.addEventListener("hashchange", () => { if (ui.route.kind === "queue") ui.lastView = ui.route.view; });
+
+// ======================================================================
+(async () => {
+  await refresh();
+  route();
+  if (ui.route.kind === "queue") ui.lastView = ui.route.view;
+})();
+</script>
+</body>
+</html>
