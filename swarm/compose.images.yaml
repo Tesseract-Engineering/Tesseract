@@ -1,0 +1,34 @@
+# Released images instead of local builds (docs/RELEASING.md):
+#
+#   docker compose -f swarm/compose.yaml -f swarm/compose.images.yaml run --rm sample
+#   TESSERACT_TAG=0.1.0 docker compose -f swarm/compose.yaml -f swarm/compose.images.yaml ...
+#
+# TESSERACT_TAG is a tag the release workflow publishes: dev (default), main, X.Y.Z, X.Y or a short SHA.
+# The images are private: `docker login ghcr.io` first, with a token that has read:packages.
+# `!reset` drops the base file's build: section (needs Docker Compose 2.24.4 or newer).
+
+services:
+  init:
+    build: !reset null
+    image: ghcr.io/tesseract-engineering/swarm-sample:${TESSERACT_TAG:-dev}
+  sample:
+    build: !reset null
+    image: ghcr.io/tesseract-engineering/swarm-sample:${TESSERACT_TAG:-dev}
+  github:
+    build: !reset null
+    image: ghcr.io/tesseract-engineering/swarm-github:${TESSERACT_TAG:-dev}
+  slack:
+    build: !reset null
+    image: ghcr.io/tesseract-engineering/swarm-slack:${TESSERACT_TAG:-dev}
+  drive:
+    build: !reset null
+    image: ghcr.io/tesseract-engineering/swarm-drive:${TESSERACT_TAG:-dev}
+  jira:
+    build: !reset null
+    image: ghcr.io/tesseract-engineering/swarm-jira:${TESSERACT_TAG:-dev}
+  identity:
+    build: !reset null
+    image: ghcr.io/tesseract-engineering/swarm-identity:${TESSERACT_TAG:-dev}
+  graph:
+    build: !reset null
+    image: ghcr.io/tesseract-engineering/swarm-graph:${TESSERACT_TAG:-dev}
