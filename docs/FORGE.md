@@ -10,8 +10,8 @@ This document is for people building **around** forge: an agent that uses its to
 
 | Surface | What you get | Available |
 |---|---|---|
-| Source refs on graph nodes (`ref`, `refProvider`, `refKind`, `contentSha`) | A stable name for every GitHub, Jira and Drive item | In review: #4 |
-| `Neo4jStore.read`, `swarm_queries.readable()` / `edge_readable()` | Read the graph and check access without private methods | In review: #5 |
+| Source refs on graph nodes (`ref`, `refBase`, `refProvider`, `refKind`, `contentSha`) | A stable name for every GitHub, Jira and Drive item | **Available** (#4) |
+| `Neo4jStore.read`, `swarm_queries.readable()` / `edge_readable()` / `principals()` | Read the graph, or the swarm's records, and check access without private methods or copying the rule | **Available** (#5) |
 | MCP tools `search_brain`, `get_entity`, `get_neighbors`, `read_content`, `describe_sources` over stdio and HTTP | The forge contract below | F8 |
 | Live reads of GitHub PRs, issues, repos and files | `read_content` with `origin: "live"` | F6 (provider), F8 (tool) |
 | Forge in the compose stack, reachable from the laptop on `127.0.0.1:8765` | One URL for every local consumer | F9 |
@@ -275,7 +275,7 @@ Two limits to design around:
 
 ### 1. Read the graph directly, through the public modules
 
-Once #4 and #5 merge, you can read what forge will serve, with the same access rule, using `graph.store.Neo4jStore.read` and `graph.swarm_queries`:
+You can already read what forge will serve, with the same access rule, using `graph.store.Neo4jStore.read` and `graph.swarm_queries`:
 
 ```python
 from graph.store import Neo4jStore
@@ -292,7 +292,7 @@ with Neo4jStore() as store:                      # NEO4J_URI, NEO4J_PASSWORD
         q="oidc", ns=NS, member=v["member"], principals=v["principals"])
 ```
 
-Every query must filter every node with `READABLE` and every edge with `EDGE_READABLE`, because Neo4j has no row-level security. For code that already holds a node's properties, `readable(visibility, aclGroups, v)` is the same rule in Python. Keep these reads in one module of your own, shaped like the tools above, so moving to forge later changes one file.
+Every query must filter every node with `READABLE` and every edge with `EDGE_READABLE`, because Neo4j has no row-level security. For code that already holds a node's properties, `readable(visibility, aclGroups, v)` is the same rule in Python. Code that reads the swarm's records rather than Neo4j (as `recommend/` does) builds the viewer with `principals(email, identities, groups)`, which follows nested groups the way `viewer()` does. Keep these reads in one module of your own, shaped like the tools above, so moving to forge later changes one file.
 
 ### 2. Code against the tools, with a fake server
 
