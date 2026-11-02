@@ -59,3 +59,12 @@ Forge's server (F8) is not built yet, so all five tools are served by `forge_stu
 - **Source code.** The graph holds a repo's docs, not its code, and live reads (F6) are not built. The fix path reads code from its own clone, which is the hands' workspace, not graph context.
 - **Refs.** `ref` is null on every node until #4 merges; citations use graph ids and each node's `url`.
 - **Writes.** Forge does not write to sources. Replies (to a local outbox) and PRs (with `gh`) belong to the desk, behind its approval gate.
+
+## Linked to the Tesseract core
+
+With the core running (`python -m core --meeting`, see `core/README.md`), the desk is its ticketing surface (`core_link.py`):
+
+- **In.** When a thread's owner approves **Make a ticket** in Slack, the brief becomes ticket **TD-2xx** here within a few seconds. The requester is the owner and the body is the brief: the decision, open questions, the doc, and the records it rests on. The owner gets the ticket's link in Slack, and it shows on the thread and on the call screen.
+- **Out.** When a person approves a reply, a triage note or a draft PR on that ticket, it's added to the thread. **Resolved** closes the thread.
+
+The seed tickets never talk to the core. The desk finds the core through `TESSERACT_URL` (`http://127.0.0.1:8787`) and the `tickets` key in `data/core-keys.json` (or `TESSERACT_TICKETS_KEY`). Without them it runs on its own. Against the local graph built by `graph.build_swarm`, set `TICKET_DESK_NS=kg:swarm`.

@@ -28,7 +28,10 @@ NS = os.environ.get("TICKET_DESK_NS", "kg:sandbox")
 
 
 def server_params() -> StdioServerParameters:
-    command = shlex.split(os.environ.get("FORGE_COMMAND", f"{sys.executable} -m forge_stub serve --stdio"))
+    # A list, not a string to split: POSIX splitting eats the backslashes in a Windows interpreter path.
+    given = os.environ.get("FORGE_COMMAND")
+    command = (shlex.split(given, posix=os.name != "nt") if given
+               else [sys.executable, "-m", "forge_stub", "serve", "--stdio"])
     env = {**os.environ, "FORGE_VIEWER_EMAIL": VIEWER, "FORGE_GRAPH_NS": NS,
            "PYTHONPATH": os.pathsep.join(p for p in (str(ROOT), os.environ.get("PYTHONPATH", "")) if p)}
     return StdioServerParameters(command=command[0], args=command[1:], env=env, cwd=str(ROOT))

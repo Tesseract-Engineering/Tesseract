@@ -69,7 +69,9 @@ Entry kinds: `transcript`, `decision`, `question`, `answer`, `note`, `link`, `ac
 
 ## For the ticketing bot
 
-Nothing to import: poll (or call on a schedule) with the `tickets` key from `data/core-keys.json`.
+**The Ticket Desk (`ticket_desk/`) is the ticketing surface.** Run it beside the core (`python -m ticket_desk`, http://127.0.0.1:8790) and `ticket_desk/core_link.py` does the steps below: an approved brief becomes ticket TD-2xx in the desk's inbox, where the agent works it against the graph like any other. A reply, triage note or draft PR a person approves on it is added to the thread, and resolving the ticket closes the thread. Seed tickets never talk to the core. The desk keeps reading the graph through forge over MCP, which applies the same viewer rules (`graph/swarm_queries.py`).
+
+Any other ticketing bot (a Jira one later) needs nothing to import: poll with the `tickets` key from `data/core-keys.json`.
 
 1. `GET /approvals?surface=tickets&status=approved`: tickets an owner approved, in Slack (**Make a ticket**, or `/tesseract make a ticket`).
 2. For each: create the Jira issue from `payload` exactly: `summary`, `description` (the brief, Markdown: decisions, open questions, the doc, the records it rests on, each a link), `owner` (an email), `records` (URLs).

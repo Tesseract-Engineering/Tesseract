@@ -275,7 +275,7 @@ def ticket_draft(a: dict, t: dict) -> list[dict]:
         {"type": "actions", "elements": [
             _button("Create ticket", "approve_ticket", f"{a['id']}|{a['hash']}", "primary"),
             _button("Cancel", "cancel_approval", a["id"])]},
-        _context("The ticketing bot creates the issue with exactly this brief, for a coding agent to start from. "
+        _context("The Ticket Desk opens a ticket with exactly this brief, where its agent works it against the graph. "
                  f"Only the thread's owner can approve it. `{a['hash']}`"),
     ]
 

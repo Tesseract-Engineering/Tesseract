@@ -15,6 +15,10 @@ The approval gate is here: the agent's runs only ever create proposals. A reply 
 a triage note to the team's log, and a fix to GitHub as a draft PR, each only from POST
 /api/proposals with "approve". State is kept in var/ticket_desk/state.json, so finished runs show
 again after a restart without calling the model.
+
+With the Tesseract core running (core_link.py), the desk is also its ticketing surface: a brief a
+thread's owner approved in Slack becomes a ticket here (TD-2xx), and what a person approves on it,
+and resolving it, is reported back to the thread.
 """
 
 from __future__ import annotations
@@ -22,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -34,6 +39,7 @@ from starlette.routing import Route
 
 from . import fix as fixes
 from .agent import check_sources, work
+from .core_link import CoreError, CoreLink, ticket_from
 from .forge import VIEWER, Forge, Session
 
 HERE = Path(__file__).resolve().parent
@@ -42,6 +48,8 @@ STATE = VAR / "state.json"
 APPROVER = os.environ.get("TICKET_DESK_APPROVER", "Ishan Sinha")
 STATUSES = ["Open", "In progress", "Waiting on customer", "Resolved"]
 PEOPLE = [APPROVER, "Dhruv Pendharkar", "Karthik Valluri", "Hamilton Park"]   # the sandbox's Platform team
+DESK_URL = os.environ.get("TICKET_DESK_URL", f"http://127.0.0.1:{os.environ.get('TICKET_DESK_PORT', '8790')}")
+SYNC_SECONDS = 5
 
 
 def _now() -> str:
@@ -96,10 +104,12 @@ class Run:
 
 
 class Desk:
-    def __init__(self, forge: Forge):
-        self.forge = forge
+    def __init__(self, forge: Forge, link: CoreLink | None = None):
+        self.forge, self.link = forge, link
         self.tickets = {t["id"]: t for t in load_tickets()}
         state = json.loads(STATE.read_text()) if STATE.exists() else {}
+        self.linked: dict[str, dict] = state.get("linked", {})     # tickets made from a thread's brief
+        self.tickets.update(self.linked)
         self.runs: dict[str, dict[str, Run]] = {
             tid: {mode: Run(tid, mode, saved) for mode, saved in modes.items() if saved.get("finished")}
             for tid, modes in state.get("runs", {}).items()}
@@ -112,7 +122,8 @@ class Desk:
     def save(self) -> None:
         VAR.mkdir(parents=True, exist_ok=True)
         state = {"runs": {tid: {m: r.saved() for m, r in modes.items() if r.done} for tid, modes in self.runs.items()},
-                 "proposals": self.proposals, "outbox": self.outbox, "log": self.log, "meta": self.meta}
+                 "proposals": self.proposals, "outbox": self.outbox, "log": self.log, "meta": self.meta,
+                 "linked": self.linked}
         tmp = STATE.with_suffix(".tmp")
         tmp.write_text(json.dumps(state, indent=1, default=str))
         tmp.replace(STATE)
@@ -126,6 +137,47 @@ class Desk:
         return {"viewer": VIEWER, "approver": APPROVER, "tickets": tickets, "runs": runs,
                 "proposals": self.proposals, "outbox": self.outbox, "log": self.log,
                 "statuses": STATUSES, "people": PEOPLE}
+
+    # -- the core's ticketing surface (core_link.py) ------------------------------------------ #
+
+    async def sync(self) -> list[str]:
+        """Make a ticket for each brief a thread's owner approved, and tell the core where it is."""
+        if self.link is None:
+            return []
+        made = []
+        for a in await self.link.approved():
+            if a.get("action") != "create_ticket":
+                continue
+            tid = next((t["id"] for t in self.linked.values() if t["approval"] == a["id"]), None)
+            if tid is None:
+                tid = f"TD-{201 + len(self.linked)}"
+                self.linked[tid] = self.tickets[tid] = ticket_from(a, tid, _now())
+                self.log.append({"at": _now(), "ticket": tid, "what": f"Created from thread {a.get('thread_id')}, "
+                                                                     f"approved by {a.get('approved_by')} ({a['hash']})"})
+                self.save()
+                made.append(tid)
+            # Done even for a ticket made before a crash: the core takes it once and refuses a repeat.
+            await self.link.done(a["id"], f"{DESK_URL}/#/t/{tid}", f"{tid}: {self.tickets[tid]['subject']}")
+        return made
+
+    async def sync_forever(self) -> None:
+        while True:
+            try:
+                await self.sync()
+            except CoreError as e:
+                print(f"core link: {e}", file=sys.stderr)
+            await asyncio.sleep(SYNC_SECONDS)
+
+    async def report(self, tid: str, kind: str, **data) -> None:
+        """Add what a person approved on a ticket from a thread to that thread. Best effort: the
+        desk's own log already has it, and the core being down must not undo an approval."""
+        t = self.tickets[tid]
+        if self.link is None or not t.get("thread"):
+            return
+        try:
+            await self.link.entry(t["thread"], t["reporter"]["email"], kind, **data)
+        except CoreError as e:
+            self.log.append({"at": _now(), "ticket": tid, "what": f"Could not update the thread: {e}"})
 
     def _spawn(self, coro) -> None:
         task = asyncio.create_task(coro)
@@ -200,8 +252,22 @@ class Desk:
         run.finish(result={"proposal": pid})
         self.save()
 
-    def update(self, tid: str, changes: dict) -> dict:
-        """A person changes a ticket's status or assignee."""
+    async def update(self, tid: str, changes: dict) -> dict:
+        """A person changes a ticket's status or assignee. Resolving a ticket made from a thread closes
+        the thread (the design's last handoff), as its owner."""
+        meta = self.set_meta(tid, changes)
+        t = self.tickets[tid]
+        if changes.get("status") == "Resolved" and t.get("thread") and self.link is not None:
+            await self.report(tid, "note", text=f"{tid} resolved")
+            try:
+                await self.link.close(t["thread"], t["reporter"]["email"])
+                self.log.append({"at": _now(), "ticket": tid, "what": f"Closed thread {t['thread']}"})
+            except CoreError as e:
+                self.log.append({"at": _now(), "ticket": tid, "what": f"Could not close the thread: {e}"})
+            self.save()
+        return meta
+
+    def set_meta(self, tid: str, changes: dict) -> dict:
         meta = self.meta.setdefault(tid, {})
         for field, allowed in (("status", STATUSES), ("assignee", PEOPLE)):
             if field in changes:
@@ -250,6 +316,11 @@ class Desk:
                 raise RuntimeError(f"Could not open the PR: {e}") from e
             p["status"], p["outcome"], p["pr_url"] = "approved", f"Draft PR opened: {url}", url
             self.log.append({"at": p["decided"], "ticket": ticket["id"], "what": f"Draft PR opened {url}"})
+        if p["status"] == "approved":
+            if p["kind"] == "fix":
+                await self.report(ticket["id"], "link", url=p["pr_url"], title=f"{ticket['id']}: {fix['title']}")
+            else:
+                await self.report(ticket["id"], "note", text=f"{ticket['id']}: {p['outcome']} (approved by {APPROVER})")
         self.save()
         return p
 
@@ -261,8 +332,11 @@ def build(forge_target=None) -> Starlette:
     async def lifespan(app):
         nonlocal desk
         async with Forge(forge_target) as forge:
-            desk = Desk(forge)
+            desk = Desk(forge, CoreLink.from_env())
             app.state.desk = desk
+            if desk.link is not None:
+                print(f"Linked to the Tesseract core at {desk.link.url}: approved tickets arrive here", file=sys.stderr)
+                desk._spawn(desk.sync_forever())
             yield
             for task in list(desk.tasks):
                 task.cancel()
@@ -320,7 +394,7 @@ def build(forge_target=None) -> Starlette:
         if tid not in desk.tickets:
             return JSONResponse({"error": "no such ticket"}, status_code=404)
         try:
-            return JSONResponse(desk.update(tid, await request.json()))
+            return JSONResponse(await desk.update(tid, await request.json()))
         except ValueError as e:
             return JSONResponse({"error": str(e)}, status_code=400)
 

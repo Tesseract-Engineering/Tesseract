@@ -556,9 +556,9 @@ class Bot:
             except Denied as e:
                 respond(replace_original=False, response_type="ephemeral", text=str(e))
                 return
-            respond(replace_original=True, text="Sent to the ticketing bot",
-                    blocks=cards.closed("Sent to the ticketing bot",
-                                        "It creates the issue with this brief, and I'll DM you the link.", a["hash"]))
+            respond(replace_original=True, text="Sent to the Ticket Desk",
+                    blocks=cards.closed("Sent to the Ticket Desk",
+                                        "It opens a ticket with this brief, and I'll DM you the link.", a["hash"]))
 
         @app.action("cancel_approval")
         def cancel_approval(ack, body, respond):
