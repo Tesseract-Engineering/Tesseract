@@ -25,7 +25,7 @@ Design choices that matter at scale:
 from __future__ import annotations
 
 import os
-from typing import Any, Iterable
+from typing import Any
 
 from neo4j import GraphDatabase
 

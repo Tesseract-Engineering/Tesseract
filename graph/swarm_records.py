@@ -75,7 +75,7 @@ class S3Store:
 
     def __init__(self, bucket: str, endpoint: str | None = None, access_key: str | None = None,
                  secret_key: str | None = None, region: str | None = None) -> None:
-        import boto3   # only needed when reading from a bucket
+        import boto3  # only needed when reading from a bucket
         self.bucket = bucket
         self.s3 = boto3.client("s3", endpoint_url=endpoint or None, aws_access_key_id=access_key,
                                aws_secret_access_key=secret_key, region_name=region or "us-east-1")
@@ -133,7 +133,8 @@ def _run_order(manifest: dict) -> tuple:
 
 def _newer(a: dict, b: dict) -> bool:
     """Rule 2: is item record `a` newer than `b`?"""
-    key = lambda r: (r.get("updated_at") or "", r.get("fetched_at") or "")
+    def key(r: dict) -> tuple:
+        return (r.get("updated_at") or "", r.get("fetched_at") or "")
     return key(a) > key(b)
 
 

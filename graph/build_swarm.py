@@ -292,7 +292,7 @@ def build(state: State, ns: str) -> tuple[list, dict]:
         text = item.get("text") or ""
         extractor = f"{ex['extractor'].get('model')}:{ex['extractor'].get('prompt_version')}"
 
-        def checked(evidence: list[dict]) -> list[dict]:
+        def checked(evidence: list[dict], text: str = text) -> list[dict]:
             good = [e for e in evidence or [] if text[e["start"]:e["end"]] == e["quote"]]   # rule 8
             report["dropped"]["evidence quote not at its offsets"] += len(evidence or []) - len(good)
             return good
@@ -318,7 +318,7 @@ def build(state: State, ns: str) -> tuple[list, dict]:
             e["items"][item["id"]] = (evidence, extractor)
 
         for rel in ex.get("relations", []):
-            def endpoint(ref: str):
+            def endpoint(ref: str, local: dict = local):
                 if ref in local:
                     return local[ref]
                 if ref in state.items:
