@@ -239,3 +239,16 @@ def test_handoff_tells_the_surface_it_goes_to(api):
     assert out["slack"] == {"team": "T1", "bot_user": "U1"}
     assert any(e["type"] == "handoff" and e["to"] == "slack" and e["by"] == ISHAN for e in seen)
     assert core.threads.active(ISHAN)["id"] == t["id"]
+
+
+def test_a_record_found_twice_is_listed_once_in_the_brief(tmp_path):
+    from types import SimpleNamespace
+
+    core = Core(store=object(), threads=Threads(tmp_path / "t.db"), ledger=Ledger(tmp_path / "l.db"), model=False)
+    rec = SimpleNamespace(id="slack:thread:1", title="401s from billing", url="https://slack/p1", source="slack", owners=[])
+    core.graph = SimpleNamespace(viewer=lambda e: e, readable_ids=lambda v, ids, granted: set(ids),
+                                 items=lambda ids: [rec, rec])        # one row per matching node
+    core.granted = lambda e: []
+    t = core.open_thread(ISHAN, "billing-service verifies tokens", [KARTHIK])
+    core.threads.append(t["id"], ISHAN, "zoom", "answer", question="what broke?", records=[rec.id], titles=[rec.title])
+    assert core.brief(t["id"], ISHAN)["markdown"].count("https://slack/p1") == 1

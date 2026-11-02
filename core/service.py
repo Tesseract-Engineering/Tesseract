@@ -295,7 +295,10 @@ class Core:
         ok = set(ids)
         for e in t["audience"]:
             ok &= self.graph.readable_ids(self.graph.viewer(e), ids, self.granted(e))
-        return [h for h in self.graph.items([i for i in ids if i in ok])]
+        hits = {}                 # graph.items can return a record once per matching node: keep one each
+        for h in self.graph.items([i for i in ids if i in ok]):
+            hits.setdefault(h.id, h)
+        return list(hits.values())
 
     def reviewer(self, t: dict, asker: str):
         """Who to ask for review: whoever owns most of the records the thread rests on, not the asker."""
