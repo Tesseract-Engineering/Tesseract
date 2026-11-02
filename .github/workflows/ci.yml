@@ -29,6 +29,6 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e '.[dev,swarm,slackbot,addin,desk]'
-      - run: ruff check tests swarm pipelines samples slackbot core docs_addin eval ticket_desk forge_stub
+      - run: ruff check tests swarm pipelines samples slackbot core docs_addin eval ticket_desk forge_stub forge_demo
       - run: pytest
 
