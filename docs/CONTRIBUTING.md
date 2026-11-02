@@ -31,7 +31,7 @@ Every PR runs these checks (`.github/workflows/ci.yml`). They are **required**: 
 | Check | What it does |
 |---|---|
 | `lint` | `ruff check .` over the whole repository |
-| `test (3.11)`, `test (3.12)` | `pytest` on both supported Pythons, with an S3 bucket service for the `s3` tests |
+| `test (3.11)`, `test (3.12)` | `pytest` on both supported Pythons, with every extra in `pyproject.toml` installed and an S3 bucket service for the `s3` tests |
 | `neo4j` | `pytest -m neo4j` against a Neo4j service: the access-control tests |
 | `images` | Validates the compose stack and builds every container image, without pushing |
 
@@ -40,6 +40,19 @@ The check names are an interface: branch protection requires them by name. Renam
 `stack.yml` (`compose`) runs the whole compose stack. It is not required. Add the `run-stack` label to run it on a PR. `docs/TESTING.md` covers where tests go, the service markers, and how to run everything locally.
 
 The repository is public, so CI never sees real data or credentials. Sandbox runs stay manual.
+
+## Adding a component
+
+A new top-level component, such as `slackbot/`, `docs_addin/` or `forge/`, is built, linted and tested by the existing CI. Do **not** edit `.github/workflows/ci.yml` to add steps for it:
+
+1. **Its dependencies** go in a new extra in `pyproject.toml` (`slackbot = [...]`), with a one-line comment saying what the component is. CI installs every extra it finds there, and so does `pip install -e '.[<extras>]'` locally.
+2. **Its package** goes in `[tool.setuptools.packages.find] include` (`"slackbot*"`), so it is importable after an editable install.
+3. **Its tests** go in `tests/<component>_tests/`, with an empty `__init__.py` and plain pytest. A script-style suite that already exists is wrapped, the way `tests/graph_tests/test_graph_script.py` wraps the graph's. Tests that need a service use a marker (`docs/TESTING.md`).
+4. **Lint** is `ruff check .`, so the new directory is linted with no change.
+5. **A container image**, if it has one: add its Dockerfile to the `images` job's list in `ci.yml` and to the matrix in `release.yml`. That list is the only workflow edit a component makes.
+6. **Ownership:** add a line to `.github/CODEOWNERS` for the directory and its tests, and say in the PR who owns it.
+
+If an open PR edits `ci.yml` only to install or run its own component, resolve the conflict by taking `this-is-not-prod`'s `ci.yml` and following the steps above.
 
 ## Dependencies
 
