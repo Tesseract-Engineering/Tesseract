@@ -1,8 +1,14 @@
-"""READABLE and EDGE_READABLE in Cypher agree with readable() and edge_readable() in Python, case by case."""
+"""The access rule in Cypher agrees with its Python versions: READABLE and EDGE_READABLE with readable() and
+edge_readable() case by case, and viewer() with principals() on the sample graph."""
+
+from pathlib import Path
 
 import pytest
 
-from graph.swarm_queries import EDGE_READABLE, READABLE, edge_readable, readable
+from graph.build_swarm import build
+from graph.load import Loader
+from graph.swarm_queries import EDGE_READABLE, READABLE, edge_readable, principals, readable, viewer
+from graph.swarm_records import LocalStore, load
 
 from .access_cases import CASES
 
@@ -24,3 +30,20 @@ def test_cypher_and_python_agree(neo4j_store, fresh_ns, vis, groups, v):
         f"coalesce({EDGE_READABLE.format(n='r')}, false) AS edge",
         ns=fresh_ns, member=v["member"], principals=v["principals"])
     assert rows == [{"node": readable(vis, groups, v), "edge": edge_readable(vis, groups, v)}]
+
+
+# The sample's people, by every id a group record can name them with (their identity clusters' accounts).
+# Sam's Jira account is in the Jira browsers group, but no cluster holds it, so it grants him nothing.
+PEOPLE = {"sam@acme.com": ["person:slack:U123SAM", "person:github:slee"],
+          "priya@acme.com": ["person:slack:U456PRI", "person:github:priya-r"]}
+
+
+def test_viewer_and_principals_agree_on_the_sample(neo4j_store, fresh_ns):
+    state = load(LocalStore(Path(__file__).resolve().parents[2] / "samples" / "run-0"))
+    proposals, _ = build(state, fresh_ns)
+    with Loader(fresh_ns) as loader:
+        assert loader.ingest(proposals).rejected == 0
+    for email, accounts in PEOPLE.items():
+        from_graph = viewer(neo4j_store, fresh_ns, email)["principals"]
+        from_records = principals(email, accounts, state.groups)
+        assert from_graph[:2] == from_records[:2] and sorted(from_graph[2:]) == from_records[2:], email

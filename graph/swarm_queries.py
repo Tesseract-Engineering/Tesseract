@@ -3,7 +3,8 @@ swarm_queries.py - read the swarm graph as one viewer: only what they may see, a
 computed from only that. Anything that reads the graph for a person (forge's MCP tools, a chat
 front end) should import READABLE, EDGE_READABLE, LIVE and viewer() from here, so the rule
 cannot drift. Code that holds a node's properties rather than a query uses readable() and
-edge_readable(), the same rule in Python. Queries go through Neo4jStore.read.
+edge_readable(), the same rule in Python; code that reads the swarm's records rather than Neo4j
+(recommend) builds the viewer's principals with principals(). Queries go through Neo4jStore.read.
 
 A viewer is an email. Their principals are user:{email}, domain:{their domain}, and every Group
 their Person is MEMBER_OF, directly or through groups inside groups. A node is readable when it is
@@ -25,6 +26,7 @@ query, over readable items only.
 from __future__ import annotations
 
 import sys
+from typing import Iterable
 
 from .store import Neo4jStore
 
@@ -41,6 +43,9 @@ EDGE_READABLE = _RULE.replace("{v}", "coalesce({n}.visibility, 'public')")
 CONFIDENCE_FLOOR = 0.80
 LIVE = "({r}.supersededAt IS NULL AND coalesce({r}.confidence, 1.0) >= $floor)"
 
+# Groups inside groups are followed this deep, by viewer() in Cypher and by principals() in Python.
+GROUP_HOPS = 6
+
 
 def readable(visibility: str | None, acl_groups: list[str] | None, v: dict) -> bool:
     """READABLE, in Python: for code holding a node's properties rather than a query."""
@@ -53,11 +58,32 @@ def edge_readable(visibility: str | None, acl_groups: list[str] | None, v: dict)
     return readable(visibility or "public", acl_groups, v)
 
 
+def principals(email: str, identities: Iterable[str], groups: dict[str, dict]) -> list[str]:
+    """viewer()'s principals, from the swarm's records instead of Neo4j: for code that reads the bucket.
+
+    identities: every member id that names this person in a group record, the way build_swarm turns
+    them into MEMBER_OF: user:{each of their emails} and the ids of their source accounts
+    (person:github:slee). Which accounts are the person's is identity resolution, so the caller says.
+    groups: the current group records by id (swarm_records.load().groups). A group listing a group of
+    theirs is theirs too, up to GROUP_HOPS deep, as MEMBER_OF*1..GROUP_HOPS is in viewer().
+    """
+    email = email.lower()
+    names = {f"user:{email}", *identities}
+    mine = {gid for gid, g in groups.items() if names & set(g.get("members") or [])}
+    frontier = set(mine)
+    for _ in range(GROUP_HOPS - 1):
+        frontier = {gid for gid, g in groups.items() if frontier & set(g.get("members") or [])} - mine
+        if not frontier:
+            break
+        mine |= frontier
+    return [f"user:{email}", f"domain:{email.split('@')[-1]}", *sorted(mine)]
+
+
 def viewer(store: Neo4jStore, ns: str, email: str) -> dict:
     email = email.lower()
     rows = store.read(
         "OPTIONAL MATCH (p:Person {ns: $ns})-[:HAS_ACCOUNT]->(:Account {ns: $ns, email: $email}) "
-        "OPTIONAL MATCH (p)-[m:MEMBER_OF*1..6]->(g:Group {ns: $ns}) "
+        f"OPTIONAL MATCH (p)-[m:MEMBER_OF*1..{GROUP_HOPS}]->(g:Group {{ns: $ns}}) "
         "WHERE all(r IN m WHERE r.supersededAt IS NULL) "
         "RETURN count(DISTINCT p) > 0 AS member, collect(DISTINCT g.id) AS groups", ns=ns, email=email)
     row = rows[0] if rows else {"member": False, "groups": []}

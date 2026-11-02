@@ -15,6 +15,8 @@ CASES = [
     ("restricted, not in the group", "restricted", ["group:g:auth"], OUTSIDER, False, False),
     ("restricted, member but not in the group", "restricted", ["group:g:finance"], MEMBER, False, False),
     ("restricted, no groups", "restricted", None, MEMBER, False, False),
+    ("restricted to the company's domain, member", "restricted", ["domain:acme.com"], MEMBER, True, True),
+    ("restricted to the company's domain, outsider", "restricted", ["domain:acme.com"], OUTSIDER, False, False),
     ("no visibility", None, None, MEMBER, False, True),
     ("no visibility, outsider", None, None, OUTSIDER, False, True),
 ]
