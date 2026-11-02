@@ -2,6 +2,7 @@
 
 import pytest
 
+from graph import refs
 from graph.build_swarm import item_props, source_ref
 
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
@@ -54,6 +55,13 @@ def test_a_doc_ref_carries_its_blob_sha():
     props = item_props(doc)
     assert props["ref"] == f"forge://github/blob/acme/api@{COMMIT}:docs/adr/0002.md"
     assert props["contentSha"] == BLOB
+    assert props["refBase"] == "forge://github/blob/acme/api:docs/adr/0002.md"
+
+
+def test_a_pasted_branch_link_finds_the_doc_by_its_ref_base():
+    pasted = refs.from_url("https://github.com/acme/api/blob/main/docs/adr/0002.md")
+    assert pasted.version == "main"
+    assert pasted.unversioned().uri() == item_props(CASES[3][1])["refBase"]
 
 
 def test_a_doc_path_is_the_unquoted_one():
@@ -69,6 +77,7 @@ def test_a_drive_id_that_is_not_a_drive_id_gives_no_ref():
 def test_nodes_with_a_ref_say_so_and_others_do_not():
     pr = item_props(PR)
     assert (pr["ref"], pr["refProvider"], pr["refKind"]) == ("forge://github/pull/acme/api/412", "github", "pull")
+    assert pr["refBase"] == pr["ref"], "only blob refs carry a version"
     assert "contentSha" not in pr
     thread = item_props(THREAD)
-    assert not {"ref", "refProvider", "refKind", "contentSha"} & set(thread)
+    assert not {"ref", "refBase", "refProvider", "refKind", "contentSha"} & set(thread)

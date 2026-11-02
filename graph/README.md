@@ -47,7 +47,8 @@ A node built from an item that a live provider can fetch again carries a **sourc
 
 | Property | Value |
 |---|---|
-| `ref` | the `forge://` URI below |
+| `ref` | the `forge://` URI below, pinned to a version where the source has one |
+| `refBase` | the same URI without its version. Look items up by this: see below |
 | `refProvider`, `refKind` | its parts: `github` / `jira` / `gdrive`, and the kind within that provider |
 | `contentSha` | GitHub docs only: the git blob SHA the text was read from (the swarm item's `version`) |
 
@@ -61,7 +62,9 @@ A node built from an item that a live provider can fetch again carries a **sourc
 
 `build_swarm.source_ref` reads the ref from the item's link (`refs.from_url`), and keeps it only when its kind is the item's: a GitHub issue whose link is a PR gets no ref. A Drive item with no link gets its ref from its id. A GitHub doc's ref pins the commit its permalink was read at (`meta.last_commit`); when the swarm had no commit and linked the branch, the ref has no version. Its path is `meta.path`, not the URL-quoted path in the link.
 
-Slack is index-only: the graph holds its text, but no provider fetches it again. GitHub commits and Jira projects have no live kind, so they get no ref either. Nothing else about a node changes when it has no ref. `ref` is indexed on `Issue`, `Document`, `Commit` and `Container`. Every build prints a **Refs** section after the proposals:
+**Look a ref up by `refBase`, not `ref`.** A blob's `ref` is pinned to the commit the latest build read, so it moves with every build, and a link someone pastes is usually at a branch (`refs.from_url` gives `@main`) or at an older commit. Match `refBase = ref.unversioned().uri()`, then compare the version or `contentSha` to tell whether the reader's copy is the one the graph holds. For every other kind, `refBase` equals `ref`.
+
+Slack is index-only: the graph holds its text, but no provider fetches it again. GitHub commits and Jira projects have no live kind, so they get no ref either. Nothing else about a node changes when it has no ref. `ref` and `refBase` are indexed on `Issue`, `Document`, `Commit` and `Container`. Every build prints a **Refs** section after the proposals:
 
 ```
 Refs

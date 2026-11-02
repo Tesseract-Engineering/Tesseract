@@ -142,7 +142,9 @@ def item_props(item: dict) -> dict:
         props[name] = when(value) if key.endswith(("_at", "_date")) and isinstance(value, str) else value
     ref = source_ref(item)
     if ref is not None:
-        props.update(ref=ref.uri(), refProvider=ref.provider, refKind=ref.kind)
+        # refBase is the ref without its version: a blob's ref moves to a new commit every build, and a link
+        # someone pastes is at a branch or an older commit, so readers look a ref up by refBase.
+        props.update(ref=ref.uri(), refBase=ref.unversioned().uri(), refProvider=ref.provider, refKind=ref.kind)
         version = item.get("version")
         if ref.kind == "blob" and isinstance(version, str) and SHA40.match(version):
             props["contentSha"] = version       # the git blob SHA: a live read can check it is the same text
