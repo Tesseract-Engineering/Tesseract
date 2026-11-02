@@ -1,0 +1,16 @@
+# Who reviews what. Paths are matched in order; the last match wins.
+*                          @kar722 @ishan-sinha-ucb @dhruvpendharkar
+/swarm/                    @kar722
+/pipelines/                @kar722
+/eval/                     @kar722
+/samples/                  @kar722
+/ontology.yaml             @kar722 @ishan-sinha-ucb
+/docs/SWARM.md             @kar722
+/graph/                    @ishan-sinha-ucb
+/recommend/                @kar722
+/forge/                    @dhruvpendharkar
+/docs/FORGE.md             @dhruvpendharkar
+/tests/swarm_tests/        @kar722
+/tests/graph_tests/        @ishan-sinha-ucb
+/tests/forge_tests/        @dhruvpendharkar
+/.github/                  @dhruvpendharkar @kar722 @ishan-sinha-ucb

@@ -26,7 +26,7 @@ pytest runs with `--strict-markers`, so a misspelt marker is an error rather tha
 ## Running tests
 
 ```bash
-pip install -e '.[dev,swarm,graph]'     # add forge once it exists: '.[dev,swarm,graph,forge]'
+pip install -e '.[dev,swarm,graph]'     # plus your component's extra; CI installs every extra in pyproject.toml
 ruff check .                            # lint, the same as CI's lint job
 pytest                                  # everything; tests whose service is not set up skip
 pytest tests/graph_tests                # one component
