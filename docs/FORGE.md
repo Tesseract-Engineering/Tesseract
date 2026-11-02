@@ -132,7 +132,7 @@ One node by graph id or by source ref, as the viewer, with a live freshness chec
 
 | Argument | Type | Notes |
 |---|---|---|
-| `id_or_ref` | string | A graph id (`github:repo:7001:pr:412`) or a ref (`forge://github/pull/acme/api/412`) |
+| `id_or_ref` | string | A graph id (`github:repo:7001:pr:412`) or a ref (`forge://github/pull/acme/api/412`). A ref is matched **without its version**, so a file ref at a branch or at an older commit still finds the file |
 
 ```json
 {"entity": {"id": "github:repo:7001:pr:412", "labels": ["Issue"], "title": "Switch staff login to OIDC",
@@ -150,6 +150,7 @@ One node by graph id or by source ref, as the viewer, with a live freshness chec
 ```
 
 - `entity` holds the node's own properties: the source's fields (Jira status, PR state, and so on, in camelCase), plus `labels`. `text` and `body` are cut to 2,000 characters, with `textTruncated: true`. Use `read_content` for the whole text. Internal bookkeeping (`meta`, `contentHash`, `runId`, provenance) is removed.
+- **Refs are matched on their unversioned form** (the node's `refBase`), because a file's ref is pinned to the commit the latest build read and moves with every build. The version you passed, and the node's own `ref` and `contentSha`, only decide `stale`.
 - `stale` is `true` when the source changed the item after the graph last read it, `false` when it has not, and `null` when there is no live check (no ref, or no served provider). `live` is `null` in the same cases.
 - A node that does not exist and a node the viewer may not read give the **same** `not_found` error. Forge never reveals that something exists.
 
@@ -253,7 +254,7 @@ Forge returns graph nodes as the graph stores them, filtered by access. The voca
 Edges between items: `IN`, `REFERENCES`, `CLOSES`, `IMPLEMENTS`, `BLOCKS`, `DUPLICATES`, `PART_OF`, `DEPENDS_ON`. Between people and items: `AUTHORED`, `REVIEWED`, `PARTICIPATED_IN`, `ASSIGNED_TO`, `OWNS`, `HAS_ACCOUNT`, `MEMBER_OF`. Extracted: `MENTIONS`, `DECIDED_IN`, `DECIDED_BY`, `WORKS_ON`, `SUPERSEDES`.
 
 - **Do not parse node ids.** They are the swarm's (`github:repo:7001:pr:412`), and some carry access information. An extracted entity's id ends in its access set, because a decision named in a public repo and in a private channel is two nodes. To identify an item in its source, use its `ref`.
-- **Refs** name an item in its source: `forge://github/pull/acme/api/412`, `forge://jira/issue/AUTH-12`, `forge://gdrive/file/<fileId>`, `forge://github/blob/acme/api@<commit>:docs/adr/0002.md`. The full table, and which items have none, is in `graph/README.md` ("Source refs"). Use `graph.refs.parse`, `from_url` and `to_url` rather than string handling: `from_url` turns a link a user pasted into a ref you can pass to `get_entity`.
+- **Refs** name an item in its source: `forge://github/pull/acme/api/412`, `forge://jira/issue/AUTH-12`, `forge://gdrive/file/<fileId>`, `forge://github/blob/acme/api@<commit>:docs/adr/0002.md`. The full table, and which items have none, is in `graph/README.md` ("Source refs"). Use `graph.refs.parse`, `from_url` and `to_url` rather than string handling: `from_url` turns a link a user pasted into a ref you can pass to `get_entity`, even when the link is at a branch (`blob/main/...`): forge matches it on its unversioned form. If you compare refs yourself, compare `ref.unversioned()`, or the node's `refBase` property.
 - **Freshness.** The graph is rebuilt from the swarm's nightly runs. `sourceUpdatedAt` is when the source last changed the item, as of that build. `stale` and `origin: "live"` tell you when the source has moved on since.
 
 ## What a viewer sees
