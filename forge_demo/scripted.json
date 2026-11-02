@@ -1,0 +1,87 @@
+{
+ "describe_sources": {
+  "data": {
+   "ns": "kg:sandbox",
+   "sources": {
+    "github": {
+     "repos": 4,
+     "pull_requests": 18,
+     "issues": 6,
+     "commits": 34
+    },
+    "jira": {
+     "projects": 7,
+     "issues": 92
+    },
+    "slack": {
+     "channels": 13,
+     "threads": 92
+    },
+    "gdrive": {
+     "folders": 5,
+     "documents": 36
+    }
+   },
+   "extracted": {
+    "people": 4,
+    "teams": 24,
+    "decisions": 33,
+    "systems": 187,
+    "customers": 15,
+    "action_items": 48,
+    "connections": 2105
+   }
+  },
+  "text": "Connected by the swarm (graph kg:sandbox):\n  GitHub   4 repos · 18 PRs · 6 issues · 34 commits\n  Jira     7 projects · 92 issues\n  Slack    13 channels · 92 threads\n  Drive    5 folders · 36 documents\nExtracted: 4 people · 24 teams · 33 decisions · 15 customers · 2,105 connections\nEvery read is checked against the asker's own access in each source."
+ },
+ "smoke_test": {
+  "slack": {
+   "data": {
+    "surface": "slack",
+    "passed": true,
+    "seconds": 4.3,
+    "question": "Who owns the API gateway key rotation runbook?",
+    "answer": "Dhruv Pendharkar (Infra) owns the API Gateway Key Rotation Runbook, per the runbook and a Slack thread",
+    "cites": "API Gateway Key Rotation Runbook.docx",
+    "url": "https://docs.google.com/document/d/1lr61oNHnEuFeyPrTis_U5ke4Mmu-Gnzg/edit?usp=drivesdk&ouid=115359793262598148647&rtpof=true&sd=true"
+   },
+   "text": "✓ Slack app (4s)\nQ: Who owns the API gateway key rotation runbook?\nA: Dhruv Pendharkar (Infra) owns the API Gateway Key Rotation Runbook, per the runbook and a Slack thread\n   cites: API Gateway Key Rotation Runbook.docx"
+  },
+  "zoom": {
+   "data": {
+    "surface": "zoom",
+    "passed": true,
+    "seconds": 3.2,
+    "question": "What is the default rate limit on the public API?",
+    "answer": "Default tier is 100 requests/minute per API key, from the Rate Limiting v2 design doc",
+    "cites": "API Rate Limiting v2 - Design.docx",
+    "url": "https://docs.google.com/document/d/1WsPJcL2qvLRxr5-ojNe2cC81eXPIXqkP/edit?usp=drivesdk&ouid=115359793262598148647&rtpof=true&sd=true"
+   },
+   "text": "✓ Meeting page beside Zoom (3s)\nQ: What is the default rate limit on the public API?\nA: Default tier is 100 requests/minute per API key, from the Rate Limiting v2 design doc\n   cites: API Rate Limiting v2 - Design.docx"
+  },
+  "docs": {
+   "data": {
+    "surface": "docs",
+    "passed": true,
+    "seconds": 6.0,
+    "passage": "billing-service will fetch auth-service's JWKS once at startup and cache the key",
+    "note": "incident",
+    "text": "web-app fetched the JWKS only on boot; staging JWKS fetch errors from web-app paged for 47m [1][2]. The follow-up was web-app v4.8.2 refreshing every 10 minutes (commit #7) [3][4]. Caching for process life repeats that failure on rotation."
+   },
+   "text": "✓ Google Docs sidebar (6s)\nCheck on §4.3 Signing keys: “billing-service will fetch auth-service's JWKS once at startup and cac…”\n→ incident: web-app fetched the JWKS only on boot; staging JWKS fetch errors from web-app paged for 47m [1][2]. The follow-up was web-app v4.8.2 refreshing every 10 minutes (commit #7) [3][4]. Caching for process life repeats that failure on rotation."
+  },
+  "tickets": {
+   "data": {
+    "surface": "tickets",
+    "passed": true,
+    "seconds": 0.0,
+    "ticket": "TD-104",
+    "subject": "HTTP 429 Too Many Requests on the public API",
+    "classification": "repeat",
+    "sources": 7,
+    "fix_that_worked": "CS-3, Globex: 429s on the public API, resolved by Karthik Valluri by moving them to the higher-tier key (ticket last updated 2026-10-22)."
+   },
+   "text": "✓ Ticket Desk (0s)\nTD-104 “HTTP 429 Too Many Requests on the public API”\n→ repeat, 7 cited sources: Soylent's nightly sync sends about 300 requests/min to the public API and started getting 429s about two weeks ago. Rate limiter v2 (SBX-9) shipped around then, with a 100 requests/min default per API\n→ fix that worked before: CS-3, Globex: 429s on the public API, resolved by Karthik Valluri by moving them to the higher-tier key (ticket last updated 2026-10-22)."
+  }
+ }
+}

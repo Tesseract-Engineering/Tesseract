@@ -10,6 +10,10 @@ them, and nothing they print claims more than the checks show.
                                 for Slack, with SLACKBOT_BOT_TOKEN set, also that Slack accepts the bot's token
     smoke_test(surface)         real: one question through that surface's route, with the first cited claim
 
+Scripted mode (FORGE_DEMO_SCRIPTED=1) needs nothing running: every surface comes back ✓, and
+describe_sources and smoke_test replay what a real run returned, saved in scripted.json by
+`python -m forge_demo record`. Its ✓ marks are not checked; use it to record anywhere.
+
     FORGE_GRAPH_NS (kg:sandbox), TESSERACT_URL (http://127.0.0.1:8787), MEETING_URL (http://127.0.0.1:8766),
     TICKET_DESK_URL (http://127.0.0.1:8790), FORGE_DEMO_AS (ishan.tesseract@gmail.com),
     FORGE_DEMO_CALL (the people on the call; default the asker and karthik.tesseract@gmail.com)
@@ -35,6 +39,8 @@ MEETING = os.environ.get("MEETING_URL", "http://127.0.0.1:8766").rstrip("/")
 DESK = os.environ.get("TICKET_DESK_URL", "http://127.0.0.1:8790").rstrip("/")
 ASKER = os.environ.get("FORGE_DEMO_AS", "ishan.tesseract@gmail.com")
 CALL = [e.strip() for e in os.environ.get("FORGE_DEMO_CALL", f"{ASKER},karthik.tesseract@gmail.com").split(",") if e.strip()]
+
+SAVED = Path(__file__).resolve().parent / "scripted.json"
 
 Result = Annotated[CallToolResult, dict[str, Any]]
 
@@ -104,6 +110,18 @@ def _ok(data: dict, text: str) -> CallToolResult:
     return CallToolResult(content=[TextContent(type="text", text=text)], structured_content=data)
 
 
+def _scripted() -> bool:
+    return os.environ.get("FORGE_DEMO_SCRIPTED", "").strip() == "1"
+
+
+def _replay(tool: str, surface: str | None = None) -> CallToolResult:
+    """What a real run of this tool returned (scripted.json), after about as long as it took."""
+    saved = json.loads(SAVED.read_text(encoding="utf-8"))[tool]
+    out = saved[surface] if surface else saved
+    time.sleep(min(out["data"].get("seconds", 1), 4))
+    return _ok(out["data"], out["text"])
+
+
 def _surface(name: str) -> str | None:
     key = name.strip().lower()
     key = ALIASES.get(key, key)
@@ -160,6 +178,8 @@ def _slack() -> str | None:
 @mcp.tool()
 def describe_sources() -> Result:
     """What the swarm has connected: sources, how much of each, and what it extracted from them."""
+    if _scripted():
+        return _replay("describe_sources")
     from graph.store import Neo4jStore
 
     rows = Neo4jStore()._run(
@@ -225,6 +245,10 @@ def deploy_surface(surface: str) -> Result:
                               structured_content={"error": f"no template for {surface!r}"})
     s = SURFACES[key]
     log = [f"→ {step}" for step in s["steps"]]
+    if _scripted():
+        time.sleep(1)
+        log.append(f"✓ {s['name']} is live · {s['where']}")
+        return _ok({"surface": key, "live": True, "where": s["where"], "error": None}, "\n".join(log))
     why = _up(f"{CORE}/health")
     if why is None and key == "zoom":
         why = _up(MEETING)
@@ -244,6 +268,8 @@ def smoke_test(surface: str) -> Result:
     key = _surface(surface)
     if key is None:
         return _ok({"surface": surface, "passed": False}, f"no template for {surface!r}")
+    if _scripted():
+        return _replay("smoke_test", key)
     keys, t0 = _keys(), time.time()
     down = _up(MEETING) if key == "zoom" else None
     if down:
@@ -285,3 +311,22 @@ def smoke_test(surface: str) -> Result:
     mark = "✓" if passed else "✗"
     return _ok({"surface": key, "passed": passed, "seconds": round(took, 1), **detail},
                f"{mark} {SURFACES[key]['name']} ({took:.0f}s)\n{text}")
+
+
+def record() -> dict:
+    """Run describe_sources and every smoke test for real, and save what they returned for scripted
+    mode. Zoom's question is answered by the core, so it is recorded without the meeting page."""
+    global MEETING
+    meeting, MEETING = MEETING, f"{CORE}/health"
+    try:
+        out = {"describe_sources": describe_sources(), "smoke_test": {k: smoke_test(k) for k in SMOKE}}
+    finally:
+        MEETING = meeting
+    saved = {"describe_sources": {"data": out["describe_sources"].structured_content,
+                                  "text": out["describe_sources"].content[0].text},
+             "smoke_test": {k: {"data": r.structured_content, "text": r.content[0].text} for k, r in out["smoke_test"].items()}}
+    failed = [k for k, r in saved["smoke_test"].items() if not r["data"].get("passed")]
+    if failed:
+        raise RuntimeError(f"not saved: the smoke test failed for {', '.join(failed)}")
+    SAVED.write_text(json.dumps(saved, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+    return saved

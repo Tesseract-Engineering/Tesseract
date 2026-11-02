@@ -13,7 +13,17 @@ Act 2 of the end-to-end demo: **"Where should Tesseract live?"** A Claude Code c
 
 The smoke tests deliberately avoid Act 3's own questions (the token claims question, §2.2, TD-113), so nothing is spoiled.
 
-## Run it
+## Scripted mode: record anywhere
+
+```bash
+FORGE_DEMO_SCRIPTED=1 python -m forge_demo
+```
+
+Needs nothing running: no Neo4j, core, meeting page or desk. Every surface comes back ✓, and the source counts and smoke-test answers are replayed from `scripted.json`, which a real run saved (each paced about as long as the real call took). On screen it looks the same as the real mode. The ✓ marks are not checked, so use it to record, not to find out whether the surfaces work.
+
+To refresh the saved answers (after a graph rebuild, say), with Neo4j, the core and the desk running: `python -m forge_demo record`. It runs every check for real and refuses to save if one fails.
+
+## Run it for real
 
 Start everything Act 3 needs first (`ticket_desk/DEMO.md`, `core/README.md`): Neo4j, `TESSERACT_NS=kg:sandbox python -m core --meeting`, the desk with `TICKET_DESK_NOW=2026-10-29T20:00:00Z python -m ticket_desk`. Then, in a clean terminal with a large font:
 

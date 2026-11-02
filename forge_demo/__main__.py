@@ -1,6 +1,10 @@
 """
 python -m forge_demo                   open the demo chat: Claude Code with only forge_demo's tools
 python -m forge_demo serve --stdio     the MCP server itself (Claude Code starts this)
+python -m forge_demo record            save a real run's answers for scripted mode (scripted.json)
+
+FORGE_DEMO_SCRIPTED=1 python -m forge_demo needs nothing running: every surface comes back ✓ and the
+answers are the saved ones.
 
 The chat starts with no other MCP servers, no built-in tools and the setup agent's prompt
 (prompt.md), and its tool calls need no permission prompts, so every take runs the same way. Extra
@@ -34,7 +38,8 @@ def chat(extra: list[str]) -> None:
     given = {**dotenv, **os.environ}
     env = {k: given[k] for k in ("NEO4J_URI", "NEO4J_USER", "NEO4J_PASSWORD", "FORGE_GRAPH_NS", "TESSERACT_URL",
                                  "MEETING_URL", "TICKET_DESK_URL", "FORGE_DEMO_AS", "FORGE_DEMO_CALL",
-                                 "ADDIN_KEY", "TESSERACT_KEYS", "SLACKBOT_BOT_TOKEN") if given.get(k)}
+                                 "ADDIN_KEY", "TESSERACT_KEYS", "SLACKBOT_BOT_TOKEN",
+                                 "FORGE_DEMO_SCRIPTED") if given.get(k)}
     env.setdefault("NEO4J_PASSWORD", "neo4j-local-dev")
     env["PYTHONPATH"] = str(ROOT)
     config = {"mcpServers": {"forge": {"command": sys.executable, "args": ["-m", "forge_demo", "serve", "--stdio"],
@@ -52,5 +57,11 @@ if __name__ == "__main__":
         from .server import mcp
 
         mcp.run("stdio")
+    elif sys.argv[1:] == ["record"]:
+        from .server import SAVED, record
+
+        for surface, r in record()["smoke_test"].items():
+            print(f"{surface:8} {r['text'].splitlines()[0]}")
+        print(f"saved {SAVED}")
     else:
         chat(sys.argv[1:])

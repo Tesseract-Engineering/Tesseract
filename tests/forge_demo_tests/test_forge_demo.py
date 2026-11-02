@@ -28,3 +28,14 @@ def test_a_surface_that_is_down_is_never_called_live(monkeypatch):
 
 def test_an_unknown_surface_is_an_error():
     assert server.deploy_surface("teams").is_error
+
+
+def test_scripted_mode_needs_nothing_running(monkeypatch):
+    monkeypatch.setenv("FORGE_DEMO_SCRIPTED", "1")
+    monkeypatch.setattr(server, "CORE", CLOSED)
+    monkeypatch.setattr(server, "MEETING", CLOSED)
+    monkeypatch.setattr(server.time, "sleep", lambda s: None)
+    assert "Connected by the swarm" in server.describe_sources().content[0].text
+    for surface in ("docs", "slack", "zoom", "tickets"):
+        assert server.deploy_surface(surface).structured_content["live"] is True
+        assert server.smoke_test(surface).structured_content["passed"] is True
