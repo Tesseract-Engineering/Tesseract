@@ -12,9 +12,9 @@ requires-python = ">=3.11"
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.5", "jsonschema>=4,<5"]
+dev = ["pytest==8.4.2", "ruff==0.17.3", "jsonschema>=4,<5"]
 swarm = ["pydantic>=2,<3", "pyyaml>=6,<7", "boto3>=1.34,<2", "detect-secrets>=1.5,<2", "httpx>=0.27,<1", "pyjwt[crypto]>=2.8,<3", "pypdf>=4,<7", "anthropic[bedrock]>=1.17,<2"]
-# The graph builder (graph/): reads the bucket, writes Neo4j. Same pins as graph/requirements.txt.
+# The graph builder (graph/): reads the bucket, writes Neo4j. swarm/graph.Dockerfile installs this extra.
 graph = ["neo4j>=5,<6", "boto3>=1.34,<2"]
 
 [tool.setuptools.packages.find]
@@ -22,8 +22,10 @@ include = ["swarm*", "graph*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-ra --strict-markers"
 markers = [
     "s3: needs an S3-compatible bucket at S3_ENDPOINT (swarm/compose.yaml); skipped otherwise",
+    "neo4j: needs Neo4j at NEO4J_URI with NEO4J_PASSWORD (swarm/compose.yaml); skipped otherwise",
 ]
 
 [tool.ruff]
