@@ -77,7 +77,7 @@ SURFACES: dict[str, dict] = {
         "approval": "Transcription starts only once the host confirms everyone agreed; the host accepts each decision",
         "steps": ["Starting the meeting page", "Connecting live transcription", "Setting the host and the people on the call",
                   "Linking call threads to Docs and Slack"],
-        "where": MEETING,
+        "where": "Zoom › Tesseract Meeting, shared beside the call",
     },
     "tickets": {
         "name": "Ticket Desk",
@@ -87,7 +87,7 @@ SURFACES: dict[str, dict] = {
         "approval": "Every reply, note and PR waits for a person: Approve, Edit or Discard",
         "steps": ["Connecting the desk to forge over MCP", "Loading the support queue",
                   "Subscribing to tickets approved in Slack", "Enabling draft PRs on auth-service"],
-        "where": DESK,
+        "where": "Tesseract Support › Ticket Desk",
     },
 }
 ALIASES = {"google docs": "docs", "doc": "docs", "gdocs": "docs", "zoom meetings": "zoom", "meetings": "zoom",
