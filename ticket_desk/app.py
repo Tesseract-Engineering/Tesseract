@@ -24,7 +24,6 @@ import json
 import os
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 from pathlib import Path
 
 from starlette.applications import Starlette
@@ -32,6 +31,7 @@ from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse, StreamingResponse
 from starlette.routing import Route
 
+from . import clock
 from . import fix as fixes
 from .agent import check_sources, work
 from .forge import VIEWER, Forge, Session
@@ -45,7 +45,7 @@ PEOPLE = [APPROVER, "Dhruv Pendharkar", "Karthik Valluri", "Hamilton Park"]   # 
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return clock.stamp()
 
 
 def load_tickets() -> list[dict]:
@@ -125,7 +125,7 @@ class Desk:
             t.update({"status": "Open", "assignee": APPROVER, **self.meta.get(t["id"], {})})
         return {"viewer": VIEWER, "approver": APPROVER, "tickets": tickets, "runs": runs,
                 "proposals": self.proposals, "outbox": self.outbox, "log": self.log,
-                "statuses": STATUSES, "people": PEOPLE}
+                "statuses": STATUSES, "people": PEOPLE, "now": _now()}
 
     def _spawn(self, coro) -> None:
         task = asyncio.create_task(coro)

@@ -29,7 +29,7 @@ pip install -e '.[desk]'
 python -m ticket_desk                                      # http://127.0.0.1:8790
 ```
 
-`ANTHROPIC_API_KEY` and `NEO4J_PASSWORD` come from the environment or `.env` (Neo4j defaults to compose's `neo4j-local-dev`). `gh` must be logged in, as someone with write access to `tesseract-sandbox/auth-service`, for an approved fix to open its PR. Settings: `TICKET_DESK_VIEWER` (default `ishan.tesseract@gmail.com`), `TICKET_DESK_NS` (`kg:sandbox`), `TICKET_DESK_MODEL` (`claude-opus-5-5`), `TICKET_DESK_EFFORT` (`medium`), `FORGE_COMMAND` (default `python -m forge_stub serve --stdio`; point it at forge when F8 merges), `TICKET_DESK_PORT` (8790).
+`ANTHROPIC_API_KEY` and `NEO4J_PASSWORD` come from the environment or `.env` (Neo4j defaults to compose's `neo4j-local-dev`). `gh` must be logged in, as someone with write access to `tesseract-sandbox/auth-service`, for an approved fix to open its PR. Settings: `TICKET_DESK_VIEWER` (default `ishan.tesseract@gmail.com`), `TICKET_DESK_NS` (`kg:sandbox`), `TICKET_DESK_MODEL` (`claude-opus-5-5`), `TICKET_DESK_EFFORT` (`medium`), `FORGE_COMMAND` (default `python -m forge_stub serve --stdio`; point it at forge when F8 merges), `TICKET_DESK_PORT` (8790), `TICKET_DESK_NOW` (start the desk's clock at a moment, e.g. `2026-10-29T20:00:00Z`, so the seed tickets' SLAs read as they did; unset, the real time).
 
 Finished runs are saved, so reopening a ticket shows its last run at once; **Re-run** works it again live. To start a demo from a clean slate, stop the server and delete `var/ticket_desk/state.json`.
 

@@ -11,10 +11,11 @@ The same model, prompt and answer format, with and without the company graph. Wi
 ```bash
 docker start swarm-neo4j-1               # Neo4j must be up, or source lookups hang
 cd ~/Desktop/Tesseract-ticket-desk
-.venv/bin/python -m ticket_desk          # http://127.0.0.1:8790
+TICKET_DESK_NOW=2026-10-29T20:00:00Z .venv/bin/python -m ticket_desk   # http://127.0.0.1:8790
 .venv/bin/python -m eval.check_ticket_desk   # optional: the scorecard over the saved runs
 ```
 
+- **Set the clock.** The seed tickets are dated Oct 27–29. Without `TICKET_DESK_NOW`, every SLA shows as breached on a later day. With it, TD-113 is due in about 3 hours.
 - **Use the saved runs.** Every ticket has a finished run of both modes, so it opens instantly. A live **Re-run** takes about a minute and the wording varies between runs. Show one live only if you want the audience to watch the agent work.
 - **API credits** are needed for Re-run and Generate fix only. Saved runs work without them.
 - **The PR moment.** TD-101 (PR #10) and TD-113 (PR #9) already have draft PRs on `tesseract-sandbox/auth-service`. To approve a fix live again, close the PR and delete its `ticket-desk/td-1xx` branch first, or show the existing PR.
