@@ -23,7 +23,7 @@ bucket runs/ ──▶ swarm_records.py ──▶ build_swarm.py ──▶ the d
 From the repo root:
 
 ```
-pip install -e '.[graph]'                                           # or: pip install -r graph/requirements.txt
+pip install -e '.[graph]'
 python -m graph.test_build_swarm                                    # no database
 
 python -m graph.build_swarm --root samples/run-0 --dry-run          # what it would write

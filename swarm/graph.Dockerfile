@@ -8,8 +8,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 WORKDIR /app
-COPY graph/requirements.txt ./
-RUN pip install -r requirements.txt \
+# Only the graph extra's dependencies, read from pyproject.toml like the pipeline images.
+COPY pyproject.toml ./
+RUN python -c "import tomllib; print('\n'.join(tomllib.load(open('pyproject.toml','rb'))['project']['optional-dependencies']['graph']))" > requirements.txt \
+ && pip install -r requirements.txt \
  && useradd --system --uid 10001 graph
 COPY graph/ ./graph/
 USER graph
