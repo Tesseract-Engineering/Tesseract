@@ -127,6 +127,10 @@ h1.title { font-size: 22px; font-weight: 650; margin: 6px 0 10px; line-height: 1
 .msg .who b { font-weight: 650; }
 .msg .who span { color: var(--muted); }
 .msg .body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg .body.md { white-space: normal; }
+.msg .body.md h3, .msg .body.md h4 { margin: 12px 0 4px; font-size: 13px; font-weight: 650; }
+.msg .body.md h3:first-child, .msg .body.md h4:first-child { margin-top: 0; }
+.msg .body.md p { margin: 0 0 8px; } .msg .body.md ul { margin: 0 0 8px; padding-left: 20px; } .msg .body.md li { margin: 2px 0; }
 .msg.note .bubble { background: var(--note); border-color: var(--note-line); }
 .msg.out .bubble { border-left: 3px solid var(--brand); }
 .event { display: flex; align-items: center; gap: 8px; margin: 0 0 14px 44px; font-size: 13px; color: var(--muted); }
@@ -296,6 +300,7 @@ const color = n => COLORS[[...String(n)].reduce((a, c) => a + c.charCodeAt(0), 0
 const avatar = (n, cls = "") => `<span class="avatar ${cls}" style="background:${color(n)}" title="${esc(n)}">${esc(initials(n))}</span>`;
 
 let S = null;                       // server state
+let skew = 0;                       // the desk's clock (TICKET_DESK_NOW) minus this browser's
 const live = {};                    // "tid:mode" -> {events, done, es, tries}
 const ui = {
   route: {}, sort: {k: "created", dir: -1}, kb: 0, query: "",
@@ -322,7 +327,7 @@ let refreshing = null;
 async function refresh() {
   if (refreshing) return refreshing;
   refreshing = (async () => {
-    try { S = await api("/api/state"); render(); }
+    try { S = await api("/api/state"); skew = S.now ? Date.parse(S.now) - Date.now() : 0; render(); }
     catch (e) { toast("Lost contact with the desk server: " + e.message, "bad"); }
     finally { refreshing = null; }
   })();
@@ -348,12 +353,13 @@ function sla(t) {
   const created = new Date(t.created_at), due = new Date(+created + SLA_HOURS[t.severity] * 3600e3);
   const reply = S.outbox.filter(m => m.ticket === t.id).map(m => new Date(m.at)).sort((a, b) => a - b)[0];
   if (reply) return {cls: "met", text: reply <= due ? "Met" : "Met late"};
-  const left = due - Date.now();
+  const left = due - now();
   if (left < 0) return {cls: "breached", text: "Breached " + ago(due)};
   return {cls: left < 3600e3 ? "due" : "", text: "Due in " + dur(left)};
 }
 function dur(ms) { const h = ms / 3600e3; return h >= 24 ? Math.round(h / 24) + "d" : h >= 1 ? Math.round(h) + "h" : Math.max(1, Math.round(ms / 60e3)) + "m"; }
-function ago(d) { return dur(Date.now() - new Date(d)) + " ago"; }
+function ago(d) { return dur(now() - new Date(d)) + " ago"; }
+const now = () => Date.now() + skew;
 function when(d) { return new Date(d).toLocaleString(undefined, {month: "short", day: "numeric", hour: "numeric", minute: "2-digit"}); }
 
 function tessState(id) {
@@ -566,11 +572,27 @@ function renderTicket() {
   for (const [pid, text] of Object.entries(ui.drafts)) { const el = document.getElementById("ed-" + pid); if (el) el.value = text; }
 }
 
+/** The Markdown a thread's brief arrives in (core/service.py brief()): headings, bullets, links, paragraphs. Escaped first. */
+function md(text) {
+  const inline = l => esc(l).replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  const out = [];
+  let list = false;
+  for (const line of String(text ?? "").split("\n")) {
+    const h = line.match(/^(#{1,4})\s+(.*)/), li = line.match(/^\s*[-*]\s+(.*)/);
+    if (!li && list) { out.push("</ul>"); list = false; }
+    if (h) out.push(`<h${h[1].length > 2 ? 4 : 3}>${inline(h[2])}</h${h[1].length > 2 ? 4 : 3}>`);
+    else if (li) { if (!list) { out.push("<ul>"); list = true; } out.push(`<li>${inline(li[1])}</li>`); }
+    else if (line.trim()) out.push(`<p>${inline(line)}</p>`);
+  }
+  if (list) out.push("</ul>");
+  return out.join("");
+}
+
 function thread(t) {
   const items = [];
   items.push({at: t.created_at, html: `<div class="msg">${avatar(t.reporter.name)}<div class="bubble">
     <div class="who"><b>${esc(t.reporter.name)}</b><span>${esc(t.customer)} · ${esc(t.reporter.email)} · ${esc(when(t.created_at))}</span></div>
-    <div class="body">${esc(t.body)}</div></div></div>`});
+    ${t.thread ? `<div class="body md">${md(t.body)}</div>` : `<div class="body">${esc(t.body)}</div>`}</div></div>`});
   for (const m of S.outbox.filter(m => m.ticket === t.id)) {
     items.push({at: m.at, html: `<div class="msg out">${avatar(m.approved_by)}<div class="bubble">
       <div class="who"><b>${esc(m.approved_by)}</b><span>replied by email to ${esc(m.to)} · ${esc(when(m.at))} · drafted by Tesseract</span></div>

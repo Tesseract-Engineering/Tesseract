@@ -21,9 +21,9 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Awaitable, Callable
-from datetime import date
 from typing import Any
 
+from . import clock
 from .forge import Session
 
 MODEL = os.environ.get("TICKET_DESK_MODEL", "claude-opus-5-5")
@@ -216,7 +216,7 @@ async def work(ticket: dict, mode: str, session: Session | None, emit: Emit, llm
     llm = llm or client()
     graph = mode == "graph"
     system = CORE + (WITH_GRAPH.format(calls=MAX_CALLS) if graph else WITHOUT_GRAPH)
-    prompt = ticket_text(ticket) + f"\n\nToday is {date.today().isoformat()}."
+    prompt = ticket_text(ticket) + f"\n\nToday is {clock.now().date().isoformat()}."
 
     async def execute(name: str, args: dict) -> tuple[str, bool]:
         text, _, is_error = await session.call(name, args)

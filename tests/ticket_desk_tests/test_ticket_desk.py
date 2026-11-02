@@ -2,6 +2,7 @@
 and nothing leaves without an approval. No Neo4j and no model: a fake forge runs in process (as
 docs/FORGE.md suggests) and the model is scripted."""
 
+import importlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,7 +13,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.types import CallToolResult, TextContent
 
 from forge_stub import server as stub
-from ticket_desk import agent, app, fix
+from ticket_desk import agent, app, clock, fix
 from ticket_desk.forge import Forge, Session
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -226,3 +227,12 @@ def test_stub_paging_handles_are_signed():
     b64, mac = h.rsplit(".", 1)
     assert stub._unsign(b64 + "." + "0" * len(mac)) is None
     assert stub._unsign("garbage") is None
+
+
+def test_the_desk_clock_starts_where_it_is_told_and_runs_on(monkeypatch):
+    monkeypatch.setenv("TICKET_DESK_NOW", "2026-10-29T20:00:00Z")
+    importlib.reload(clock)
+    assert clock.stamp().startswith("2026-10-29T20:0")
+    monkeypatch.delenv("TICKET_DESK_NOW")
+    importlib.reload(clock)
+    assert not clock.stamp().startswith("2026-10-29T20:0")
