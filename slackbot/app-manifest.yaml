@@ -1,0 +1,62 @@
+# The Slack app people talk to (slackbot/README.md). Separate from the swarm's
+# read-only "Tesseract Swarm" app (pipelines/slack/app-manifest.yaml): this one
+# posts. It reads channel history only when someone asks it about a
+# conversation ("@Tesseract what do you think of this?"): that thread, or the
+# few messages above the question, at that moment, never stored.
+#
+# api.slack.com/apps > Create New App > From an app manifest, pick the
+# workspace, paste this. Then:
+#   Basic Information > App-Level Tokens > Generate, scope connections:write
+#     -> SLACKBOT_APP_TOKEN (xapp-...)
+#   Install App > Install to Workspace
+#     -> Bot User OAuth Token, SLACKBOT_BOT_TOKEN (xoxb-...)
+# and /invite @Tesseract in any channel it should answer @mentions in.
+display_information:
+  name: Tesseract
+  description: Answers from what your company already wrote, quoted, as you. Asks owners for access with your approval.
+  background_color: "#2f3680"
+features:
+  app_home:
+    home_tab_enabled: false
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
+  bot_user:
+    display_name: Tesseract
+    always_online: true
+  slash_commands:
+    - command: /tesseract
+      description: Ask Tesseract. Only you see the answer.
+      usage_hint: has anyone built a retraining pipeline?
+      should_escape: false
+  shortcuts:
+    - name: Ask Tesseract
+      type: message
+      callback_id: ask_tesseract
+      description: Ask what the company already knows about this message
+oauth_config:
+  scopes:
+    bot:
+      - app_mentions:read    # @Tesseract in channels it was invited to
+      - commands             # /tesseract and the Ask Tesseract message shortcut
+      - chat:write           # answer cards, requests, Send to thread
+      - chat:write.public    # Send to thread from /tesseract in a public channel it was not invited to
+      - channels:history     # the thread or messages a question points at, read when asked
+      - groups:history       # the same, in private channels it was invited to
+      - im:history           # questions sent to it in its DM
+      - im:read
+      - im:write             # open a DM with a requester or an owner
+      - users:read
+      - users:read.email     # who is asking: the email every graph read is checked against
+      - channels:read        # who is in a channel, before Send to thread
+      - groups:read          # the same, for private channels
+      - reactions:write      # 👀 on a mention while it reads
+settings:
+  event_subscriptions:
+    bot_events:
+      - app_mention
+      - message.im
+  interactivity:
+    is_enabled: true
+  org_deploy_enabled: false
+  socket_mode_enabled: true
+  token_rotation_enabled: false
