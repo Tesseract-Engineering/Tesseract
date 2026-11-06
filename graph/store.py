@@ -25,9 +25,9 @@ Design choices that matter at scale:
 from __future__ import annotations
 
 import os
-from typing import Any, Iterable
+from typing import Any
 
-from neo4j import GraphDatabase
+from neo4j import GraphDatabase, RoutingControl
 
 from .contract import EDGE_TYPES, NODE_TYPES
 
@@ -59,6 +59,16 @@ class Neo4jStore:
 
     def _run(self, query: str, **params: Any):
         return self.driver.execute_query(query, database_=self.database, **params).records
+
+    def read(self, query: str, **params: Any) -> list[dict]:
+        """Run a read-only query; rows come back as plain dicts. For consumers (forge, recommend).
+
+        It applies no access rule. Every caller filters every node with swarm_queries.READABLE and every
+        edge with EDGE_READABLE and LIVE itself: a query that forgets returns everything in the namespace.
+        """
+        records = self.driver.execute_query(query, database_=self.database,
+                                            routing_=RoutingControl.READ, **params).records
+        return [r.data() for r in records]
 
     def _batched(self, query: str, rows: list[dict], **params: Any) -> int:
         """Returns rows ACTUALLY written, not rows attempted.
@@ -128,11 +138,13 @@ class Neo4jStore:
             self._run("CREATE FULLTEXT INDEX entitySearch IF NOT EXISTS "
                       "FOR (n:Decision|Project|ActionItem|System|Team|Customer|Container) "
                       "ON EACH [n.name, n.title, n.aliases]")
-        # A live reader (forge) finds an item by its source ref on every read.
+        # A live reader (forge) finds an item by its source ref on every read: by refBase, the ref without
+        # its version, since a blob's pinned ref changes with every build (graph/README.md, "Source refs").
         for node_type in ("Issue", "Document", "Commit", "Container"):
             if node_type in wanted_nodes:
-                self._run(f"CREATE INDEX {node_type.lower()}_ref IF NOT EXISTS "
-                          f"FOR (n:{node_type}) ON (n.ref)")
+                for prop in ("ref", "refBase"):
+                    self._run(f"CREATE INDEX {node_type.lower()}_{prop} IF NOT EXISTS "
+                              f"FOR (n:{node_type}) ON (n.{prop})")
 
     def _legacy_id_constraints(self) -> list[str]:
         """Single-property `id` uniqueness constraints on labels this door
