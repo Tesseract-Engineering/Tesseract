@@ -100,6 +100,9 @@ def _chips(hits: list[Hit]) -> dict:
 def lock_line(a: Answer) -> str | None:
     if not a.locked:
         return None
+    if a.for_group:     # seen by everyone: how many, never what or whose
+        return f"🔒 {plural(len(a.locked), 'related item')} hidden: not everyone here can read " \
+               f"{'it' if len(a.locked) == 1 else 'them'}."
     owners = [o.name for o, _ in by_owner(a.locked) if o]
     who = (" Owner: *" + esc(", ".join(owners)) + "*.") if owners else " Owner unknown."
     return f"🔒 {plural(len(a.locked), 'related item')} ({kinds(a.locked)}) {'is' if len(a.locked) == 1 else 'are'} " \

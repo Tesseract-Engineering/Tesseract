@@ -18,7 +18,9 @@ swarm = ["pydantic>=2,<3", "pyyaml>=6,<7", "boto3>=1.34,<2", "detect-secrets>=1.
 graph = ["neo4j>=5,<6", "boto3>=1.34,<2"]
 # The Slack app (slackbot/): reads the graph as the asker, uses the swarm's model client.
 slackbot = ["slack-bolt>=1.21,<2", "neo4j>=5,<6", "httpx>=0.27,<1", "pydantic>=2,<3", "pyyaml>=6,<7",
-            "anthropic[bedrock]>=1.17,<2"]
+            "anthropic[bedrock]>=1.17,<2", "websockets>=13,<18", "numpy>=1.26"]
+# Live call transcription (slackbot/meeting.py): the call's audio through WASAPI, so Windows only.
+meeting = ["pyaudiowpatch>=0.2.12; sys_platform == 'win32'"]
 
 [tool.setuptools.packages.find]
 include = ["swarm*", "graph*", "slackbot*"]

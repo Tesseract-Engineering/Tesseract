@@ -84,6 +84,7 @@ class Answer:
     searched: list[str] = field(default_factory=list)
     misses: list[Hit] = field(default_factory=list)   # readable near misses, labelled as misses
     context: str | None = None           # the conversation the question pointed at, never a source
+    for_group: bool = False              # answered for everyone in an audience: locked items are only counted
 
     @property
     def cited(self) -> list[Hit]:
@@ -138,17 +139,29 @@ def _plain(question: str, readable: list[Hit], terms: list[str]) -> tuple[str, l
 
 
 def answer(graph: Graph, v: dict, question: str, model=None, granted: list[str] | None = None,
-           context: str | None = None) -> Answer:
+           context: str | None = None, audience: list[dict] | None = None) -> Answer:
     """`context` is the conversation a question points at ("what do you think of this?"): it shapes the
-    search and the model's reading of the question, and is never quoted as evidence."""
-    a = _answer(graph, v, question, model, granted, context)
+    search and the model's reading of the question, and is never quoted as evidence.
+
+    `audience` is everyone who will see the answer (a screen shared on a call): only records each of
+    them may read are given to the model; the rest are counted, never named."""
+    a = _answer(graph, v, question, model, granted, context, audience)
     a.context = context
+    a.for_group = bool(audience)
     return a
 
 
-def _answer(graph: Graph, v: dict, question: str, model, granted: list[str] | None, context: str | None) -> Answer:
+def _answer(graph: Graph, v: dict, question: str, model, granted: list[str] | None, context: str | None,
+            audience: list[dict] | None = None) -> Answer:
     terms = _terms(question, model, context)
     hits = graph.search(v, terms, granted=granted)
+    if audience:
+        ids = [h.id for h in hits if h.readable]
+        shared = set(ids)
+        for member in audience:
+            shared &= graph.readable_ids(member, ids)
+        for h in hits:
+            h.readable = h.readable and h.id in shared
     readable = [h for h in hits if h.readable][:READ_LIMIT]
     best = max((h.score for h in hits), default=0.0)
     locked = [h for h in hits if not h.readable and h.score >= best * LOCKED_SCORE_SHARE]

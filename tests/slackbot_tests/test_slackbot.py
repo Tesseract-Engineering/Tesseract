@@ -33,8 +33,11 @@ class FakeGraph:
 
     def search(self, v, terms, granted=None, limit=8):
         self.asked = (terms, granted)
-        return [h if not (granted and h.id in granted) else
-                Hit(**{**h.__dict__, "readable": True}) for h in self.hits]
+        return [Hit(**{**h.__dict__, "readable": h.readable or bool(granted and h.id in granted)})
+                for h in self.hits]
+
+    def readable_ids(self, v, ids, granted=None):     # a viewer here is {"reads": [ids]}
+        return {i for i in ids if i in v.get("reads", ids)}
 
 
 class Scripted:
@@ -171,6 +174,55 @@ def test_context_steers_the_search_but_is_never_a_source():
     assert "retraining" in g.asked[0] and "Airflow" in g.asked[0]
     assert [c.text for c in a.claims] == ["from the ADR"] and a.context == convo
     assert "never quoted as a source" in json.dumps(cards.answer(a, "k", channel=True))
+
+
+def test_a_shared_screen_quotes_only_what_everyone_can_read():
+    adr, plan = hit("github:repo:1:file:adr-014.md"), hit("gdrive:file:plan", text="We retrain nightly on Airflow, "
+                                                                                 "budget 40k for Q4.", source="gdrive")
+    g = FakeGraph([adr, plan])
+    everyone = [{"reads": [adr.id, plan.id]}, {"reads": [adr.id]}]       # the second person cannot read the plan
+    a = answer(g, {"principals": []}, "retraining Airflow", None, audience=everyone)
+    assert [c.hit.id for c in a.claims] == [adr.id] and [h.id for h in a.locked] == [plan.id]
+    line = cards.lock_line(a)
+    assert line == "🔒 1 related item hidden: not everyone here can read it." and "Karthik" not in line
+
+
+def test_transcript_keeps_finished_lines_and_recent_context(tmp_path):
+    from slackbot.meeting import Transcript
+
+    t = Transcript(labels={"mic": "Ishan Sinha", "speakers": "Others"}, path=tmp_path / "call.jsonl")
+    q = t.subscribe()
+    t.heard("speakers", "should the shadow gate", False)
+    t.heard("speakers", "Should the shadow gate threshold be per model?", True)
+    t.heard("mic", "", True)                                      # an empty segment is not a line
+    assert [ln.speaker for ln in t.lines] == ["Others"]
+    assert t.recent() == "Others: Should the shadow gate threshold be per model?"
+    events = [q.get_nowait()["type"] for _ in range(q.qsize())]
+    assert events[:2] == ["partial", "line"]
+    assert json.loads((tmp_path / "call.jsonl").read_text(encoding="utf-8"))["speaker"] == "Others"
+
+
+def test_stt_session_turns_messages_into_text():
+    from slackbot.stt import Session
+
+    heard = []
+    s = Session("speakers", 48000, "key", lambda *a: heard.append(a))
+    assert "audio_format=pcm_48000" in s.url() and "commit_strategy=vad" in s.url()
+    s._message({"message_type": "partial_transcript", "text": "the shadow"})
+    s._message({"message_type": "committed_transcript", "text": "The shadow gate."})
+    s._message({"message_type": "auth_error", "error": "invalid api key"})
+    assert heard == [("speakers", "the shadow", False), ("speakers", "The shadow gate.", True)]
+    assert s.error == "auth_error: invalid api key"
+
+
+def test_meeting_page_answer_json():
+    from slackbot.page import answer_json
+
+    g = FakeGraph([hit("github:repo:1:file:adr-014.md")])
+    a = answer(g, {"principals": []}, "retraining Airflow", None, context="Others: what about retraining?",
+               audience=[{}])
+    j = answer_json(a, "what about this?", "Ishan Sinha")
+    assert j["status"] == "INFO" and j["claims"][0]["where"] == "GitHub doc" and j["context"] is True
 
 
 def test_answer_dataclass_cites_each_item_once():
