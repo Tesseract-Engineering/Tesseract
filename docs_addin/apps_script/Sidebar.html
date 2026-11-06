@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<base target="_blank">
+<style>
+:root{
+  --ink:#242424; --muted:#616161; --faint:#8a8886; --pane:#fbfbfa; --card:#fff; --soft:#f1f0ee; --line:#ebeae8;
+  --brand:#8A94FF; --brand2:#B4BBFF; --brand-soft:#EEF0FF; --brand-ink:#5059C9;
+  --good:#1a7f37; --good-soft:#e8f5ea; --lock:#8a6d00; --lock-soft:#fdf6dc; --none:#6b6b6b; --none-soft:#efefef;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--pane);color:var(--ink);font:13px/1.45 "Google Sans",Roboto,-apple-system,system-ui,sans-serif;display:flex;flex-direction:column}
+button{font:inherit}
+a{color:var(--brand-ink);text-decoration:none}
+a:hover{text-decoration:underline}
+.mark{width:18px;height:18px;flex:none;color:var(--brand-ink)}
+.head{height:42px;display:flex;align-items:center;gap:8px;padding:0 8px 0 12px;font-weight:600;font-size:14px;flex:none}
+.head .r{margin-left:auto}
+.icon{width:28px;height:28px;border:0;border-radius:6px;background:transparent;color:var(--muted);cursor:pointer;font-size:15px}
+.icon:hover{background:var(--soft)}
+.ctx{margin:0 12px 2px;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--faint);flex-wrap:wrap}
+.ctx b{font-weight:500;color:var(--muted)}
+.dot{width:3px;height:3px;border-radius:50%;background:var(--faint)}
+.body{padding:10px 12px 8px;display:flex;flex-direction:column;gap:10px;overflow:auto;flex:1}
+.hello h4{font-size:16px;font-weight:600;margin:2px 0 3px}
+.hello p{margin:0;color:var(--muted);font-size:12.5px}
+.q{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 10px;display:flex;flex-direction:column;gap:8px}
+.q.fresh{animation:rise .25s both}
+.q.here{border-color:var(--brand2);box-shadow:0 0 0 3px var(--brand-soft)}
+.q .qt{display:flex;gap:8px;align-items:flex-start;cursor:pointer}
+.q .n{width:20px;height:20px;border-radius:50%;background:var(--soft);color:var(--muted);font-size:11px;font-weight:600;display:grid;place-items:center;flex:none;margin-top:1px}
+.q.done .n{background:var(--good-soft);color:var(--good)}
+.q .qt .qx{flex:1}
+.q .go{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:3px 10px;font-size:12px;cursor:pointer;color:var(--brand-ink);font-weight:600;white-space:nowrap}
+.q .go:hover{background:var(--brand-soft);border-color:var(--brand2)}
+.chip{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:1px 8px;border-radius:999px}
+.chip.answered{background:var(--good-soft);color:var(--good)}
+.chip.partial{background:var(--lock-soft);color:var(--lock)}
+.chip.none{background:var(--none-soft);color:var(--none)}
+.meta{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--faint)}
+.ans{font-size:13px;line-height:1.55;overflow-wrap:anywhere}
+.cite{display:inline-block;min-width:15px;padding:0 3px;margin:0 1px;border-radius:4px;background:var(--brand-soft);color:var(--brand-ink);font-size:10px;font-weight:600;text-align:center;vertical-align:1px;line-height:15px}
+.box{font-size:12px;border-radius:8px;padding:7px 9px;display:flex;gap:7px}
+.box.gap{background:var(--soft);color:var(--muted)}
+.box.gap ul{margin:3px 0 0;padding-left:16px}
+.box.gap b{color:var(--ink);font-weight:600}
+.box.lock{background:var(--lock-soft);color:var(--muted)}
+.box.lock .ic{color:var(--lock)}
+.box b{color:var(--ink);font-weight:600}
+.src summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+.src summary::-webkit-details-marker{display:none}
+.src summary::after{content:"\203A";margin-left:auto;color:var(--faint);transition:transform .15s}
+.src[open] summary::after{transform:rotate(90deg)}
+.src ol{margin:6px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:5px}
+.src li{display:flex;gap:6px;align-items:flex-start;font-size:12px;overflow-wrap:anywhere}
+.src li small{display:block;color:var(--faint);font-size:11px}
+.badge{font-size:9.5px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;border-radius:4px;padding:1px 4px;flex:none;margin-top:1px}
+.b-jira{background:#e9f0fd;color:#0c66e4}.b-github{background:#efefef;color:#24292f}.b-slack{background:#f6eaf5;color:#611f69}.b-gdrive{background:#e8f3ec;color:#137333}
+.acts{display:flex;gap:5px;align-items:center;flex-wrap:wrap}
+.btn{font-size:12px;padding:5px 12px;border-radius:999px;border:1px solid transparent;background:transparent;color:var(--ink);cursor:pointer}
+.btn:hover{background:var(--soft)}
+.btn.p{background:var(--brand);color:#0A0A0B;font-weight:600}
+.btn.p:hover{background:var(--brand2)}
+.btn[disabled]{opacity:.45;cursor:default}
+.btn.q2{color:var(--muted)}
+.fine{font-size:10.5px;color:var(--faint)}
+.ok{display:flex;gap:8px;align-items:center;background:var(--good-soft);border-radius:8px;padding:7px 9px;font-size:12px}
+.ok .ck{width:18px;height:18px;border-radius:50%;background:var(--good);color:#fff;display:grid;place-items:center;font-size:10px;flex:none}
+.err{background:#fff0f0;color:#b42318;border-radius:8px;padding:7px 9px;font-size:12px}
+.think{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--muted)}
+.pulse{width:8px;height:8px;border-radius:50%;background:var(--brand);animation:pulse 1.4s ease-in-out infinite;flex:none}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 var(--brand-soft)}50%{box-shadow:0 0 0 6px var(--brand-soft)}}
+@keyframes rise{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.composer{padding:6px 10px 10px;display:flex;flex-direction:column;gap:5px;flex:none}
+.cbox{display:flex;align-items:center;gap:5px;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:4px 5px 4px 12px}
+.cbox:focus-within{border-color:var(--brand2);box-shadow:0 0 0 3px var(--brand-soft)}
+.cbox input{flex:1;min-width:0;font:inherit;font-size:12.5px;border:0;outline:0;background:transparent;color:var(--ink)}
+.cbox button{width:28px;height:28px;border-radius:50%;border:0;background:var(--soft);color:var(--faint);cursor:pointer;font-size:14px}
+.cbox.live button{background:var(--brand);color:#fff}
+.composer .fine{text-align:center}
+.empty{color:var(--muted);font-size:12.5px;background:var(--card);border:1px dashed var(--line);border-radius:10px;padding:10px}
+.here-card{background:var(--card);border:1px solid var(--brand2);border-radius:10px;padding:9px 10px;display:flex;flex-direction:column;gap:8px;box-shadow:0 0 0 3px var(--brand-soft)}
+.here-card.idle{border:1px dashed var(--line);box-shadow:none}
+.here-card .lbl{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);display:flex;gap:6px;align-items:center}
+.here-card .snip{font-size:12px;color:var(--muted);border-left:3px solid var(--brand2);padding-left:8px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.note{display:flex;flex-direction:column;gap:3px;border-radius:8px;padding:7px 9px;background:var(--soft)}
+.note .nt{display:flex;flex-direction:column;align-items:flex-start;gap:3px;font-weight:600;font-size:12.5px}
+.note .nx{font-size:12.5px;line-height:1.5;overflow-wrap:anywhere}
+.kind{font-size:9.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;border-radius:4px;padding:1px 5px;flex:none}
+.k-conflict{background:#fdecea;color:#b42318}.note.conflict{background:#fff6f5}
+.k-incident{background:var(--lock-soft);color:var(--lock)}.note.incident{background:#fffbef}
+.k-decided{background:var(--brand-soft);color:var(--brand-ink)}
+.k-owner{background:#efefef;color:#424242}
+.quiet{font-size:12px;color:var(--muted);display:flex;gap:7px;align-items:center}
+.empty-state{font-size:12px;color:var(--faint);text-align:center;padding:24px 8px}
+.empty-state b{color:var(--muted)}
+.sect{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin:4px 0 -4px}
+.focus{margin:6px 12px 0;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 9px;display:flex;flex-direction:column;gap:6px;flex:none}
+.focus.on{border-color:var(--brand2);box-shadow:0 0 0 3px var(--brand-soft)}
+.focus .row{display:flex;gap:8px;align-items:center}
+.focus .what{flex:1;min-width:0;font-size:12px;color:var(--muted)}
+.focus .what b{display:block;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);font-weight:600}
+.focus .what span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.focus .hint{font-size:12px;color:var(--muted)}
+.check{border:0;border-radius:999px;background:var(--brand);color:#0A0A0B;font-weight:600;font-size:12px;padding:6px 12px;cursor:pointer;white-space:nowrap}
+.check:hover{background:var(--brand2)}
+.check[disabled]{opacity:.45;cursor:default}
+.about{font-size:11px;color:var(--faint);padding:0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.about b{color:var(--brand-ink);font-weight:600}
+.dm{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;margin-top:5px}
+.slk{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:#4a154b;background:#f4ede4;border:1px solid #e8dccf;border-radius:999px;padding:2px 9px;cursor:pointer}
+.slk:hover{background:#efe3d6;text-decoration:none}
+.slk svg{width:11px;height:11px}
+.toast{position:fixed;left:12px;right:12px;bottom:86px;background:#242424;color:#fff;font-size:12px;border-radius:8px;padding:8px 10px;opacity:0;transform:translateY(6px);transition:all .2s;pointer-events:none;z-index:5}
+.toast.on{opacity:1;transform:none}
+.thr{margin:4px 12px 0;display:flex;flex-direction:column;gap:5px;flex:none}
+.thr .row{display:flex;gap:6px;align-items:center}
+.thr select{flex:1;min-width:0;font:inherit;font-size:12px;border:1px solid var(--line);border-radius:8px;padding:4px 6px;background:var(--card);color:var(--ink)}
+.thr .lbl{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);font-weight:600}
+.thr .on{background:var(--brand-soft);border:1px solid var(--brand2);border-radius:10px;padding:7px 9px;display:flex;flex-direction:column;gap:6px}
+.thr .on .t{font-weight:600;font-size:12.5px}
+.thr .on ul{margin:0;padding-left:16px;font-size:11.5px;color:var(--muted)}
+.thr .on .acts .btn{padding:3px 10px;font-size:11.5px;background:var(--card);border-color:var(--line)}
+.draft h5{margin:0;font-size:12.5px}
+.draft .qs{font-size:12px;color:var(--muted)}
+.draft .qs ul{margin:3px 0 0;padding-left:16px}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute"><defs>
+<symbol id="tmark" viewBox="0 0 32 32"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><rect x="3" y="3" width="26" height="26" rx="2"/><rect x="10" y="10" width="12" height="12" rx="1"/><path d="M3 3l7 7M29 3l-7 7M3 29l7-7M29 29l-7-7"/></g></symbol>
+</defs></svg>
+
+<div class="head"><svg class="mark"><use href="#tmark"/></svg>Tesseract<span class="r"><button class="icon" id="refresh" title="Rescan the document">&#8635;</button></span></div>
+<div class="ctx" id="ctx">Reading the document&hellip;</div>
+<div class="thr" id="thr"></div>
+<div class="focus" id="focus"></div>
+<div class="body" id="body"></div>
+<div class="toast" id="toast"></div>
+<div class="composer">
+  <div class="about" id="about"></div>
+  <div class="cbox" id="cbox"><input id="free" placeholder="Ask anything about this doc" autocomplete="off"><button id="send" title="Ask">&#8593;</button></div>
+  <div class="fine">Works only when you ask. Reads only what you can open. Writes only when you click Insert.</div>
+</div>
+
+<script>
+var state = {doc: null, cards: [], here: null, focus: null, notes: {}, feed: [], threads: null, thread: null};
+var KIND = {conflict: 'Conflicts', incident: 'Happened before', decided: 'Already decided', owner: 'Talk to'};
+var LABEL = {jira: 'Jira', github: 'GitHub', slack: 'Slack', gdrive: 'Drive'};
+var STATUS = {answered: 'Answered', partial: 'Partial', none: 'Nothing found'};
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c];
+  });
+}
+function run(name) {
+  var args = Array.prototype.slice.call(arguments, 1);
+  return new Promise(function (ok, fail) {
+    var r = google.script.run.withSuccessHandler(ok).withFailureHandler(fail);
+    r[name].apply(r, args);
+  });
+}
+function firstName(email) {
+  var who = (email || '').split('@')[0].split(/[._0-9]/)[0];
+  return who ? who.charAt(0).toUpperCase() + who.slice(1) : 'there';
+}
+function draftLink(to, subject, body) {
+  return 'https://mail.google.com/mail/?view=cm&fs=1&to=' + encodeURIComponent(to) +
+    '&su=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+}
+
+var SLACK_ICON = '<svg viewBox="0 0 24 24"><path fill="#e01e5a" d="M5 15a2 2 0 1 1-2-2h2zm1 0a2 2 0 1 1 4 0v5a2 2 0 1 1-4 0z"/><path fill="#36c5f0" d="M9 5a2 2 0 1 1 2-2v2zm0 1a2 2 0 1 1 0 4H4a2 2 0 1 1 0-4z"/><path fill="#2eb67d" d="M19 9a2 2 0 1 1 2 2h-2zm-1 0a2 2 0 1 1-4 0V4a2 2 0 1 1 4 0z"/><path fill="#ecb22e" d="M15 19a2 2 0 1 1-2 2v-2zm0-1a2 2 0 1 1 0-4h5a2 2 0 1 1 0 4z"/></svg>';
+var DMS = [];
+
+/* "Message <name> on Slack": copies the drafted message, then opens a DM with them. Slack links
+   cannot carry the text, so the writer pastes it; nothing is sent until they press Send. */
+function slackHtml(person, message) {
+  if (!person || !person.slack) return '';
+  var i = DMS.push({person: person, message: message}) - 1;
+  var sl = person.slack;
+  // app_redirect is the one link that reaches a DM by user id: it opens the desktop app if there
+  // is one, and otherwise offers the web client (a client/<team>/<user> URL lands in the last channel).
+  return '<span class="dm"><a class="slk" data-dm="' + i + '" href="https://slack.com/app_redirect?team=' + esc(sl.team) +
+    '&channel=' + esc(sl.user) + '">' + SLACK_ICON + 'Message ' + esc(person.name.split(' ')[0]) + ' on Slack</a></span>';
+}
+
+function toast(text) {
+  var t = document.getElementById('toast');
+  t.textContent = text; t.classList.add('on');
+  clearTimeout(toast.timer); toast.timer = setTimeout(function () { t.classList.remove('on'); }, 3500);
+}
+
+function copyText(text) {
+  var area = document.createElement('textarea');
+  area.value = text; document.body.appendChild(area); area.select();
+  try { document.execCommand('copy'); } catch (e) {}
+  document.body.removeChild(area);
+}
+
+function docLine() {
+  return state.doc.title + (state.doc.url ? ' (' + state.doc.url + ')' : '');
+}
+
+/* ---- rendering ------------------------------------------------------------------------ */
+
+function header() {
+  var d = state.doc;
+  document.getElementById('ctx').innerHTML = '<b>' + esc(d.title) + '</b><span class="dot"></span>as ' + esc(d.viewer || 'unknown');
+}
+
+function answerHtml(text, sources) {
+  return esc(text).replace(/\[(\d+)\]/g, function (m, n) {
+    var s = sources[Number(n) - 1];
+    return s && s.url ? '<a class="cite" href="' + esc(s.url) + '" title="' + esc(s.label) + '">' + n + '</a>'
+                      : '<span class="cite">' + n + '</span>';
+  });
+}
+
+function result(card, i) {
+  var r = card.result;
+  if (card.error) return '<div class="err">' + esc(card.error) + '</div><div class="acts"><button class="btn" data-retry="' + i + '">Try again</button></div>';
+  if (card.busy) return '<div class="think"><span class="pulse"></span>Reading Jira, GitHub, Slack and Drive as you&hellip;</div>';
+  if (!r) return '';
+  var h = '<div class="meta"><span class="chip ' + r.status + '">' + STATUS[r.status] + '</span>' +
+    (r.status !== 'none' ? r.sources.length + ' of ' + r.read + ' sources cited' : 'read ' + r.read + ' sources') +
+    (r.seconds ? '<span class="dot"></span>' + r.seconds + 's' : '') + '</div>';
+  if (r.answer) h += '<div class="ans">' + answerHtml(r.answer, r.sources) + '</div>';
+  else h += '<div class="ans" style="color:var(--muted)">Nothing you can read answers this. Tesseract will not make one up.</div>';
+  if (r.gaps && r.gaps.length) {
+    h += '<div class="box gap"><div><b>Not in anything you can read</b><ul>' +
+      r.gaps.map(function (g) { return '<li>' + esc(g) + '</li>'; }).join('') + '</ul></div></div>';
+  }
+  if (r.locked && r.locked.count) {
+    var where = Object.keys(r.locked.by_source).map(function (k) { return r.locked.by_source[k] + ' ' + (LABEL[k] || k); }).join(', ');
+    var owner = r.locked.owners[0];
+    h += '<div class="box lock"><span class="ic">&#128274;</span><span><b>' + r.locked.count + ' linked item' + (r.locked.count === 1 ? '' : 's') +
+      ' you can’t open</b> (' + esc(where) + '). Not read.' +
+      (owner ? ' ' + esc(owner.name) + ' can share ' + (r.locked.count === 1 ? 'it' : 'them') + '. ' +
+        (owner.email ? '<a href="' + esc(draftLink(owner.email, 'Access for: ' + state.doc.title,
+          'Hi ' + owner.name.split(' ')[0] + ',\n\nI’m answering "' + card.text + '" in ' + state.doc.title +
+          '. A few of the items it links to (' + where + ') aren’t shared with me. Could you share them, or check the answer?\n\nThanks')) +
+          '">Draft a note</a>' : '') +
+        slackHtml(owner, 'Hi ' + owner.name.split(' ')[0] + ', I’m answering "' + card.text + '" in ' + docLine() +
+          '. A few of the items it links to (' + where + ') aren’t shared with me. Could you share them, or check the answer? Thanks!') : '') +
+      '</span></div>';
+  }
+  if (r.ask && (!r.locked || !r.locked.owners.length || r.locked.owners[0].email !== r.ask.email)) {
+    h += '<div class="box gap"><span>&#128100;</span><span><b>Ask ' + esc(r.ask.name) + '</b>' + (r.ask.reason ? ': ' + esc(r.ask.reason) : '') +
+      '. <a href="' + esc(draftLink(r.ask.email, 'Question for ' + state.doc.title,
+        'Hi ' + r.ask.name.split(' ')[0] + ',\n\nFor "' + card.text + '" in ' + state.doc.title + ', I couldn’t find:\n' +
+        (r.gaps || []).map(function (g) { return '- ' + g; }).join('\n') + '\n\nDo you know, or know where it’s written down?\n\nThanks')) +
+      '">Draft a note</a>' +
+      slackHtml(r.ask, 'Hi ' + r.ask.name.split(' ')[0] + ', I’m working on ' + docLine() + '. For "' + card.text + '" I couldn’t find:\n' +
+        (r.gaps || []).map(function (g) { return '• ' + g; }).join('\n') + '\nDo you know, or know where it’s written down? Thanks!') +
+      '</span></div>';
+  }
+  if (r.sources.length) h += sourcesHtml(r.sources);
+  if (card.inserted) {
+    h += '<div class="ok"><span class="ck">&#10003;</span><span>Inserted under the question, shaded, with source links. Undo with Ctrl/⌘+Z.</span></div>';
+  } else if (card.doc) {
+    h += '<div class="acts"><button class="btn p" data-insert="' + i + '"' + (r.status === 'none' ? ' disabled' : '') + '>Insert</button>' +
+      '<button class="btn" data-copy="' + i + '">Copy</button><button class="btn q2" data-retry="' + i + '">Ask again</button></div>';
+  } else {
+    h += '<div class="acts"><button class="btn" data-copy="' + i + '">Copy</button></div>';
+  }
+  return h;
+}
+
+function sourcesHtml(sources) {
+  return '<details class="src"><summary>Sources</summary><ol>' + sources.map(function (s) {
+    return '<li><span class="cite">' + s.n + '</span><span class="badge b-' + esc(s.source) + '">' + esc(LABEL[s.source] || s.source) + '</span><span>' +
+      (s.url ? '<a href="' + esc(s.url) + '">' + esc(s.label) + '</a>' : esc(s.label)) +
+      '<small>' + esc([s.updated, (s.people || []).join(', ')].filter(Boolean).join(' · ')) + '</small></span></li>';
+  }).join('') + '</ol></details>';
+}
+
+/* What the writer is pointing at, and the button that asks about it. Reading the selection is
+   free; nothing goes to Tesseract until Check (or a question) is clicked. */
+function focusBar() {
+  var f = state.focus, el = document.getElementById('focus');
+  el.classList.toggle('on', !!f);
+  if (!f) {
+    el.innerHTML = '<div class="hint">Select text, or click into a paragraph, then <b>Check</b> it against Jira, GitHub, Slack and Drive.</div>';
+  } else {
+    var done = state.notes[f.text] && !state.notes[f.text].busy && !state.notes[f.text].error;
+    var asked = f.question && state.cards.some(function (c) { return c.doc && c.text === f.text && (c.busy || c.result); });
+    el.innerHTML = '<div class="row"><div class="what"><b>' + (f.question ? 'Question in the doc' : f.selected ? 'Selected' : 'This paragraph') +
+      (f.section ? ' · ' + esc(f.section) : '') + '</b><span>' + esc(f.text) + '</span></div>' +
+      (f.question
+        ? '<button class="check" id="checkbtn"' + (asked ? ' disabled' : '') + '>' + (asked ? 'Answered &#10003;' : 'Answer') + '</button></div>'
+        : '<button class="check" id="checkbtn"' + (state.notes[f.text] && state.notes[f.text].busy ? ' disabled' : '') + '>' +
+          (done ? 'Checked &#10003;' : 'Check') + '</button></div>');
+    document.getElementById('checkbtn').onclick = f.question ? answerQuestion : check;
+  }
+  var about = document.getElementById('about');
+  about.innerHTML = f && f.selected ? 'Asking about <b>the selection</b>: ' + esc(f.text) : '';
+  document.getElementById('free').placeholder = f && f.selected ? 'Ask about the selected text' : 'Ask anything about this doc';
+}
+
+/* One check in the feed: the text checked, then its notes. */
+function checkHtml(item) {
+  var r = state.notes[item.text];
+  var h = '<div class="here-card"><div class="lbl">Checked' + (item.section ? '<span class="dot"></span>' + esc(item.section) : '') + '</div>' +
+    '<div class="snip">' + esc(item.text) + '</div>';
+  if (!r || r.busy) return h + '<div class="think"><span class="pulse"></span>Checking Jira, GitHub, Slack and Drive&hellip;</div></div>';
+  if (r.error) return h + '<div class="err">' + esc(r.error) + '</div></div>';
+  if (!r.notes.length) return h + '<div class="quiet">&#10003; Nothing in the company’s records bears on this.</div></div>';
+  r.notes.forEach(function (n) {
+    h += '<div class="note ' + esc(n.kind) + '"><div class="nt"><span class="kind k-' + esc(n.kind) + '">' + esc(KIND[n.kind] || n.kind) + '</span>' + esc(n.title) + '</div>' +
+      '<div class="nx">' + answerHtml(n.text, r.sources) + '</div>' +
+      (n.people || []).map(function (p) {
+        return slackHtml(p, 'Hi ' + p.name.split(' ')[0] + ', I’m writing ' + docLine() + '. In ' + (item.section || 'it') +
+          ', I have: "' + item.text + '"\nTesseract flagged: ' + n.title + '. Could you take a look? Thanks!');
+      }).join('') + '</div>';
+  });
+  return h + sourcesHtml(r.sources) + '</div>';
+}
+
+/* A question typed in the sidebar, in the feed. */
+function askHtml(card) {
+  var i = state.cards.indexOf(card);
+  return '<div class="q" id="card' + i + '"><div class="qt"><span class="n">' + (card.doc ? '&#8984;' : '?') + '</span><span class="qx">' + esc(card.text) +
+    (card.about ? '<small style="display:block;color:var(--faint);font-size:11px">about: ' + esc(card.about.slice(0, 80)) + (card.about.length > 80 ? '…' : '') + '</small>' : '') +
+    '</span></div>' + result(card, i) + '</div>';
+}
+
+function render() {
+  DMS = [];
+  header();
+  focusBar();
+  var body = document.getElementById('body');
+  var h = '';
+  if (!state.feed.length) {
+    h += '<div class="empty-state">Select a passage and <b>Check</b> it, or ask a question below.</div>';
+  }
+  state.feed.forEach(function (item, i) {
+    h += item.type === 'check' ? checkHtml(item) : item.type === 'draft' ? draftHtml(item, i) : askHtml(item.card);
+  });
+  body.innerHTML = h;
+}
+
+/* New items go at the bottom, as in a conversation; keep the newest in view. */
+function toBottom() {
+  var body = document.getElementById('body');
+  body.scrollTop = body.scrollHeight;
+}
+
+/* The thread the writer is working in (core/threads.py): a call they were on, work from Slack.
+   Picking one makes it context for every check and question here, and links this doc to it. */
+function threadBar() {
+  var el = document.getElementById('thr');
+  var list = state.threads;
+  if (!list || (!list.length && !state.thread)) { el.innerHTML = ''; return; }
+  var t = state.thread;
+  var h = '<div class="row"><span class="lbl">Thread</span><select id="thrpick"><option value="">' +
+    (t ? 'Stop using a thread' : 'Pick a thread to work in…') + '</option>' +
+    list.map(function (x) {
+      return '<option value="' + esc(x.id) + '"' + (t && t.id === x.id ? ' selected' : '') + '>' + esc(x.title) + '</option>';
+    }).join('') + '</select></div>';
+  if (t) {
+    var kept = (t.entries || []).filter(function (e) { return e.status === 'kept'; });
+    var lines = kept.filter(function (e) { return e.kind === 'decision' || e.kind === 'question'; }).map(function (e) {
+      return '<li>' + (e.kind === 'decision' ? 'Decided: ' : 'Open: ') + esc(e.text) + '</li>';
+    });
+    h += '<div class="on"><span class="t">' + esc(t.title) + '</span>' + (lines.length ? '<ul>' + lines.join('') + '</ul>' : '') +
+      '<div class="acts"><button class="btn" id="thrdraft">Draft background</button><button class="btn" id="thrslack">' +
+      SLACK_ICON.replace('<svg', '<svg width="11" height="11"') + ' Continue in Slack</button></div>' +
+      '<span class="fine">Checks and questions use this thread as context. It is never cited.</span></div>';
+  }
+  el.innerHTML = h;
+  document.getElementById('thrpick').onchange = function (e) { pick(e.target.value); };
+  if (t) {
+    document.getElementById('thrdraft').onclick = draft;
+    document.getElementById('thrslack').onclick = toSlack;
+  }
+}
+
+function threads() {
+  run('listThreads').then(function (list) {
+    state.threads = list && list.error ? [] : list;
+    threadBar();
+  }, function () { state.threads = []; threadBar(); });
+}
+
+function pick(id) {
+  if (!id) { state.thread = null; threadBar(); return; }
+  run('pickThread', id).then(function (t) {
+    if (t && t.error) { toast(t.error); return; }
+    state.thread = t; threadBar();
+    toast('Working in “' + t.title + '”. This doc is linked to it.');
+  }, function (e) { toast((e && e.message) || String(e)); });
+}
+
+function toSlack() {
+  run('continueInSlack', state.thread.id).then(function (r) {
+    if (r && r.error) { toast(r.error); return; }
+    toast('Tesseract has DMed you in Slack with this thread.');
+    if (r.slack && r.slack.team && r.slack.bot_user) {
+      window.open('https://slack.com/app_redirect?team=' + encodeURIComponent(r.slack.team) + '&channel=' + encodeURIComponent(r.slack.bot_user));
+    }
+  }, function (e) { toast((e && e.message) || String(e)); });
+}
+
+/* Draft background: a cited section from the thread's topic, Inserted only once the core says the
+   thread's owner approved this exact text (the hash on the card). */
+function draft() {
+  var item = {type: 'draft', busy: true, title: state.thread.title};
+  state.feed.push(item); render(); toBottom();
+  run('draftSection', state.thread.id).then(function (r) {
+    item.busy = false;
+    if (r && r.error) item.error = r.error; else item.result = r;
+    render(); toBottom();
+  }, function (e) { item.busy = false; item.error = (e && e.message) || String(e); render(); toBottom(); });
+}
+
+function draftHtml(item, i) {
+  var h = '<div class="here-card draft"><div class="lbl">Background from the thread<span class="dot"></span>' + esc(item.title) + '</div>';
+  if (item.busy) return h + '<div class="think"><span class="pulse"></span>Reading Jira, GitHub, Slack and Drive as you&hellip;</div></div>';
+  if (item.error) return h + '<div class="err">' + esc(item.error) + '</div></div>';
+  var r = item.result;
+  h += '<h5>Background</h5>';
+  h += r.answer ? '<div class="ans">' + answerHtml(r.answer, r.sources) + '</div>'
+                : '<div class="ans" style="color:var(--muted)">Nothing you can read covers this yet.</div>';
+  if (r.questions && r.questions.length) {
+    h += '<div class="qs"><b>Open questions</b><ul>' + r.questions.map(function (q) { return '<li>' + esc(q) + '</li>'; }).join('') + '</ul></div>';
+  }
+  if (r.sources && r.sources.length) h += sourcesHtml(r.sources);
+  if (item.inserted) {
+    h += '<div class="ok"><span class="ck">&#10003;</span><span>Inserted at the cursor and logged on the thread. Undo with Ctrl/⌘+Z.</span></div>';
+  } else if (r.approval) {
+    h += '<div class="acts"><button class="btn p" data-draft="' + i + '">Insert</button></div>' +
+      '<span class="fine">Inserts exactly this, once the thread’s owner approves it. <code>' + esc(r.approval.hash) + '</code></span>';
+  }
+  return h + '</div>';
+}
+
+function insertDraft(i) {
+  var item = state.feed[i], a = item.result.approval;
+  run('insertSection', a.id, a.hash).then(function (r) {
+    if (r && r.error) { toast(r.error); return; }
+    item.inserted = true; render();
+  }, function (e) { toast((e && e.message) || String(e)); });
+}
+
+/* ---- actions -------------------------------------------------------------------------- */
+
+function ask(i) {
+  var card = state.cards[i];
+  if (card.busy) return;
+  card.busy = true; card.error = null; card.result = null; card.inserted = false;
+  render(); toBottom();
+  var last = state.feed.length && state.feed[state.feed.length - 1].card === card;
+  run('ask', card.text, card.about || null, state.thread ? state.thread.id : null).then(function (r) {
+    card.busy = false;
+    if (r && r.error) card.error = r.error; else card.result = r;
+    render(); if (last) toBottom();
+  }, function (e) {
+    card.busy = false; card.error = (e && e.message) || String(e); render(); if (last) toBottom();
+  });
+}
+
+function insert(i) {
+  var card = state.cards[i], r = card.result;
+  run('insertAnswer', card.text, r.answer, r.sources).then(function () {
+    card.inserted = true; card.answered = true; render();
+  }, function (e) { card.error = (e && e.message) || String(e); render(); });
+}
+
+function copy(i) {
+  var r = state.cards[i].result;
+  var text = r.answer + '\n\nSources:\n' + r.sources.map(function (s) { return '[' + s.n + '] ' + s.label + (s.url ? ' ' + s.url : ''); }).join('\n');
+  copyText(text);
+  toast('Answer and sources copied.');
+}
+
+document.getElementById('body').addEventListener('click', function (e) {
+  var dm = e.target.closest('[data-dm]');
+  if (dm) {
+    var d = DMS[Number(dm.dataset.dm)];
+    if (d) { copyText(d.message); toast('Message copied. Paste it into the DM with ' + d.person.name + ' and press Send.'); }
+    return;       // the link itself opens Slack
+  }
+  var t = e.target.closest('[data-insert],[data-copy],[data-retry],[data-draft]');
+  if (!t) return;
+  e.preventDefault();
+  if (t.dataset.draft != null) insertDraft(Number(t.dataset.draft));
+  else if (t.dataset.insert != null) insert(Number(t.dataset.insert));
+  else if (t.dataset.copy != null) copy(Number(t.dataset.copy));
+  else if (t.dataset.retry != null) ask(Number(t.dataset.retry));
+});
+
+function free() {
+  var input = document.getElementById('free');
+  var text = input.value.trim();
+  if (!text) return;
+  input.value = ''; document.getElementById('cbox').classList.remove('live');
+  var card = {text: text, free: true, about: state.focus && state.focus.selected ? state.focus.text : null};
+  state.cards.push(card);
+  state.feed.push({type: 'ask', card: card});
+  ask(state.cards.length - 1);
+}
+
+/* The cursor is on one of the doc's own questions: answer it, with Insert to put the answer under it. */
+function answerQuestion() {
+  var f = state.focus;
+  if (!f || !f.question) return;
+  var card = {text: f.question, doc: true};
+  state.cards.push(card);
+  state.feed.push({type: 'ask', card: card});
+  ask(state.cards.length - 1);
+}
+document.getElementById('send').addEventListener('click', free);
+document.getElementById('free').addEventListener('keydown', function (e) { if (e.key === 'Enter') free(); });
+document.getElementById('free').addEventListener('input', function (e) { document.getElementById('cbox').classList.toggle('live', !!e.target.value.trim()); });
+
+function load() {
+  run('getContext').then(function (doc) {
+    state.doc = doc;
+    render();
+    threads();
+  }, function (e) {
+    document.getElementById('ctx').textContent = 'Could not read the document: ' + ((e && e.message) || e);
+  });
+}
+document.getElementById('refresh').addEventListener('click', load);
+
+/* Check what the writer is pointing at. Results are kept per text, so checking the same passage
+   again shows the earlier result instead of asking again. */
+function check() {
+  var f = state.focus;
+  if (!f) return;
+  state.feed = state.feed.filter(function (it) { return !(it.type === 'check' && it.text === f.text); });
+  state.feed.push({type: 'check', text: f.text, section: f.section});
+  if (state.notes[f.text] && !state.notes[f.text].error) { render(); toBottom(); return; }
+  var r = state.notes[f.text] = {busy: true};
+  render(); toBottom();
+  run('askContext', f.text, f.section, state.thread ? state.thread.id : null).then(function (out) {
+    if (out && out.error) { r.busy = false; r.error = out.error; } else { state.notes[f.text] = out; }
+    render(); toBottom();
+  }, function (e) { r.busy = false; r.error = (e && e.message) || String(e); render(); toBottom(); });
+}
+
+/* Keep the focus bar in step with the document. Reading the selection is free; Tesseract is only
+   asked when the writer clicks. */
+setInterval(function () {
+  run('getFocus').then(function (f) {
+    var key = f ? (f.selected ? 's' : 'p') + f.section + '|' + f.text : '';
+    var old = state.focus ? (state.focus.selected ? 's' : 'p') + state.focus.section + '|' + state.focus.text : '';
+    if (key !== old) { state.focus = f; focusBar(); }
+  }, function () {});
+}, 1500);
+
+load();
+</script>
+</body>
+</html>

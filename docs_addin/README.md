@@ -1,0 +1,115 @@
+# docs_addin
+
+A Google Docs sidebar that checks a document against the company graph when the writer asks. Select a passage of a design doc (or click into a paragraph) and press Check: Tesseract says what it contradicts, what went wrong the last time someone did it, what was already decided, and who to talk to, every claim cited. The writer can also ask a question about the selection, or have the document's own questions answered and inserted. It reads only what the writer can open, counts what they cannot without showing it, and does nothing until asked.
+
+**It runs inside the Tesseract core** (`core/README.md`): `python -m core` serves these routes as `/docs/answer` and `/docs/context`, beside the threads the call page and Slack share. With a thread picked, the sidebar uses it as context for every check and question, links the doc to it, drafts a cited Background section from it (Insert only once the thread's owner approves that exact text), and hands it on to Slack. `api.py` still runs on its own for the eval.
+
+```
+Google Doc ── Apps Script sidebar (apps_script/) ──HTTPS──▶ api.py ──▶ retrieve.py ──▶ Neo4j (graph/)
+                 selection, Check, questions, Insert                │          as the viewer: swarm_queries
+                                                                    └──▶ answer.py ──▶ Claude (swarm/model.py)
+```
+
+| File | What it does |
+|---|---|
+| `retrieve.py` | Finds what bears on a question or passage, as one viewer: keyword search over items and over decisions and systems, then one hop along refs. Every read goes through `graph/swarm_queries.py`'s `READABLE`, `EDGE_READABLE` and `LIVE`. Items a readable source links to but the viewer cannot open come back as a count per source and the people who could share them, never by title. |
+| `answer.py` | Two model calls over the same sources, keyed `S1..Sn`. `context`: up to three notes on a passage (`conflict`, `incident`, `decided`, `owner`), none when nothing bears on it. `answer`: a cited answer to a question, optionally about a selected passage, with a status (`answered`, `partial`, `none`), the gaps and who to ask. Code keeps only markers that name a real source, renumbers them `[1]..[n]`, and drops a note that cites nothing. |
+| `api.py` | `POST /context` and `POST /answer` behind a shared key, `GET /health`, and `GET /dev` (the demo doc and the sidebar in a browser tab, against this API, for development). |
+| `apps_script/` | The add-in (`make_seed.py` prints the throwaway script that writes the demo doc into Google Docs): `Code.gs` reports what the writer is pointing at (the selection, or the cursor's paragraph, with its section), calls the API as the signed-in user, and inserts an answer under its question; `Sidebar.html` is the pane: the focus bar with Check, a feed of checks and questions, the document's questions. |
+| `demo_doc.json` | The demo design doc: headings, paragraphs, bullets, tables and figures, used by `/dev`, the eval, and to write the Google Doc. |
+| `figures/` | The doc's four figures (architecture today and proposed, the request sequence, the rollout timeline): `make_figures.py` draws them as SVG and renders PNGs with headless Chrome. |
+| `../eval/check_docs_addin.py` | The answer key: 15 checks on the design doc, 25 on the SOC2 questions for two viewers. |
+
+## What the demo shows
+
+The doc is "Design: billing-service verifies OIDC tokens directly" (`demo_doc.json`), written as Ishan in the shape of a big-company design doc: a metadata table, summary, background with today's architecture (Figure 1), goals and non-goals, a proposed design with its architecture (Figure 2) and request sequence (Figure 3), failure modes, alternatives, security, observability with its signals, a phased rollout with a timeline (Figure 4), testing, risks, open questions and a glossary. Most of it is sound. Eight places walk into something the company already knows; select one and Check:
+
+| Passage | What Tesseract says | From |
+|---|---|---|
+| 2. "billing-service is the only consumer" of the billing audience | Hooli's webhooks broke on the same claims change (CS-2); removing the shim breaks them too | CS-2, #customer-success |
+| 5.2 "fetch the JWKS once at startup", "call auth-service directly rather than going through api-gateway" | **Happened before**: web-app did that and staging logins failed for 47 minutes; **Conflicts**: the JWKS is routed through the gateway | OPS-8, WEB-3, the gateway routing commit, OPS-2 |
+| 5.3 "read the top-level tenant_id and roles" | **Conflicts**: SBX-4 namespaced them | SBX-4, PR #4 |
+| 5.4 "300 webhooks per minute, all under one API key" | **Conflicts**: rate limiter v2 allows 100 a minute by default; Globex hit 429s | API Rate Limiting v2, CS-3 |
+| 5.5 "a token from /oauth/token" | **Conflicts**: SBX-5 is deprecating it before the Dec 15 cutover | SBX-5, PR #5 |
+| 5.6 "apply the change from their laptop" | **Conflicts**: Terraform is applied from CI only | Terraform Conventions |
+| 9. "production the week of December 14, delete the shim the same day" | **Conflicts**: the auth cutover week; the shim still serves payments and Hooli | sync notes, SBX-10, CS-2 |
+| 4. Non-goal "migrating other services off the legacy token format" | Legacy tokens go away with SBX-5 anyway | SBX-5, SBX-3 |
+
+The header, the rejected payload alternative and the review note come back "nothing bears on this". The sidebar stays empty until asked: with the cursor on one of the two open questions, the focus bar's button reads Answer, and the answer can be inserted under the question (SBX-20's audit log covers issuance only; the payments team owns billing). Checks and questions collect in order, newest at the bottom. Wherever Tesseract names someone (a "Talk to" note, "Ask Dhruv", whoever can share what is locked), **Message on Slack** copies a drafted message (the doc, the passage, what was flagged) and opens a DM with them through Slack's `app_redirect` (the desktop app if installed, otherwise one click to the web client); the writer pastes it and sends. Slack links cannot carry the text, and nothing is sent for them. Selecting a passage and typing in the ask box asks about that passage ("is this safe during a key rotation?").
+
+The first demo, the SOC2 auditor questions ("SOC2 Responses - Authentication (FY2026)"), still works and is still in the eval. As Hamilton, who cannot read the auth-service repo, its answers come from Jira, Slack and Drive and each says how many linked items are locked and who can share them.
+
+## How it works
+
+1. **The writer asks.** In the sidebar they press Check on the selected text (or the paragraph the cursor is in), Answer on one of the doc's own questions, or type a question (with the selection attached as "about"). Until then the sidebar only reads where the cursor is, which costs nothing.
+2. **Apps Script calls the API.** `Code.gs` sends the text, its section heading, the doc's title and the signed-in user's email to `POST /context` or `POST /answer` on `TESSERACT_API_URL`, with `TESSERACT_API_KEY` as `X-Addin-Key`. Apps Script runs on Google's servers, so the API is reached through a public tunnel.
+3. **Retrieval reads the graph as that person** (`retrieve.py`): keyword search over items and over decisions, systems and projects, one hop along refs, every node and edge filtered by `graph/swarm_queries.py`. No model touches the graph.
+4. **The model writes from what was retrieved** (`answer.py`): up to three notes (`conflict`, `incident`, `decided`, `owner`) or an answer with a status and gaps, every fact cited `[S#]`. Code drops markers that name no source and notes that cite nothing.
+5. **The API adds what is not the model's to decide** (`api.py`): Slack ids for the people named (not the viewer), the locked count and owners, timing.
+6. **The sidebar shows it**, newest at the bottom, with links to every source, "Message <name> on Slack" (copies a drafted message, opens the DM through Slack's `app_redirect`), and for the doc's own questions Insert (writes the answer under the question, shaded, with a Sources line).
+
+Answers are recorded in `ADDIN_MODEL_REPLAY` (`data/replay-addin`, git-ignored, so local to this machine) keyed by the exact prompt, which includes the date: run with `ADDIN_TODAY=2026-10-28` and the demo's checks and answers replay instantly. Different text (a partial selection, an edited paragraph, a new question) is a live call of about 10 seconds, and is recorded too.
+
+The viewer is the email the script reports; the key is what makes that trustworthy, so it stays in Script Properties and on the server, and every route but `/health` needs it. For real users the script would send `ScriptApp.getIdentityToken()` and the API would verify it with Google.
+
+## Demo runbook
+
+### Every time
+
+```bash
+# 1. the graph and the bucket (Docker)
+docker compose -f swarm/compose.yaml up -d --wait storage neo4j
+
+# 2. the core, with Slack and the call page (keep it running); the key lives in data/addin-key.txt (git-ignored)
+ADDIN_MODEL_REPLAY=data/replay-addin ADDIN_TODAY=2026-10-28 ADDIN_KEY="$(cat data/addin-key.txt)" \
+  python -m core --meeting                 # or plain `python -m core` for Docs alone
+
+# 3. the tunnel (keep it running); it prints https://<words>.trycloudflare.com
+cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8787
+```
+
+4. In the Apps Script project ("Tesseract for Docs", owned by the demo account), paste the latest `Code.gs` and `Sidebar.html` if they changed (they call the core's `/docs/...` paths and add threads), then Project Settings > Script Properties: set `TESSERACT_API_URL` to the new tunnel URL. A quick tunnel gets a new URL every time it starts, and Cloudflare can expire one mid-session ("DNS error" or "Tunnel not found" in the sidebar): restart step 3 and update the property again.
+5. In the Chrome profile signed in to the demo account alone: Deploy > Test deployments, select the design doc's test, Execute. In the doc that opens, Extensions > Tesseract for Docs > Open Tesseract.
+6. Check that `curl https://<tunnel>/health` answers, and that a Check on 4.5 Tenant resolution comes back in well under a second (it replays).
+
+To stop: Ctrl-C the API and the tunnel, then `docker compose -f swarm/compose.yaml stop storage neo4j`.
+
+### Once (already done for the sandbox)
+
+Use a Chrome profile signed in to the demo account alone. With several Google accounts in one profile, Apps Script opens the bound script editor as "unable to open the file" and the sidebar's calls fail with `PERMISSION_DENIED`: they run as the profile's default account, not the one viewing the doc.
+
+1. **The graph.** Build the sandbox into Neo4j (`graph/README.md`): `S3_BUCKET=sandbox2 python -m graph.build_swarm --root s3 --ns kg:sandbox` with the storage credentials in the environment (not `--env .env`, which would set `S3_BUCKET` to the file's value).
+2. **The key.** `openssl rand -hex 24 > data/addin-key.txt`.
+3. **The project.** At script.google.com, New project. Replace `Code.gs` with `apps_script/Code.gs`, add an HTML file named `Sidebar` with `apps_script/Sidebar.html`, and in Project Settings tick "Show appsscript.json" and replace it with `apps_script/appsscript.json`. Script Properties: `TESSERACT_API_URL` and `TESSERACT_API_KEY` (the contents of `data/addin-key.txt`); optionally `TESSERACT_VIEWER` to answer as another sandbox person (Hamilton cannot read the auth-service repo, which shows the locked items).
+4. **The doc.** Create an empty doc in the demo account's My Drive (outside the folders the swarm reads, so the sandbox answer key does not change). Deploy > Test deployments > Editor Add-on > Create new test: Latest Code, Enabled in current document, that doc; Execute, and authorize once (the app is unverified: Advanced, then go to it).
+5. **Its text.** `python -m docs_addin.apps_script.make_seed > Seed.gs`; paste it into the project as a new script file, add `.addItem('Load demo text (temporary)', 'seedDemoDoc')` to `onOpen` in `Code.gs`, save, Execute the test again, and run Extensions > Tesseract for Docs > Load demo text. It fetches the figures from the API, so steps 1–3 of "Every time" must be up. Then delete Seed.gs and the menu line. Typing the doc by hand will not replay: Docs autocorrects the text.
+6. **The recordings.** `python -m eval.check_docs_addin` with the API's environment (step 2 of "Every time", plus `ANTHROPIC_API_KEY`): it checks the doc and records every paragraph's notes and both open questions.
+7. **Slack.** Sign the profile in to the sandbox workspace (tesseractsandbox.slack.com) so "Message on Slack" lands in the DM.
+
+After changing `Code.gs` or `Sidebar.html` in the repo, paste them into the project again and reopen the sidebar; the test deployment always runs the latest saved code.
+
+### Development, without Google
+
+`ADDIN_DEV=1` on the core (`python -m core`) serves `http://127.0.0.1:8787/dev`, threads included; on `api.py` alone, `ADDIN_DEV=1 ADDIN_PORT=8788` serves `http://127.0.0.1:8788/dev`: the demo doc (with its tables and figures) beside the sidebar, with `google.script.run` answered by the local API. Click a paragraph to put the cursor there; select text to make a selection; `?viewer=hamilton.tesseract@gmail.com` asks as someone else.
+
+```bash
+python -m pytest tests/test_docs_addin.py                       # no database, no model
+python -m eval.check_docs_addin                                 # the answer key: 15 design-doc checks, 25 SOC2
+python -m docs_addin.figures.make_figures                       # redraw figures/*.png (headless Chrome)
+```
+
+## Configuration
+
+| Variable | Default | |
+|---|---|---|
+| `ADDIN_KEY` | none, required | shared with the script's `TESSERACT_API_KEY` |
+| `ADDIN_NS` | `kg:sandbox` | the graph namespace to read |
+| `ADDIN_PORT` | `8787` | listens on 127.0.0.1 only |
+| `ADDIN_DEV` | off | `1` serves `/dev`, `/dev/answer`, `/dev/context` and `/dev/figures/` (no key) |
+| `ADDIN_MODEL`, `ADDIN_MODEL_EFFORT` | `claude-opus-5-5`, `medium` | |
+| `ADDIN_MODEL_REPLAY` | off | a directory: answers are recorded there and replayed (`data/` is git-ignored) |
+| `ADDIN_MODEL_BACKEND` | `anthropic` | `replay` answers only from recordings |
+| `ADDIN_TODAY` | the real date | the date the prompts carry; the recordings in `data/replay-addin` were made with `2026-10-28`, so pin that to replay them on a later day |
+| `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD` | as `graph/` | |
+
+One answer or check reads about 6k tokens and writes under 1k, about 10 seconds on `claude-opus-5-5` at medium effort. Nothing is sent until the writer clicks Check, Answer or Ask; a check is kept per passage, so checking the same text again is free.
